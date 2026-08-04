@@ -336,6 +336,18 @@ function submitSelection(participantId, selectionData) {
         }
         if (holidayUpdate) {
            holidayUpdate.sheet.getRange(holidayUpdate.row, holidayUpdate.col).setValue(participantId);
+
+           // Send SMS confirmation for adjacent holiday reservation
+           try {
+             var phone = pData[pRowIdx - 1][pHeaders.indexOf('Phone Number')];
+             if (phone) {
+               var holName = selectionData.adjacentHoliday.holidayName;
+               var pos = selectionData.adjacentHoliday.position;
+               sendSms(phone, "Vacation Lottery Confirmation: You have successfully reserved " + holName + " (" + pos + ").");
+             }
+           } catch (err) {
+             console.error("Failed to send adjacent holiday confirmation SMS: " + err.message);
+           }
         }
 
       } else if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
