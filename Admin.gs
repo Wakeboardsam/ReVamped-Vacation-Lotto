@@ -157,3 +157,102 @@ function autoFillAndRandomize(targetYear) {
   // Set Active Year in Admin Options
   setAdminOptions({ 'Active Year': targetYear });
 }
+
+/**
+ * Sets up the time-driven trigger for SMS notifications (runs every 15 minutes).
+ */
+function setupSmsTriggers() {
+  // First, delete any existing triggers for this function to avoid duplicates
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'notifyActiveParticipants') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+
+  // Create a new time-driven trigger
+  ScriptApp.newTrigger('notifyActiveParticipants')
+    .timeBased()
+    .everyMinutes(15)
+    .create();
+
+  console.log("SMS notification trigger has been set to run every 15 minutes.");
+}
+
+/**
+ * Server RPC handler to manually resend an entry SMS to a specific participant.
+ * Clears their tracking flags and immediately invokes notifyActiveParticipants().
+ * @param {string} participantId - The participant's Name to resend the SMS to.
+ */
+function resendParticipantSms(participantId) {
+  return withScriptLock(function() {
+    var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
+    var pData = pSheet.getDataRange().getValues();
+    var pHeaders = pData[0];
+
+    var nameCol = pHeaders.indexOf('Name');
+    var entryCol = pHeaders.indexOf('Entry Timestamp') + 1;
+    var remCol = pHeaders.indexOf('Reminder Sent') + 1;
+    var alertCol = pHeaders.indexOf('Admin Alert Sent') + 1;
+
+    var found = false;
+
+    for (var i = 1; i < pData.length; i++) {
+      if (pData[i][nameCol] === participantId) {
+        var rowIndex = i + 1;
+        pSheet.getRange(rowIndex, entryCol).clearContent();
+        pSheet.getRange(rowIndex, remCol).setValue(false);
+        pSheet.getRange(rowIndex, alertCol).setValue(false);
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      throw new Error("Participant not found for SMS resend.");
+    }
+
+    // Trigger notification logic immediately so the entry message is resent
+    notifyActiveParticipants();
+    return { success: true };
+  });
+}
+
+/**
+ * Responds to sheet edits, specifically looking for the 'Resend SMS' checkbox being checked.
+ * Note: Simple onEdit triggers cannot make UrlFetchApp calls, so this assumes the user
+ * authorizing the script has set up an installable onEdit trigger, OR we use an installable trigger.
+ * But we'll provide the function here.
+ * @param {Object} e - The event object.
+ */
+function onEdit(e) {
+  if (!e || !e.range) return;
+
+  var sheet = e.range.getSheet();
+  if (sheet.getName() !== 'Participant Config') return;
+
+  var row = e.range.getRow();
+  var col = e.range.getColumn();
+  if (row < 2) return; // Skip headers
+
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var resendColIdx = headers.indexOf('Resend SMS') + 1;
+  var nameColIdx = headers.indexOf('Name') + 1;
+
+  // If the edited cell is the 'Resend SMS' checkbox and it was set to TRUE
+  if (col === resendColIdx && e.value === 'TRUE') {
+    var participantId = sheet.getRange(row, nameColIdx).getValue();
+
+    if (participantId) {
+      try {
+        // Clear flags and resend
+        resendParticipantSms(participantId);
+      } catch (err) {
+        console.error("Failed to resend SMS for " + participantId + ": " + err.message);
+      }
+    }
+
+    // Always reset the checkbox back to FALSE
+    sheet.getRange(row, col).setValue(false);
+  }
+}

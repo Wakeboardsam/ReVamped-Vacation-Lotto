@@ -309,6 +309,22 @@ function advanceQueue() {
       }
     }
 
+    // --- CLEAR FLAGS FOR THE FINISHED LEAD ---
+    // The previous lead has completed their turn, so we reset their tracking flags.
+    var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
+    var pData = pSheet.getDataRange().getValues();
+    var pHeaders = pData[0];
+
+    var entryCol = pHeaders.indexOf('Entry Timestamp') + 1;
+    var remCol = pHeaders.indexOf('Reminder Sent') + 1;
+    var alertCol = pHeaders.indexOf('Admin Alert Sent') + 1;
+
+    if (entryCol > 0) {
+      pSheet.getRange(leadParticipant._rowIndex, entryCol).clearContent();
+      pSheet.getRange(leadParticipant._rowIndex, remCol).setValue(false);
+      pSheet.getRange(leadParticipant._rowIndex, alertCol).setValue(false);
+    }
+
     if (nextEligibleIndex !== -1) {
       // Simple advancement in current direction
       setQueueState({

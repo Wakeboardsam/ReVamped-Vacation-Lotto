@@ -45,7 +45,8 @@ function setupDatabaseSchema() {
         'Mandatory Holiday Eligible', 'Transfer Giver', 'Transfer Receiver',
         'Had Spring Break Last Year', 'Had Christmas Week Last Year',
         'Worked Any Official Holiday Last Year', 'Rules Acknowledged Year',
-        'Skipped Turns Remaining'
+        'Skipped Turns Remaining', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent',
+        'Resend SMS'
       ]
     },
     {
