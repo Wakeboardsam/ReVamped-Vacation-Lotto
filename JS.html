@@ -1,0 +1,685 @@
+<script>
+  // State
+  var appState = {
+    participantId: null,
+    name: null,
+    activeYear: null,
+    phase: null,
+    round: null,
+    direction: null,
+    isActive: false,
+    participant: null,
+    availableChoices: null,
+    selections: [],
+    adjacentHolidayPending: null
+  };
+
+  // Utility to show toasts
+  function showToast(message, type) {
+    type = type || 'error';
+    var container = document.getElementById('toastContainer');
+    var toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    toast.innerText = message;
+    container.appendChild(toast);
+    setTimeout(function() {
+      if (toast.parentNode) {
+        toast.parentNode.removeChild(toast);
+      }
+    }, 5000);
+  }
+
+  // Initialization
+  document.addEventListener("DOMContentLoaded", function() {
+    // Check local storage for session
+    var savedId = localStorage.getItem('vacationLottery_participantId');
+    var savedName = localStorage.getItem('vacationLottery_name');
+
+    if (savedId && savedName) {
+      appState.participantId = savedId;
+      appState.name = savedName;
+      showMainScreen();
+    } else {
+      document.getElementById('loginScreen').classList.add('active');
+    }
+
+    // Event Listeners
+    document.getElementById('loginBtn').addEventListener('click', handleLogin);
+    document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+    document.getElementById('rulesBtn').addEventListener('click', function() {
+      document.getElementById('infoModal').style.display = 'flex';
+    });
+    document.getElementById('closeInfoBtn').addEventListener('click', function() {
+      document.getElementById('infoModal').style.display = 'none';
+    });
+
+    document.getElementById('volunteerChoice').addEventListener('change', checkRulesForm);
+    document.getElementById('transferPref').addEventListener('change', checkRulesForm);
+    document.getElementById('saveRulesBtn').addEventListener('click', saveRules);
+
+    document.getElementById('submitSelectionBtn').addEventListener('click', submitSelection);
+    document.getElementById('passBtn').addEventListener('click', function() {
+      submitSelection(true); // isPass = true
+    });
+
+    document.getElementById('confirmHolidayBtn').addEventListener('click', confirmHolidaySelection);
+    document.getElementById('declineHolidayBtn').addEventListener('click', declineHolidaySelection);
+    document.getElementById('cancelWeekendBtn').addEventListener('click', function() {
+      document.getElementById('holidayPromptModal').style.display = 'none';
+      appState.adjacentHolidayPending = null;
+    });
+  });
+
+  // Login
+  function handleLogin() {
+    var name = document.getElementById('loginName').value;
+    var pin = document.getElementById('loginPin').value;
+    var errorDiv = document.getElementById('loginError');
+    var btn = document.getElementById('loginBtn');
+
+    if (!name || !pin) {
+      errorDiv.innerText = "Please enter both name and PIN.";
+      errorDiv.style.display = 'block';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerText = "Logging in...";
+    errorDiv.style.display = 'none';
+
+    google.script.run
+      .withSuccessHandler(function(response) {
+        if (response.success) {
+          appState.participantId = response.participantId;
+          appState.name = response.name;
+          localStorage.setItem('vacationLottery_participantId', response.participantId);
+          localStorage.setItem('vacationLottery_name', response.name);
+          showMainScreen();
+        }
+      })
+      .withFailureHandler(function(error) {
+        btn.disabled = false;
+        btn.innerText = "Login";
+        errorDiv.innerText = error.message;
+        errorDiv.style.display = 'block';
+      })
+      .authenticateParticipant(name, pin);
+  }
+
+  function handleLogout() {
+    localStorage.removeItem('vacationLottery_participantId');
+    localStorage.removeItem('vacationLottery_name');
+    appState.participantId = null;
+    document.getElementById('mainScreen').style.display = 'none';
+    document.getElementById('loginScreen').classList.add('active');
+    document.getElementById('loginName').value = '';
+    document.getElementById('loginPin').value = '';
+  }
+
+  // Main Screen & Data Loading
+  function showMainScreen() {
+    document.getElementById('loginScreen').classList.remove('active');
+    document.getElementById('mainScreen').style.display = 'block';
+    loadInitialState();
+  }
+
+  function loadInitialState() {
+    document.getElementById('loadingIndicator').style.display = 'block';
+    document.getElementById('viewContent').innerHTML = '';
+    document.getElementById('actionBar').style.display = 'none';
+    appState.selections = [];
+
+    google.script.run
+      .withSuccessHandler(function(state) {
+        appState.activeYear = state.activeYear;
+        appState.phase = state.phase;
+        appState.round = state.round;
+        appState.direction = state.direction;
+        appState.isActive = state.isActive;
+        appState.participant = state.participant;
+        appState.availableChoices = state.availableChoices;
+
+        updateHeader();
+        checkRulesAcknowledgment();
+      })
+      .withFailureHandler(function(error) {
+        showToast("Error loading data: " + error.message);
+        document.getElementById('loadingIndicator').style.display = 'none';
+      })
+      .getInitialState(appState.participantId);
+  }
+
+  function updateHeader() {
+    document.getElementById('activeYearLabel').innerText = appState.activeYear;
+    var phaseName = appState.phase ? appState.phase.replace(/_/g, ' ') : 'LOADING';
+    document.getElementById('phaseLabel').innerText = phaseName;
+    if (appState.round) {
+      document.getElementById('roundLabel').innerText = "R" + appState.round + " (" + (appState.direction === 'ASCENDING' ? 'Forward' : 'Reverse') + ")";
+    } else {
+      document.getElementById('roundLabel').innerText = "";
+    }
+    document.getElementById('userNameLabel').innerText = appState.name;
+
+    var badge = document.getElementById('statusBadge');
+    if (appState.isActive) {
+      badge.style.display = 'block';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  // Rules Acknowledgment
+  function checkRulesAcknowledgment() {
+    if (appState.participant && String(appState.participant['Rules Acknowledged Year']) !== String(appState.activeYear)) {
+      document.getElementById('rulesYearSpan').innerText = appState.activeYear;
+      document.getElementById('rulesModal').style.display = 'flex';
+      document.getElementById('loadingIndicator').style.display = 'none';
+    } else {
+      renderPhaseView();
+    }
+  }
+
+  function checkRulesForm() {
+    var vol = document.getElementById('volunteerChoice').value;
+    var trans = document.getElementById('transferPref').value;
+    document.getElementById('saveRulesBtn').disabled = !(vol && trans);
+  }
+
+  function saveRules() {
+    var vol = document.getElementById('volunteerChoice').value;
+    var trans = document.getElementById('transferPref').value;
+    var btn = document.getElementById('saveRulesBtn');
+
+    btn.disabled = true;
+    btn.innerText = "Saving...";
+
+    google.script.run
+      .withSuccessHandler(function() {
+        document.getElementById('rulesModal').style.display = 'none';
+        // Reload state to reflect updated config
+        loadInitialState();
+      })
+      .withFailureHandler(function(error) {
+        showToast("Error saving rules: " + error.message);
+        btn.disabled = false;
+        btn.innerText = "Save & Continue";
+      })
+      .saveRulesAcknowledgment(appState.participantId, vol, trans);
+  }
+
+  // View Rendering
+  function renderPhaseView() {
+    document.getElementById('loadingIndicator').style.display = 'none';
+    var container = document.getElementById('viewContent');
+    container.innerHTML = '';
+
+    if (appState.phase === 'VACATION_SENIORITY' || appState.phase === 'VACATION_RANDOM') {
+      renderVacationPhase(container);
+    } else if (appState.phase === 'WEEKEND') {
+      renderWeekendPhase(container);
+    } else if (appState.phase === 'HOLIDAY_VOLUNTEER' || appState.phase === 'HOLIDAY_MANDATORY') {
+      renderHolidayPhase(container);
+    } else if (appState.phase === 'TRANSFER_OFFER_COLLECTION') {
+      renderTransferOfferPhase(container);
+    } else if (appState.phase === 'TRANSFER_RECEIVER') {
+      renderTransferReceiverPhase(container);
+    } else if (appState.phase === 'COMPLETE') {
+      container.innerHTML = '<div class="card"><div class="card-content"><p class="card-title">Lottery Complete</p><p>All phases of the lottery have concluded for this year.</p></div></div>';
+    } else {
+      container.innerHTML = '<p>Please wait for the administrator to start a lottery phase.</p>';
+    }
+
+    updateActionBar();
+  }
+
+  function formatDateDisplay(dateStr) {
+    if (!dateStr) return '';
+    try {
+      var d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch(e) { return dateStr; }
+  }
+
+  function renderVacationPhase(container) {
+    var weeks = appState.availableChoices.vacation;
+    if (!weeks || weeks.length === 0) {
+      container.innerHTML = '<p>No vacation weeks available.</p>';
+      return;
+    }
+
+    // Check restrictions
+    var hadSpringBreak = (appState.participant['Had Spring Break Last Year'] === true || appState.participant['Had Spring Break Last Year'] === 'TRUE');
+    var hadChristmas = (appState.participant['Had Christmas Week Last Year'] === true || appState.participant['Had Christmas Week Last Year'] === 'TRUE');
+    var isEarlyRound = appState.round <= 3;
+
+    var html = '<h3>Select Vacation Weeks</h3>';
+
+    for (var i = 0; i < weeks.length; i++) {
+      var w = weeks[i];
+      var weekId = w['Week ID'];
+      var capacity = parseInt(w['Capacity']) || 4;
+      var assigneesStr = w['Assigned Participants'] || '';
+      var assigneesList = assigneesStr ? String(assigneesStr).split(',').map(function(s){return s.trim();}) : [];
+      var isFull = assigneesList.length >= capacity;
+      var alreadySelected = assigneesList.indexOf(appState.participantId) !== -1;
+
+      var isPrime = String(w['Prime Classification']).toLowerCase() === 'prime';
+      var special = w['Special Week Designation'];
+
+      var disabled = false;
+      var disableReason = '';
+
+      if (isFull) { disabled = true; disableReason = 'Full'; }
+      if (alreadySelected) { disabled = true; disableReason = 'Already Selected'; }
+      if (isEarlyRound && special === 'Spring Break' && hadSpringBreak) { disabled = true; disableReason = 'Restricted (Had Last Year)'; }
+      if (isEarlyRound && special === 'Christmas' && hadChristmas) { disabled = true; disableReason = 'Restricted (Had Last Year)'; }
+
+      var cardClass = 'card';
+      if (disabled) cardClass += ' disabled';
+
+      var badgesHtml = '';
+      if (isPrime) badgesHtml += '<span class="badge badge-prime">Prime</span>';
+      else badgesHtml += '<span class="badge badge-nonprime">Non-Prime</span>';
+      if (special && special !== 'None') badgesHtml += '<span class="badge badge-special">' + special + '</span>';
+      if (disableReason) badgesHtml += '<span class="badge badge-warning">' + disableReason + '</span>';
+
+      html += '<div class="' + cardClass + '" data-id="' + weekId + '" data-prime="' + isPrime + '" onclick="toggleSelection(this, \'vacation\')">';
+      html += '  <div class="card-content">';
+      html += '    <h4 class="card-title">Week ' + weekId + ' (' + formatDateDisplay(w['Start Date (Monday)']) + ')</h4>';
+      html += '    <div style="margin-bottom:8px;">' + badgesHtml + '</div>';
+      html += '    <div class="assignees">Assigned (' + assigneesList.length + '/' + capacity + '): ' + (assigneesStr || 'None') + '</div>';
+      html += '  </div>';
+      html += '</div>';
+    }
+
+    container.innerHTML = html;
+  }
+
+  function renderWeekendPhase(container) {
+    var weekends = appState.availableChoices.weekend;
+    if (!weekends || weekends.length === 0) {
+      container.innerHTML = '<p>No weekends available.</p>';
+      return;
+    }
+
+    var html = '<h3>Select a Weekend Position</h3>';
+    html += '<div class="weekend-grid">';
+
+    for (var i = 0; i < weekends.length; i++) {
+      var w = weekends[i];
+      var dateStr = w['Date'];
+      // handle date objects returned via API
+      if (typeof dateStr === 'object' && dateStr !== null) {
+          // If GAS sent an ISO string via JSON
+          dateStr = dateStr.substring ? dateStr.substring(0,10) : dateStr;
+      } else if (dateStr) {
+          // Attempt format
+          try {
+             var d = new Date(dateStr);
+             var m = '' + (d.getMonth() + 1);
+             var dDay = '' + d.getDate();
+             var y = d.getFullYear();
+             if(m.length<2) m='0'+m;
+             if(dDay.length<2) dDay='0'+dDay;
+             dateStr = [y,m,dDay].join('-');
+          } catch(e){}
+      }
+
+      var dayOfWeek = w['Day of Week'];
+      var assignee = w['First Call Assignee'];
+
+      var disabled = assignee ? true : false;
+      var cardClass = 'card';
+      if (disabled) cardClass += ' disabled';
+
+      var badgesHtml = '';
+      // It's possible the backend didn't calculate "Consecutive Weekends Warning" explicitly,
+      // or we just need to add a generic badge if it exists. Assuming it might be added to the sheet later
+      // or calculated on the fly. We'll add support for the column 'Consecutive Weekends Warning' just in case,
+      // or a generic "Consecutive" badge.
+      if (w['Consecutive Weekends Warning']) badgesHtml += '<span class="badge badge-warning">Consecutive</span>';
+      if (w['Vacation Adjacency Warning']) badgesHtml += '<span class="badge badge-warning">Near Vacation</span>';
+      if (w['Holiday Proximity Warning']) badgesHtml += '<span class="badge badge-info">Near Holiday: ' + w['Holiday Proximity Warning'] + '</span>';
+
+      var displayDate = formatDateDisplay(w['Date']);
+
+      html += '<div class="' + cardClass + '" data-id="' + dateStr + '" data-holwarning="' + (w['Holiday Proximity Warning']||'') + '" onclick="toggleSelection(this, \'weekend\')">';
+      html += '  <div class="card-content">';
+      html += '    <h4 class="card-title">' + dayOfWeek + ' - ' + displayDate + '</h4>';
+      if (badgesHtml) html += '    <div style="margin-bottom:8px;">' + badgesHtml + '</div>';
+      html += '    <div class="assignees">Assignee: ' + (assignee || 'Available') + '</div>';
+      html += '  </div>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+    container.innerHTML = html;
+  }
+
+  function renderHolidayPhase(container) {
+    var holidays = appState.availableChoices.holiday;
+    if (!holidays || holidays.length === 0) {
+      container.innerHTML = '<p>No holidays available.</p>';
+      return;
+    }
+
+    var html = '<h3>Select a Holiday Position</h3>';
+
+    for (var i = 0; i < holidays.length; i++) {
+      var h = holidays[i];
+      var assignee = h['Assigned Participant'];
+      var disabled = assignee ? true : false;
+      var cardClass = 'card';
+      if (disabled) cardClass += ' disabled';
+
+      var idStr = h['Holiday Name'] + '|' + h['Call Position (Call 1 / Call 2)'];
+      var posLabel = h['Call Position (Call 1 / Call 2)'];
+
+      html += '<div class="' + cardClass + '" data-id="' + idStr + '" data-name="' + h['Holiday Name'] + '" data-pos="' + posLabel + '" onclick="toggleSelection(this, \'holiday\')">';
+      html += '  <div class="card-content">';
+      html += '    <h4 class="card-title">' + h['Holiday Name'] + ' - ' + posLabel + '</h4>';
+      html += '    <div class="card-subtitle">' + formatDateDisplay(h['Observed Date']) + '</div>';
+      html += '    <div class="assignees">Assignee: ' + (assignee || 'Available') + '</div>';
+      html += '  </div>';
+      html += '</div>';
+    }
+
+    container.innerHTML = html;
+  }
+
+  function renderTransferOfferPhase(container) {
+    var myAssignments = appState.availableChoices.myAssignments;
+    if (!myAssignments || myAssignments.length === 0) {
+      container.innerHTML = '<p>You have no current assignments to offer.</p>';
+      // Show pass btn
+      updateActionBar();
+      return;
+    }
+
+    var html = '<h3>Select an assignment to put in the Transfer Pool</h3>';
+    html += '<p style="color:var(--danger); font-weight:bold;">WARNING: Offers are irrevocable once submitted.</p>';
+
+    for (var i = 0; i < myAssignments.length; i++) {
+      var a = myAssignments[i];
+      var displayStr = '';
+      var valStr = '';
+      if (a.type === 'VACATION') {
+        displayStr = 'Vacation Week ' + a.details['Week ID'] + ' (' + formatDateDisplay(a.details['Start Date (Monday)']) + ')';
+        valStr = a.details['Week ID'];
+      } else if (a.type === 'WEEKEND') {
+        var dStr = a.details['Date'];
+        if (typeof dStr === 'object' && dStr !== null) dStr = dStr.substring ? dStr.substring(0,10) : dStr;
+        try {
+           var dt = new Date(dStr);
+           var mm = ''+(dt.getMonth()+1), dd=''+dt.getDate(), yy=dt.getFullYear();
+           if(mm.length<2)mm='0'+mm; if(dd.length<2)dd='0'+dd;
+           dStr = [yy,mm,dd].join('-');
+        } catch(e){}
+        displayStr = a.details['Day of Week'] + ' ' + formatDateDisplay(a.details['Date']);
+        valStr = dStr;
+      } else if (a.type === 'HOLIDAY') {
+        displayStr = a.details['Holiday Name'] + ' - ' + a.details['Call Position (Call 1 / Call 2)'];
+        valStr = displayStr;
+      }
+
+      var objStr = JSON.stringify({ type: a.type, datePos: valStr });
+      var encodedObj = objStr.replace(/"/g, '&quot;');
+
+      html += '<div class="card" data-json="' + encodedObj + '" onclick="toggleSelection(this, \'transferOffer\')">';
+      html += '  <div class="card-content">';
+      html += '    <h4 class="card-title">' + a.type + '</h4>';
+      html += '    <div class="card-subtitle">' + displayStr + '</div>';
+      html += '  </div>';
+      html += '</div>';
+    }
+
+    container.innerHTML = html;
+  }
+
+  function renderTransferReceiverPhase(container) {
+    var offers = appState.availableChoices.transferOffers;
+    if (!offers || offers.length === 0) {
+      container.innerHTML = '<p>No transfer offers available.</p>';
+      updateActionBar();
+      return;
+    }
+
+    var html = '<h3>Select a Transfer Offer to Claim</h3>';
+
+    for (var i = 0; i < offers.length; i++) {
+      var o = offers[i];
+      html += '<div class="card" data-id="' + o['Offer ID'] + '" onclick="toggleSelection(this, \'transferReceiver\')">';
+      html += '  <div class="card-content">';
+      html += '    <h4 class="card-title">' + o['Assignment Type'] + '</h4>';
+      html += '    <div class="card-subtitle">' + o['Date/Position'] + '</div>';
+      html += '    <div class="assignees">Offered by: ' + o['Original Assignee (Giver)'] + '</div>';
+      html += '  </div>';
+      html += '</div>';
+    }
+
+    container.innerHTML = html;
+  }
+
+  // Selection Logic
+  function toggleSelection(element, type) {
+    if (!appState.isActive) return;
+    if (element.classList.contains('disabled')) return;
+
+    var id;
+    if (type === 'transferOffer') {
+       id = element.getAttribute('data-json');
+    } else {
+       id = element.getAttribute('data-id');
+    }
+
+    var idx = appState.selections.indexOf(id);
+
+    if (idx > -1) {
+      // Remove
+      appState.selections.splice(idx, 1);
+      element.classList.remove('selected');
+    } else {
+      // Add based on rules
+      if (type === 'vacation') {
+        var isPrime = element.getAttribute('data-prime') === 'true';
+        var currentPrimeCount = 0;
+        var currentNonPrimeCount = 0;
+
+        // Analyze current selections
+        var cards = document.querySelectorAll('.card.selected');
+        cards.forEach(function(c) {
+          if (c.getAttribute('data-prime') === 'true') currentPrimeCount++;
+          else currentNonPrimeCount++;
+        });
+
+        if (isPrime && (currentPrimeCount > 0 || currentNonPrimeCount > 0)) {
+          showToast("You can only select 1 Prime week. Please deselect other choices first.");
+          return;
+        }
+        if (!isPrime && currentPrimeCount > 0) {
+          showToast("You cannot combine Prime and Non-Prime weeks.");
+          return;
+        }
+        if (!isPrime && currentNonPrimeCount >= 2) {
+          showToast("You can only select up to 2 Non-Prime weeks.");
+          return;
+        }
+      } else {
+        // All other phases allow only 1 selection
+        appState.selections = [];
+        document.querySelectorAll('.card.selected').forEach(function(c) { c.classList.remove('selected'); });
+      }
+
+      appState.selections.push(id);
+      element.classList.add('selected');
+    }
+
+    updateActionBar();
+  }
+
+  function updateActionBar() {
+    var bar = document.getElementById('actionBar');
+    var btn = document.getElementById('submitSelectionBtn');
+    var passBtn = document.getElementById('passBtn');
+    var summary = document.getElementById('selectionSummary');
+
+    // Default hidden
+    bar.style.display = 'none';
+    passBtn.style.display = 'none';
+
+    if (!appState.isActive) return;
+
+    bar.style.display = 'flex';
+
+    if (appState.phase === 'HOLIDAY_VOLUNTEER' || appState.phase === 'TRANSFER_RECEIVER' || appState.phase === 'TRANSFER_OFFER_COLLECTION') {
+      passBtn.style.display = 'block';
+      passBtn.innerText = appState.phase === 'TRANSFER_RECEIVER' ? "None" : (appState.phase === 'TRANSFER_OFFER_COLLECTION' ? "Done Offering" : "Pass");
+    }
+
+    if (appState.selections.length > 0) {
+      btn.disabled = false;
+      summary.innerText = appState.selections.length + " Selected";
+
+      if (appState.phase === 'VACATION_SENIORITY' || appState.phase === 'VACATION_RANDOM') {
+        var nonPrimeCount = 0;
+        document.querySelectorAll('.card.selected').forEach(function(c) {
+          if (c.getAttribute('data-prime') !== 'true') nonPrimeCount++;
+        });
+        if (nonPrimeCount === 2) {
+          summary.innerHTML = appState.selections.length + " Selected <br><small style='color:var(--warning)'>Note: Next turn forfeited</small>";
+        }
+      }
+    } else {
+      btn.disabled = true;
+      summary.innerText = "No selection";
+    }
+  }
+
+  function submitSelection(isPass) {
+    var isActionPass = isPass === true;
+    var actionType = isActionPass ? (appState.phase === 'TRANSFER_RECEIVER' ? 'NONE' : 'PASS') : 'SUBMIT';
+
+    var data = {
+      phase: appState.phase,
+      action: actionType,
+      selections: []
+    };
+
+    if (!isActionPass) {
+      if (appState.phase === 'VACATION_SENIORITY' || appState.phase === 'VACATION_RANDOM') {
+        data.selections = appState.selections;
+      } else if (appState.phase === 'WEEKEND') {
+        data.selections = appState.selections; // Array of dates
+
+        // Check for adjacent holiday warning ONLY if we haven't already processed it
+        if (!appState.adjacentHolidayPending) {
+           var el = document.querySelector('.card.selected');
+           var holWarning = el ? el.getAttribute('data-holwarning') : '';
+
+           if (holWarning && holWarning !== 'undefined' && holWarning !== '') {
+             showHolidayPrompt(holWarning);
+             return; // Stop execution, wait for modal
+           }
+        } else {
+           // We have a pending holiday attachment
+           if (appState.adjacentHolidayPending !== 'DECLINED') {
+             data.adjacentHoliday = appState.adjacentHolidayPending;
+           }
+        }
+      } else if (appState.phase === 'HOLIDAY_VOLUNTEER' || appState.phase === 'HOLIDAY_MANDATORY') {
+        var idStr = appState.selections[0];
+        var parts = idStr.split('|');
+        data.selections = [{ name: parts[0], position: parts[1] }];
+      } else if (appState.phase === 'TRANSFER_OFFER_COLLECTION') {
+        var obj = JSON.parse(appState.selections[0].replace(/&quot;/g, '"'));
+        data.selections = [obj];
+      } else if (appState.phase === 'TRANSFER_RECEIVER') {
+        data.selections = appState.selections;
+      }
+    }
+
+    executeSubmit(data);
+  }
+
+  function executeSubmit(data) {
+    var btn = document.getElementById('submitSelectionBtn');
+    var passBtn = document.getElementById('passBtn');
+    btn.disabled = true;
+    passBtn.disabled = true;
+    btn.innerText = "Submitting...";
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          appState.adjacentHolidayPending = null;
+          showToast("Submission successful!", "success");
+          loadInitialState(); // Reload state
+        }
+      })
+      .withFailureHandler(function(error) {
+        btn.disabled = false;
+        passBtn.disabled = false;
+        btn.innerText = "Submit Selection";
+        showToast(error.message);
+
+        // If it's a concurrency error (e.g. someone else took it), auto-refresh state
+        if (error.message.indexOf('selected by another') !== -1 || error.message.indexOf('claimed by another') !== -1) {
+           setTimeout(loadInitialState, 1500);
+        }
+      })
+      .submitSelection(appState.participantId, data);
+  }
+
+  // Holiday Prompt Logic
+  function showHolidayPrompt(holidayName) {
+    document.getElementById('adjacentHolidayName').innerText = holidayName;
+    var optsContainer = document.getElementById('adjacentHolidayOptions');
+    optsContainer.innerHTML = 'Loading holiday availability...';
+
+    document.getElementById('confirmHolidayBtn').disabled = true;
+    document.getElementById('holidayPromptModal').style.display = 'flex';
+
+    // Find holiday in state
+    var holidays = appState.availableChoices.holiday; // Note: Ensure getInitialState always returns holiday array in Weekend phase too, or we need to fetch it.
+    // Wait, getInitialState only returns phase specific choices.
+    // Let's modify the frontend to gracefully handle missing holiday data by allowing decline.
+
+    if (!holidays) {
+       // Since the RPC currently only fetches phase-specific arrays to save time,
+       // we might need a dedicated RPC to fetch specific holiday data, OR we just let them blindly request it.
+       // For this implementation, we will use a simplified blind request or prompt them.
+       optsContainer.innerHTML = `
+         <label class="radio-option"><input type="radio" name="holOpt" value="CALL_2"> Call 2</label>
+         <label class="radio-option"><input type="radio" name="holOpt" value="CALL_1"> Call 1</label>
+       `;
+
+       var radios = document.querySelectorAll('input[name="holOpt"]');
+       radios.forEach(function(r) {
+         r.addEventListener('change', function() {
+           document.getElementById('confirmHolidayBtn').disabled = false;
+         });
+       });
+       return;
+    }
+  }
+
+  function confirmHolidaySelection() {
+    var selectedRadio = document.querySelector('input[name="holOpt"]:checked');
+    if (selectedRadio) {
+      appState.adjacentHolidayPending = {
+        holidayName: document.getElementById('adjacentHolidayName').innerText,
+        position: selectedRadio.value
+      };
+      document.getElementById('holidayPromptModal').style.display = 'none';
+      submitSelection(false);
+    }
+  }
+
+  function declineHolidaySelection() {
+    appState.adjacentHolidayPending = 'DECLINED';
+    document.getElementById('holidayPromptModal').style.display = 'none';
+    submitSelection(false);
+  }
+
+</script>
