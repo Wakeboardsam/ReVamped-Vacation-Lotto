@@ -646,22 +646,42 @@
     // Let's modify the frontend to gracefully handle missing holiday data by allowing decline.
 
     if (!holidays) {
-       // Since the RPC currently only fetches phase-specific arrays to save time,
-       // we might need a dedicated RPC to fetch specific holiday data, OR we just let them blindly request it.
-       // For this implementation, we will use a simplified blind request or prompt them.
+       // Fallback if data is missing
        optsContainer.innerHTML = `
-         <label class="radio-option"><input type="radio" name="holOpt" value="CALL_2"> Call 2</label>
-         <label class="radio-option"><input type="radio" name="holOpt" value="CALL_1"> Call 1</label>
+         <label class="radio-option"><input type="radio" name="holOpt" value="Call 2"> Call 2</label>
+         <label class="radio-option"><input type="radio" name="holOpt" value="Call 1"> Call 1</label>
        `;
+    } else {
+       var html = '';
+       var hasAvailability = false;
+       for (var i = 0; i < holidays.length; i++) {
+         if (holidays[i]['Holiday Name'] === holidayName) {
+           var pos = holidays[i]['Call Position (Call 1 / Call 2)'];
+           var assignee = holidays[i]['Assigned Participant'];
+           if (!assignee) {
+             hasAvailability = true;
+             html += '<label class="radio-option"><input type="radio" name="holOpt" value="' + pos + '"> ' + pos + '</label>';
+           }
+         }
+       }
 
-       var radios = document.querySelectorAll('input[name="holOpt"]');
-       radios.forEach(function(r) {
-         r.addEventListener('change', function() {
-           document.getElementById('confirmHolidayBtn').disabled = false;
-         });
-       });
-       return;
+       if (hasAvailability) {
+         optsContainer.innerHTML = html;
+       } else {
+         optsContainer.innerHTML = '<p class="error-text">No positions available for this holiday.</p>';
+         // Allow them to decline without selecting a position
+         document.getElementById('confirmHolidayBtn').style.display = 'none';
+         document.getElementById('declineHolidayBtn').classList.replace('btn-secondary', 'btn-primary');
+         return;
+       }
     }
+
+    var radios = document.querySelectorAll('input[name="holOpt"]');
+    radios.forEach(function(r) {
+      r.addEventListener('change', function() {
+        document.getElementById('confirmHolidayBtn').disabled = false;
+      });
+    });
   }
 
   function confirmHolidaySelection() {

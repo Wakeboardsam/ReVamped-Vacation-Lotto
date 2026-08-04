@@ -91,6 +91,7 @@ function getInitialState(participantId) {
     response.availableChoices.vacation = getSheetDataAsObjects('Vacation Availability');
   } else if (state.phase === 'WEEKEND') {
     response.availableChoices.weekend = getSheetDataAsObjects('Weekend Coverage');
+    response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
   } else if (state.phase === 'HOLIDAY_VOLUNTEER' || state.phase === 'HOLIDAY_MANDATORY') {
     response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
   } else if (state.phase === 'TRANSFER_OFFER_COLLECTION') {
