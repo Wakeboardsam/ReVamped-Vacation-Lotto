@@ -51,8 +51,14 @@ function getParticipantAssignments(participantName, phase) {
         count++;
       }
     }
+  } else if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
+    var holidayData = getSheetDataAsObjects('Holiday Coverage');
+    for (var i = 0; i < holidayData.length; i++) {
+      if (holidayData[i]['Assigned Participant'] === participantName) {
+        count++;
+      }
+    }
   }
-  // Similar logic for holidays etc. could go here, but focusing on standard phases
 
   return count;
 }
@@ -96,8 +102,25 @@ function getActiveParticipants(phase) {
         isEligibleForPhase = true;
         targetCap = p['Weekend Assignment Maximum'] !== '' ? parseInt(p['Weekend Assignment Maximum']) : 999;
       }
+    } else if (phase === 'HOLIDAY_VOLUNTEER') {
+      var volResp = String(p['Holiday Volunteer Response'] || '').toLowerCase();
+      var volFlag = (p['Holiday Volunteer'] === true || p['Holiday Volunteer'] === 'TRUE');
+      if ((volResp === 'yes' || volFlag) && volResp !== 'pass') {
+        isEligibleForPhase = true;
+      }
+    } else if (phase === 'HOLIDAY_MANDATORY') {
+      if (p['Mandatory Holiday Eligible'] === true || p['Mandatory Holiday Eligible'] === 'TRUE') {
+        isEligibleForPhase = true;
+      }
+    } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
+      if (p['Transfer Giver'] === true || p['Transfer Giver'] === 'TRUE') {
+        isEligibleForPhase = true;
+      }
+    } else if (phase === 'TRANSFER_RECEIVER') {
+      if ((p['Transfer Receiver'] === true || p['Transfer Receiver'] === 'TRUE') && p['Transfer Receiver'] !== false && p['Transfer Receiver'] !== 'FALSE') {
+        isEligibleForPhase = true;
+      }
     }
-    // Expand for holidays etc...
 
     if (!isEligibleForPhase) continue;
 
@@ -197,6 +220,24 @@ function advanceQueue() {
         if (p['Weekend Phase Enabled'] === true || p['Weekend Phase Enabled'] === 'TRUE') {
           isEligibleForPhase = true;
           targetCap = p['Weekend Assignment Maximum'] !== '' ? parseInt(p['Weekend Assignment Maximum']) : 999;
+        }
+      } else if (phase === 'HOLIDAY_VOLUNTEER') {
+        var volResp = String(p['Holiday Volunteer Response'] || '').toLowerCase();
+        var volFlag = (p['Holiday Volunteer'] === true || p['Holiday Volunteer'] === 'TRUE');
+        if ((volResp === 'yes' || volFlag) && volResp !== 'pass') {
+          isEligibleForPhase = true;
+        }
+      } else if (phase === 'HOLIDAY_MANDATORY') {
+        if (p['Mandatory Holiday Eligible'] === true || p['Mandatory Holiday Eligible'] === 'TRUE') {
+          isEligibleForPhase = true;
+        }
+      } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
+        if (p['Transfer Giver'] === true || p['Transfer Giver'] === 'TRUE') {
+          isEligibleForPhase = true;
+        }
+      } else if (phase === 'TRANSFER_RECEIVER') {
+        if ((p['Transfer Receiver'] === true || p['Transfer Receiver'] === 'TRUE') && p['Transfer Receiver'] !== false && p['Transfer Receiver'] !== 'FALSE') {
+          isEligibleForPhase = true;
         }
       }
 

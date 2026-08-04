@@ -1,0 +1,107 @@
+<style>
+  :root {
+    --primary: #2196F3;
+    --primary-dark: #1976D2;
+    --success: #4CAF50;
+    --danger: #f44336;
+    --warning: #ff9800;
+    --secondary: #757575;
+    --background: #f5f5f5;
+    --surface: #ffffff;
+    --text-main: #212121;
+    --text-muted: #757575;
+    --border: #e0e0e0;
+  }
+
+  * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  body { margin: 0; padding: 0; background-color: var(--background); color: var(--text-main); font-size: 16px; }
+
+  /* Screens */
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* Buttons */
+  .btn { display: inline-block; padding: 10px 16px; font-size: 16px; border: none; border-radius: 4px; cursor: pointer; text-align: center; text-decoration: none; font-weight: 500; transition: background 0.2s; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background-color: var(--primary); color: white; }
+  .btn-primary:not(:disabled):hover { background-color: var(--primary-dark); }
+  .btn-success { background-color: var(--success); color: white; }
+  .btn-danger { background-color: var(--danger); color: white; }
+  .btn-secondary { background-color: var(--secondary); color: white; }
+  .btn-small { padding: 6px 12px; font-size: 14px; }
+
+  /* Login */
+  .login-container { max-width: 400px; margin: 40px auto; padding: 20px; background: var(--surface); border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+  .login-container h2 { text-align: center; margin-top: 0; }
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; margin-bottom: 6px; font-weight: bold; }
+  .form-group input, .form-group select { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 16px; }
+  .login-container .btn { width: 100%; }
+  .error-text { color: var(--danger); margin-top: 10px; text-align: center; }
+
+  /* Header */
+  .app-header { background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  .header-top { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; flex-wrap: wrap; gap: 10px; }
+  .header-info { display: flex; gap: 12px; font-weight: bold; align-items: center; flex-wrap: wrap;}
+  .header-actions { display: flex; gap: 10px; align-items: center; }
+  .year-label { color: var(--secondary); font-size: 14px; }
+  .phase-label { color: var(--primary); font-size: 18px; }
+  .round-label { font-size: 14px; }
+  .status-badge { background-color: var(--success); color: white; text-align: center; padding: 8px; font-weight: bold; letter-spacing: 1px; font-size: 14px; }
+
+  /* Main Content */
+  .app-content { max-width: 800px; margin: 0 auto; padding: 20px 16px; }
+
+  /* Loading */
+  .loading { text-align: center; padding: 40px; color: var(--text-muted); font-size: 18px; }
+
+  /* Cards */
+  .card { background: var(--surface); border-radius: 8px; border: 1px solid var(--border); margin-bottom: 12px; padding: 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: box-shadow 0.2s; }
+  .card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+  .card.selected { border: 2px solid var(--primary); background-color: #e3f2fd; }
+  .card.disabled { opacity: 0.6; cursor: not-allowed; background-color: #fafafa; pointer-events: none; }
+
+  .card-content { flex: 1; }
+  .card-title { font-size: 18px; font-weight: bold; margin: 0 0 4px 0; }
+  .card-subtitle { font-size: 14px; color: var(--text-muted); margin: 0 0 8px 0; }
+
+  .badge { display: inline-block; padding: 3px 8px; font-size: 12px; border-radius: 12px; font-weight: bold; margin-right: 6px; margin-bottom: 4px; }
+  .badge-prime { background-color: #fff3e0; color: #e65100; border: 1px solid #ffe0b2; }
+  .badge-nonprime { background-color: #f5f5f5; color: #616161; border: 1px solid #e0e0e0; }
+  .badge-special { background-color: #e8eaf6; color: #3f51b5; border: 1px solid #c5cae9; }
+  .badge-warning { background-color: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
+  .badge-info { background-color: #e1f5fe; color: #0277bd; border: 1px solid #b3e5fc; }
+
+  .assignees { font-size: 13px; color: var(--secondary); margin-top: 8px; }
+
+  /* Grid Layouts for specific phases */
+  .weekend-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  @media(min-width: 600px) { .weekend-grid { grid-template-columns: 1fr 1fr; } }
+
+  /* Action Bar */
+  .action-bar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 90; }
+  #selectionSummary { font-weight: bold; }
+  .action-bar .btn { flex-shrink: 0; margin-left: 10px; }
+  .action-bar-inner { max-width: 800px; margin: 0 auto; display: flex; width: 100%; justify-content: space-between; align-items: center; }
+  body { padding-bottom: 70px; } /* Space for action bar */
+
+  /* Modals */
+  .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 200; padding: 16px; }
+  .modal-content { background: var(--surface); padding: 24px; border-radius: 8px; max-width: 500px; width: 100%; max-height: 90vh; overflow-y: auto; }
+  .modal-content h3 { margin-top: 0; }
+  .modal-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+
+  /* Radio Options */
+  .radio-option { display: block; padding: 12px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 8px; cursor: pointer; }
+  .radio-option:hover { background-color: #f9f9f9; }
+  .radio-option input { margin-right: 10px; }
+
+  /* Toasts */
+  .toast-container { position: fixed; top: 20px; right: 20px; z-index: 300; display: flex; flex-direction: column; gap: 10px; }
+  .toast { padding: 12px 20px; border-radius: 4px; color: white; font-weight: 500; box-shadow: 0 2px 5px rgba(0,0,0,0.2); animation: fadein 0.3s, fadeout 0.3s 4.7s forwards; }
+  .toast.error { background-color: var(--danger); }
+  .toast.success { background-color: var(--success); }
+
+  @keyframes fadein { from { opacity: 0; right: 0; } to { opacity: 1; right: 20px; } }
+  @keyframes fadeout { from { opacity: 1; } to { opacity: 0; } }
+</style>

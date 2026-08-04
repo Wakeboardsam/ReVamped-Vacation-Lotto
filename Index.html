@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>Vacation Lottery System</title>
+    <?!= HtmlService.createHtmlOutputFromFile('CSS').getContent(); ?>
+  </head>
+  <body>
+    <!-- Login Screen -->
+    <div id="loginScreen" class="screen active">
+      <div class="login-container">
+        <h2>Vacation Lottery System</h2>
+        <div class="form-group">
+          <label for="loginName">Name</label>
+          <input type="text" id="loginName" placeholder="Enter your name">
+        </div>
+        <div class="form-group">
+          <label for="loginPin">PIN</label>
+          <input type="password" id="loginPin" placeholder="Enter your PIN">
+        </div>
+        <button id="loginBtn" class="btn btn-primary">Login</button>
+        <div id="loginError" class="error-text" style="display:none;"></div>
+      </div>
+    </div>
+
+    <!-- Main App Screen -->
+    <div id="mainScreen" class="screen" style="display:none;">
+      <!-- Header Bar -->
+      <header class="app-header">
+        <div class="header-top">
+          <div class="header-info">
+            <span id="activeYearLabel" class="year-label"></span>
+            <span id="phaseLabel" class="phase-label"></span>
+            <span id="roundLabel" class="round-label"></span>
+          </div>
+          <div class="header-actions">
+            <span id="userNameLabel" class="user-label"></span>
+            <button id="rulesBtn" class="btn btn-small">Rules & Tips</button>
+            <button id="logoutBtn" class="btn btn-small btn-secondary">Logout</button>
+          </div>
+        </div>
+        <div id="statusBadgeContainer">
+          <div id="statusBadge" class="status-badge" style="display:none;">
+            ACTIVE - IT IS YOUR TURN
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Content Area -->
+      <main class="app-content">
+        <!-- Toast Notifications -->
+        <div id="toastContainer" class="toast-container"></div>
+
+        <!-- Rules Acknowledgment Modal -->
+        <div id="rulesModal" class="modal" style="display:none;">
+          <div class="modal-content">
+            <h3>Annual Rules Acknowledgment</h3>
+            <p>Please review and acknowledge your preferences for the <span id="rulesYearSpan"></span> lottery year.</p>
+
+            <div class="form-group">
+              <label>1. I am willing to volunteer for one or more official holiday call positions this year:</label>
+              <select id="volunteerChoice">
+                <option value="">-- Select --</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>2. Transfer Preference:</label>
+              <select id="transferPref">
+                <option value="">-- Select --</option>
+                <option value="Offer assignments">Offer assignments</option>
+                <option value="Receive assignments">Receive assignments</option>
+                <option value="Both offer and receive">Both offer and receive</option>
+                <option value="Do not participate">Do not participate</option>
+              </select>
+            </div>
+
+            <button id="saveRulesBtn" class="btn btn-primary" disabled>Save & Continue</button>
+          </div>
+        </div>
+
+        <!-- Phase View Containers -->
+        <div id="phaseContainer">
+          <div id="loadingIndicator" class="loading" style="display:none;">Loading...</div>
+          <div id="viewContent"></div>
+
+          <!-- Shared Action Bar -->
+          <div id="actionBar" class="action-bar" style="display:none;">
+            <div id="selectionSummary"></div>
+            <button id="submitSelectionBtn" class="btn btn-success" disabled>Submit Selection</button>
+            <button id="passBtn" class="btn btn-danger" style="display:none;">Pass</button>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Template for adjacent holiday prompt -->
+    <div id="holidayPromptModal" class="modal" style="display:none;">
+      <div class="modal-content">
+        <h3>Holiday Adjacency Detected</h3>
+        <p>The weekend you selected is within 3 days of an official holiday. Would you like to reserve a position for this holiday?</p>
+        <p><strong id="adjacentHolidayName"></strong></p>
+        <div id="adjacentHolidayOptions" class="holiday-options"></div>
+        <div class="modal-actions">
+          <button id="confirmHolidayBtn" class="btn btn-primary" disabled>Confirm Selection & Holiday</button>
+          <button id="declineHolidayBtn" class="btn btn-secondary">Decline Holiday (Just Weekend)</button>
+          <button id="cancelWeekendBtn" class="btn btn-danger">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Instructions / Rules Display Modal -->
+    <div id="infoModal" class="modal" style="display:none;">
+       <div class="modal-content">
+          <h3>Rules & Tips</h3>
+          <div id="infoContent">
+            <p>Welcome to the Vacation Lottery System.</p>
+            <ul>
+               <li><b>Vacation:</b> Select 1 Prime or up to 2 Non-Prime weeks. Selecting 2 Non-Prime will forfeit your next round.</li>
+               <li><b>Weekends & Holidays:</b> Selections are atomic. You will see adjacent warnings for weekends near holidays.</li>
+               <li><b>Transfers:</b> Participate in offering or receiving previously selected assignments.</li>
+            </ul>
+          </div>
+          <button id="closeInfoBtn" class="btn btn-secondary">Close</button>
+       </div>
+    </div>
+
+    <?!= HtmlService.createHtmlOutputFromFile('JS').getContent(); ?>
+  </body>
+</html>
