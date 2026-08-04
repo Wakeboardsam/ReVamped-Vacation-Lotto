@@ -73,3 +73,51 @@ function getSystemConfig() {
 function setSystemConfig(updates) {
   setConfig('Config', 0, 1, updates);
 }
+
+/**
+ * Queue State Getters and Setters
+ */
+
+function getQueueState() {
+  var config = getSystemConfig();
+  return {
+    phase: config['Current Phase'] || 'SETUP_EMPTY',
+    round: parseInt(config['Current Round']) || 1,
+    direction: config['Current Direction'] || 'ASCENDING',
+    lead: parseInt(config['Current Lead']) || 1
+  };
+}
+
+function setQueueState(updates) {
+  var formattedUpdates = {};
+  if (updates.phase !== undefined) formattedUpdates['Current Phase'] = updates.phase;
+  if (updates.round !== undefined) formattedUpdates['Current Round'] = updates.round;
+  if (updates.direction !== undefined) formattedUpdates['Current Direction'] = updates.direction;
+  if (updates.lead !== undefined) formattedUpdates['Current Lead'] = updates.lead;
+
+  if (Object.keys(formattedUpdates).length > 0) {
+    setSystemConfig(formattedUpdates);
+  }
+}
+
+function getActiveWindowSize(phase) {
+  var adminOptions = getAdminOptions();
+
+  if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
+    return parseInt(adminOptions['Vacation Active Window (participants)']) || 3;
+  } else if (phase === 'WEEKEND') {
+    return parseInt(adminOptions['Weekend Active Window (participants)']) || 2;
+  } else if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
+    return parseInt(adminOptions['Holiday Active Window (participants)']) || 2;
+  } else if (phase === 'TRANSFER_OFFER_COLLECTION' || phase === 'TRANSFER_RECEIVER') {
+    return parseInt(adminOptions['Transfer Active Window (participants)']) || 2;
+  }
+
+  return 1; // Default fallback
+}
+
+function getSystemTarget(key, defaultVal) {
+  var adminOptions = getAdminOptions();
+  var val = parseInt(adminOptions[key]);
+  return isNaN(val) ? defaultVal : val;
+}

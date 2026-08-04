@@ -16,6 +16,10 @@ function setupDatabaseSchema() {
         ['Weekend Window Size (mins)', '1440', 'Duration of a weekend pick window'],
         ['Holiday Window Size (mins)', '1440', 'Duration of a holiday pick window'],
         ['Transfer Window Size (mins)', '1440', 'Duration of a transfer offer window'],
+        ['Vacation Active Window (participants)', '3', 'Number of participants active at once for vacation'],
+        ['Weekend Active Window (participants)', '2', 'Number of participants active at once for weekends'],
+        ['Holiday Active Window (participants)', '2', 'Number of participants active at once for holidays'],
+        ['Transfer Active Window (participants)', '2', 'Number of participants active at once for transfers'],
         ['Enable SMS Notifications', 'FALSE', 'Toggle to enable/disable SMS'],
         ['Reminder Delay (mins)', '360', 'Delay before sending a reminder SMS'],
         ['Admin Alert Delay (mins)', '720', 'Delay before sending admin an alert SMS'],
@@ -40,7 +44,8 @@ function setupDatabaseSchema() {
         'Weekend Phase Enabled', 'Weekend Assignment Maximum', 'Holiday Volunteer Response',
         'Mandatory Holiday Eligible', 'Transfer Giver', 'Transfer Receiver',
         'Had Spring Break Last Year', 'Had Christmas Week Last Year',
-        'Worked Any Official Holiday Last Year', 'Rules Acknowledged Year'
+        'Worked Any Official Holiday Last Year', 'Rules Acknowledged Year',
+        'Skipped Turns Remaining'
       ]
     },
     {
