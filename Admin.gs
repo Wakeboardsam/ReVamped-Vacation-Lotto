@@ -2,6 +2,16 @@
  * Admin.gs - Admin utilities for initialization and randomization
  */
 
+/**
+ * Creates custom menus in the Google Sheet UI on open.
+ */
+function onOpen(e) {
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu('Vacation Lotto')
+      .addItem('🔄 Refresh / Reconcile From Sheet', 'runReconciliationFromMenu')
+      .addToUi();
+}
+
 function autoFillAndRandomize(targetYear) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
