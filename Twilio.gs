@@ -55,6 +55,13 @@ function sendSms(toPhoneNumber, messageBody) {
 
   var formattedSenderPhone = formatE164(senderPhone);
 
+  if (!formattedToNumber.startsWith('whatsapp:')) {
+    formattedToNumber = 'whatsapp:' + formattedToNumber;
+  }
+  if (!formattedSenderPhone.startsWith('whatsapp:')) {
+    formattedSenderPhone = 'whatsapp:' + formattedSenderPhone;
+  }
+
   var url = 'https://api.twilio.com/2010-04-01/Accounts/' + accountSid + '/Messages.json';
 
   var payload = {
@@ -93,4 +100,24 @@ function sendSms(toPhoneNumber, messageBody) {
   } catch (error) {
     console.error("Network or internal error when attempting to send SMS to " + formattedToNumber + ": " + error.message);
   }
+}
+
+/**
+ * Tests the Twilio direct integration via WhatsApp.
+ */
+function testTwilioDirect() {
+  var adminOptions = getAdminOptions();
+  var adminPhone = adminOptions['Admin Phone Number']; // Ensure correct key is used from your Google Sheet Admin Options tab
+
+  if (!adminPhone) {
+    console.log("Admin Phone Number is missing in Admin Options. Using a fallback number if possible, or failing.");
+    // Optional fallback: adminPhone = '+1234567890';
+  }
+
+  console.log("Executing testTwilioDirect...");
+  console.log("Attempting to send test WhatsApp message to: " + adminPhone);
+
+  sendSms(adminPhone, "Hello from Vacation Lotto WhatsApp Test!");
+
+  console.log("testTwilioDirect execution completed.");
 }
