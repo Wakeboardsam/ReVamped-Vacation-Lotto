@@ -1,0 +1,13 @@
+**/**
+!**/*.gs
+!**/*.js
+!**/*.html
+!appsscript.json
+
+.git/
+.github/
+.clasp.json
+.claspignore
+test_validate.js
+test*.js
+**/*.md
