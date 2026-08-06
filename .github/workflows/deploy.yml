@@ -15,7 +15,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install clasp
         run: npm install -g @google/clasp
@@ -29,4 +29,5 @@ jobs:
           sed -i "s/\$SCRIPT_ID/${{ secrets.SCRIPT_ID }}/g" .clasp.json
 
       - name: Push Code to Google Apps Script
+
         run: clasp push --force
