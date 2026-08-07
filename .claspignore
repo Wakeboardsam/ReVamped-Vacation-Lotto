@@ -11,3 +11,7 @@
 test_validate.js
 test*.js
 **/*.md
+tests/
+package.json
+package-lock.json
+node_modules/

@@ -84,3 +84,38 @@ function formatDate(date) {
 
   return [year, month, day].join('-');
 }
+
+/**
+ * Recursively sanitizes objects to ensure they are safe to return to the client via google.script.run.
+ * Converts Date objects to strings, handles undefined, and passes through safe primitives.
+ * @private
+ */
+function makeClientSafe_(obj) {
+  if (obj === undefined) {
+    return null;
+  }
+  if (obj === null || typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') {
+    return obj;
+  }
+  if (Object.prototype.toString.call(obj) === '[object Date]') {
+    return formatDate(obj);
+  }
+  if (Array.isArray(obj)) {
+    var newArray = [];
+    for (var i = 0; i < obj.length; i++) {
+      newArray.push(makeClientSafe_(obj[i]));
+    }
+    return newArray;
+  }
+  if (typeof obj === 'object') {
+    var newObj = {};
+    for (var key in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
+        newObj[key] = makeClientSafe_(obj[key]);
+      }
+    }
+    return newObj;
+  }
+  // Fallback for functions, symbols, etc (though unexpected in standard spreadsheet data)
+  return null;
+}
