@@ -20,27 +20,28 @@ function doGet(e) {
  * @returns {object} JSON object with success and participant details
  */
 function authenticateParticipant(name, pin) {
+  var sanitizedName = (name || '').toString().trim().toLowerCase();
+  var sanitizedPin = (pin || '').toString().trim();
   var participants = getSheetDataAsObjects('Participant Config');
 
   for (var i = 0; i < participants.length; i++) {
     var p = participants[i];
-    if (String(p['Name']).trim().toLowerCase() === String(name).trim().toLowerCase() &&
-        String(p['PIN']).trim() === String(pin).trim()) {
+    if (String(p['Name']).trim().toLowerCase() === sanitizedName &&
+        String(p['PIN']).trim() === sanitizedPin) {
 
       // Check if active for the year
       if (p['Active for Year'] !== true && p['Active for Year'] !== 'TRUE') {
-        throw new Error("User is not active for the current lottery year.");
+        return { success: false, error: 'User is not active for the current lottery year.' };
       }
 
       return {
         success: true,
-        participantId: p['Name'],
-        name: p['Name']
+        participantName: p['Name']
       };
     }
   }
 
-  throw new Error("Invalid Name or PIN.");
+  return { success: false, error: 'Invalid Name or PIN.' };
 }
 
 /**
@@ -49,6 +50,8 @@ function authenticateParticipant(name, pin) {
  * @returns {object} Application state
  */
 function getInitialState(participantId) {
+  var sanitizedId = (participantId || '').toString().trim();
+
   var adminOptions = getAdminOptions();
   var state = getQueueState();
   var activeYear = adminOptions['Active Year'] || new Date().getFullYear().toString();
@@ -56,21 +59,21 @@ function getInitialState(participantId) {
   var participants = getSheetDataAsObjects('Participant Config');
   var participant = null;
   for (var i = 0; i < participants.length; i++) {
-    if (participants[i]['Name'] === participantId) {
+    if (participants[i]['Name'] === sanitizedId) {
       participant = participants[i];
       break;
     }
   }
 
   if (!participant) {
-    throw new Error("Participant not found");
+    return { success: false, error: 'Participant session invalid. Please log in again.' };
   }
 
   // Check active status
   var activeWindow = getActiveParticipants(state.phase);
   var isActive = false;
   for (var i = 0; i < activeWindow.length; i++) {
-    if (activeWindow[i]['Name'] === participantId) {
+    if (activeWindow[i]['Name'] === sanitizedId) {
       isActive = true;
       break;
     }
@@ -106,21 +109,21 @@ function getInitialState(participantId) {
 
     var vacs = getSheetDataAsObjects('Vacation Availability');
     for (var i = 0; i < vacs.length; i++) {
-      if (String(vacs[i]['Assigned Participants']).indexOf(participantId) !== -1) {
+      if (String(vacs[i]['Assigned Participants']).indexOf(sanitizedId) !== -1) {
         myAssignments.push({ type: 'VACATION', details: vacs[i] });
       }
     }
 
     var wks = getSheetDataAsObjects('Weekend Coverage');
     for (var i = 0; i < wks.length; i++) {
-      if (wks[i]['First Call Assignee'] === participantId) {
+      if (wks[i]['First Call Assignee'] === sanitizedId) {
         myAssignments.push({ type: 'WEEKEND', details: wks[i] });
       }
     }
 
     var hols = getSheetDataAsObjects('Holiday Coverage');
     for (var i = 0; i < hols.length; i++) {
-      if (hols[i]['Assigned Participant'] === participantId) {
+      if (hols[i]['Assigned Participant'] === sanitizedId) {
         myAssignments.push({ type: 'HOLIDAY', details: hols[i] });
       }
     }
