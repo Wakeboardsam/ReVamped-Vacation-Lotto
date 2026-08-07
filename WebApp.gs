@@ -77,13 +77,19 @@ function getInitialState(participantId) {
   }
 
   var response = {
-    activeYear: activeYear,
-    phase: state.phase,
-    round: state.round,
-    direction: state.direction,
-    participant: participant,
+    activeYear: activeYear || new Date().getFullYear().toString(),
+    phase: state ? state.phase : 'INACTIVE',
+    round: state ? state.round : 1,
+    direction: state ? state.direction : 'ASCENDING',
+    participant: participant || {},
     isActive: isActive,
-    availableChoices: {}
+    availableChoices: {
+      vacation: [],
+      weekend: [],
+      holiday: [],
+      myAssignments: [],
+      transferOffers: []
+    }
   };
 
   // Populate available choices based on phase
