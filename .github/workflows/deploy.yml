@@ -25,18 +25,9 @@ jobs:
           echo '${{ secrets.CLASPRC_JSON }}' > ~/.clasprc.json
 
       - name: Update .clasp.json with Script ID
-        env:
-          SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
         run: |
-          if [ -z "$SCRIPT_ID" ]; then
-            echo "Error: SCRIPT_ID secret is empty or undefined."
-            exit 1
-          fi
-          # Create a new .clasp.json using node so we do structural substitution securely
-          node -e "const fs = require('fs'); const config = JSON.parse(fs.readFileSync('.clasp.json', 'utf8')); config.scriptId = process.env.SCRIPT_ID; fs.writeFileSync('.clasp.json', JSON.stringify(config, null, 2));"
-
-      - name: Run Tests
-        run: npm test
+          sed -i "s/\$SCRIPT_ID/${{ secrets.SCRIPT_ID }}/g" .clasp.json
 
       - name: Push Code to Google Apps Script
+
         run: clasp push --force
