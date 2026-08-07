@@ -131,16 +131,21 @@
 
     google.script.run
       .withSuccessHandler(function(state) {
-        appState.activeYear = state.activeYear;
-        appState.phase = state.phase;
-        appState.round = state.round;
-        appState.direction = state.direction;
-        appState.isActive = state.isActive;
-        appState.participant = state.participant;
-        appState.availableChoices = state.availableChoices;
+        try {
+          appState.activeYear = state.activeYear;
+          appState.phase = state.phase;
+          appState.round = state.round;
+          appState.direction = state.direction;
+          appState.isActive = state.isActive;
+          appState.participant = state.participant;
+          appState.availableChoices = state.availableChoices;
 
-        updateHeader();
-        checkRulesAcknowledgment();
+          updateHeader();
+          checkRulesAcknowledgment();
+        } catch (err) {
+          showToast("Error rendering UI: " + err.message);
+          document.getElementById('loadingIndicator').style.display = 'none';
+        }
       })
       .withFailureHandler(function(error) {
         showToast("Error loading data: " + error.message);
@@ -170,12 +175,17 @@
 
   // Rules Acknowledgment
   function checkRulesAcknowledgment() {
-    if (appState.participant && String(appState.participant['Rules Acknowledged Year']) !== String(appState.activeYear)) {
-      document.getElementById('rulesYearSpan').innerText = appState.activeYear;
-      document.getElementById('rulesModal').style.display = 'flex';
+    try {
+      if (appState.participant && String(appState.participant['Rules Acknowledged Year']) !== String(appState.activeYear)) {
+        document.getElementById('rulesYearSpan').innerText = appState.activeYear;
+        document.getElementById('rulesModal').style.display = 'flex';
+        document.getElementById('loadingIndicator').style.display = 'none';
+      } else {
+        renderPhaseView();
+      }
+    } catch (err) {
+      showToast("Error checking rules acknowledgment: " + err.message);
       document.getElementById('loadingIndicator').style.display = 'none';
-    } else {
-      renderPhaseView();
     }
   }
 
