@@ -222,6 +222,8 @@ function autoFillAndRandomize(targetYear) {
 
   // Set Active Year in Admin Options
   setAdminOptions({ 'Active Year': targetYear });
+
+  sanitizeParticipantConfigSheet();
 }
 
 /**

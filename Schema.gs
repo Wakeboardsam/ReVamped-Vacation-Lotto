@@ -143,4 +143,71 @@ function setupDatabaseSchema() {
       }
     }
   });
+
+  sanitizeParticipantConfigSheet();
+}
+
+/**
+ * Formats boolean columns as true Checkboxes and backfills missing default values.
+ */
+function sanitizeParticipantConfigSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Participant Config');
+  if (!sheet) return;
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return; // No participants populated
+
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+  var checkboxRule = SpreadsheetApp.newDataValidation().requireCheckbox().build();
+
+  // Boolean Column configurations (Names and defaults)
+  var booleanColsConfig = [
+    { name: 'Active for Year', defaultVal: true },
+    { name: 'Vacation Phase Enabled', defaultVal: true },
+    { name: 'Weekend Phase Enabled', defaultVal: true },
+    { name: 'Mandatory Holiday Eligible', defaultVal: true },
+    { name: 'Transfer Giver', defaultVal: true },
+    { name: 'Transfer Receiver', defaultVal: true },
+    { name: 'Had Spring Break Last Year', defaultVal: false },
+    { name: 'Had Christmas Week Last Year', defaultVal: false },
+    { name: 'Worked Any Official Holiday Last Year', defaultVal: false },
+    { name: 'Resend SMS', defaultVal: false }
+  ];
+
+  booleanColsConfig.forEach(function(item) {
+    var colIndex = headers.indexOf(item.name);
+    if (colIndex === -1) return; // Column not found
+
+    // Convert to 1-based index
+    var col = colIndex + 1;
+
+    var range = sheet.getRange(2, col, lastRow - 1, 1);
+    range.setDataValidation(checkboxRule); // Force Checkbox format
+
+    var values = range.getValues();
+    for (var r = 0; r < values.length; r++) {
+      if (values[r][0] === '' || values[r][0] === null || values[r][0] === undefined) {
+        values[r][0] = item.defaultVal;
+      } else if (typeof values[r][0] === 'string') {
+        values[r][0] = values[r][0].toUpperCase() === 'TRUE';
+      }
+    }
+    range.setValues(values);
+  });
+
+  // Ensure Skipped Turns Remaining defaults to 0
+  var skipsColIndex = headers.indexOf('Skipped Turns Remaining');
+  if (skipsColIndex !== -1) {
+    var skipsCol = skipsColIndex + 1;
+    var skipsRange = sheet.getRange(2, skipsCol, lastRow - 1, 1);
+    var skipsValues = skipsRange.getValues();
+    for (var k = 0; k < skipsValues.length; k++) {
+      if (skipsValues[k][0] === '' || skipsValues[k][0] === null || skipsValues[k][0] === undefined) {
+        skipsValues[k][0] = 0;
+      }
+    }
+    skipsRange.setValues(skipsValues);
+  }
 }
