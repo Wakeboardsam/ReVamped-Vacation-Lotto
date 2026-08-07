@@ -9,10 +9,66 @@ function onOpen(e) {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu('Vacation Lotto')
       .addItem('🔄 Refresh / Reconcile From Sheet', 'runReconciliationFromMenu')
+      .addSeparator()
+      .addItem('⚙️ Initialize Database Schema', 'setupDatabaseSchema')
+      .addItem('🎲 Auto-Fill & Randomize Roster', 'runAutoFillFromMenu')
+      .addSeparator()
+      .addItem('▶️ Begin Seniority Round', 'beginSeniorityRound')
+      .addItem('▶️ Begin Weekend Phase', 'beginWeekendPhase')
+      .addItem('▶️ Begin Holiday Phase', 'beginHolidayPhase')
+      .addItem('▶️ Begin Transfer Phase', 'beginTransferPhase')
       .addToUi();
 }
 
+/**
+ * Menu wrapper for auto-fill to prevent NaN target year errors.
+ */
+function runAutoFillFromMenu() {
+  var year = getAdminOptions()['Active Year'] || 2027;
+  autoFillAndRandomize(Number(year));
+  SpreadsheetApp.getUi().alert('Auto-Fill & Randomization complete for target year ' + year + '!');
+}
+
+/**
+ * Transitions phase state to VACATION_SENIORITY and opens Round 1.
+ */
+function beginSeniorityRound() {
+  setQueueState({ phase: 'VACATION_SENIORITY', round: 1, direction: 'ASCENDING' });
+  advanceQueue();
+  SpreadsheetApp.getUi().alert('Lottery state changed to VACATION_SENIORITY. Seniority Round 1 is now active!');
+}
+
+/**
+ * Transitions phase state to WEEKEND.
+ */
+function beginWeekendPhase() {
+  setQueueState({ phase: 'WEEKEND' });
+  advanceQueue();
+  SpreadsheetApp.getUi().alert('Lottery state changed to WEEKEND coverage phase.');
+}
+
+/**
+ * Transitions phase state to HOLIDAY_VOLUNTEER.
+ */
+function beginHolidayPhase() {
+  setQueueState({ phase: 'HOLIDAY_VOLUNTEER' });
+  advanceQueue();
+  SpreadsheetApp.getUi().alert('Lottery state changed to HOLIDAY_VOLUNTEER phase.');
+}
+
+/**
+ * Transitions phase state to TRANSFER_OFFER_COLLECTION.
+ */
+function beginTransferPhase() {
+  setQueueState({ phase: 'TRANSFER_OFFER_COLLECTION' });
+  advanceQueue();
+  SpreadsheetApp.getUi().alert('Lottery state changed to TRANSFER_OFFER_COLLECTION phase.');
+}
+
 function autoFillAndRandomize(targetYear) {
+  // Fallback to Admin Options setting or 2027 default if no argument is passed
+  targetYear = Number(targetYear || getAdminOptions()['Active Year'] || 2027);
+
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
   // 1. Generate Vacation Weeks
