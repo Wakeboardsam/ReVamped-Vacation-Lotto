@@ -29,14 +29,25 @@
     }, 5000);
   }
 
+  // Set login loading state
+  function setLoginLoading(isLoading) {
+    var btn = document.getElementById('loginBtn');
+    if (isLoading) {
+      btn.innerText = "Logging in...";
+      btn.disabled = true;
+    } else {
+      btn.innerText = "Log In";
+      btn.disabled = false;
+    }
+  }
+
   // Initialization
   document.addEventListener("DOMContentLoaded", function() {
     // Check local storage for session
-    var savedId = localStorage.getItem('vacationLottery_participantId');
-    var savedName = localStorage.getItem('vacationLottery_name');
+    var savedName = localStorage.getItem('lotto_user');
 
-    if (savedId && savedName) {
-      appState.participantId = savedId;
+    if (savedName) {
+      appState.participantId = savedName;
       appState.name = savedName;
       showMainScreen();
     } else {
@@ -75,7 +86,6 @@
     var name = document.getElementById('loginName').value;
     var pin = document.getElementById('loginPin').value;
     var errorDiv = document.getElementById('loginError');
-    var btn = document.getElementById('loginBtn');
 
     if (!name || !pin) {
       errorDiv.innerText = "Please enter both name and PIN.";
@@ -83,75 +93,90 @@
       return;
     }
 
-    btn.disabled = true;
-    btn.innerText = "Logging in...";
+    setLoginLoading(true);
     errorDiv.style.display = 'none';
 
     google.script.run
-      .withSuccessHandler(function(response) {
-        if (response.success) {
-          appState.participantId = response.participantId;
-          appState.name = response.name;
-          localStorage.setItem('vacationLottery_participantId', response.participantId);
-          localStorage.setItem('vacationLottery_name', response.name);
-          showMainScreen();
+      .withSuccessHandler(function(res) {
+        if (res.success === false) {
+          setLoginLoading(false);
+          showToast(res.error || "Login failed");
+        } else {
+          localStorage.setItem('lotto_user', res.participantName);
+          appState.participantId = res.participantName;
+          appState.name = res.participantName;
+          document.getElementById('loginScreen').classList.remove('active');
+          document.getElementById('mainScreen').style.display = 'block';
+          fetchInitialState(res.participantName);
         }
       })
-      .withFailureHandler(function(error) {
-        btn.disabled = false;
-        btn.innerText = "Login";
-        errorDiv.innerText = error.message;
-        errorDiv.style.display = 'block';
+      .withFailureHandler(function(err) {
+        setLoginLoading(false);
+        alert("Connection error. Please try again.");
       })
       .authenticateParticipant(name, pin);
   }
 
   function handleLogout() {
-    localStorage.removeItem('vacationLottery_participantId');
-    localStorage.removeItem('vacationLottery_name');
+    localStorage.removeItem('lotto_user');
     appState.participantId = null;
     document.getElementById('mainScreen').style.display = 'none';
     document.getElementById('loginScreen').classList.add('active');
     document.getElementById('loginName').value = '';
     document.getElementById('loginPin').value = '';
+    setLoginLoading(false);
   }
 
   // Main Screen & Data Loading
   function showMainScreen() {
     document.getElementById('loginScreen').classList.remove('active');
     document.getElementById('mainScreen').style.display = 'block';
-    loadInitialState();
+    fetchInitialState(appState.participantId);
   }
 
-  function loadInitialState() {
+  function onStateLoaded(state) {
+    if (state.success === false || state.error) {
+      localStorage.removeItem('lotto_user');
+      setLoginLoading(false);
+      document.getElementById('mainScreen').style.display = 'none';
+      document.getElementById('loginScreen').classList.add('active');
+      showToast(state.error || "Session invalid");
+      document.getElementById('loadingIndicator').style.display = 'none';
+      return;
+    }
+
+    try {
+      appState.activeYear = state.activeYear;
+      appState.phase = state.phase;
+      appState.round = state.round;
+      appState.direction = state.direction;
+      appState.isActive = state.isActive;
+      appState.participant = state.participant;
+      appState.availableChoices = state.availableChoices;
+
+      updateHeader();
+      checkRulesAcknowledgment();
+    } catch (err) {
+      showToast("Error rendering UI: " + err.message);
+      document.getElementById('loadingIndicator').style.display = 'none';
+    }
+  }
+
+  function onStateError(err) {
+    showToast("Error loading data: " + err.message);
+    document.getElementById('loadingIndicator').style.display = 'none';
+  }
+
+  function fetchInitialState(user) {
     document.getElementById('loadingIndicator').style.display = 'block';
     document.getElementById('viewContent').innerHTML = '';
     document.getElementById('actionBar').style.display = 'none';
     appState.selections = [];
 
     google.script.run
-      .withSuccessHandler(function(state) {
-        try {
-          appState.activeYear = state.activeYear;
-          appState.phase = state.phase;
-          appState.round = state.round;
-          appState.direction = state.direction;
-          appState.isActive = state.isActive;
-          appState.participant = state.participant;
-          appState.availableChoices = state.availableChoices;
-
-          updateHeader();
-          checkRulesAcknowledgment();
-        } catch (err) {
-          showToast("Error rendering UI: " + err.message);
-          document.getElementById('loadingIndicator').style.display = 'none';
-        }
-      })
-      .withFailureHandler(function(error) {
-        showToast("Error loading data: " + error.message);
-        document.getElementById('loadingIndicator').style.display = 'none';
-      })
-      .getInitialState(appState.participantId);
+      .withSuccessHandler(onStateLoaded)
+      .withFailureHandler(onStateError)
+      .getInitialState(user);
   }
 
   function updateHeader() {
@@ -207,7 +232,7 @@
       .withSuccessHandler(function() {
         document.getElementById('rulesModal').style.display = 'none';
         // Reload state to reflect updated config
-        loadInitialState();
+        fetchInitialState(appState.participantId);
       })
       .withFailureHandler(function(error) {
         showToast("Error saving rules: " + error.message);
@@ -635,7 +660,7 @@
 
         // If it's a concurrency error (e.g. someone else took it), auto-refresh state
         if (error.message.indexOf('selected by another') !== -1 || error.message.indexOf('claimed by another') !== -1) {
-           setTimeout(loadInitialState, 1500);
+           setTimeout(function() { fetchInitialState(appState.participantId); }, 1500);
         }
       })
       .submitSelection(appState.participantId, data);
