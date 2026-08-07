@@ -80,6 +80,7 @@ function getInitialState(participantId) {
   }
 
   var response = {
+    success: true,
     activeYear: activeYear || new Date().getFullYear().toString(),
     phase: state ? state.phase : 'INACTIVE',
     round: state ? state.round : 1,
@@ -142,7 +143,7 @@ function getInitialState(participantId) {
     response.availableChoices.transferOffers = activeOffers;
   }
 
-  return response;
+  return makeClientSafe_(response);
 }
 
 /**
