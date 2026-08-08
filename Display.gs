@@ -8,13 +8,18 @@ function getPublicDisplaySnapshot() {
     var adminOptions = getAdminOptions();
     var state = getQueueState();
     var phase = state.phase;
+    var cache = {};
 
-    var queueSnapshot = getPublicQueueSnapshot_(phase, adminOptions);
+    var queueWindows = getQueueWindows_(phase, state, cache);
+
+    // Build names
+    var activeNames = queueWindows.activeWindow.map(function(p) { return String(p['Name']).trim(); });
+    var upNextNames = queueWindows.upNextWindow.map(function(p) { return String(p['Name']).trim(); });
 
     var participantNames = [];
     var namesSeen = {};
 
-    var participants = queueSnapshot.participants;
+    var participants = queueWindows.participants;
     for (var i = 0; i < participants.length; i++) {
       var rawName = participants[i]['Name'];
       if (!rawName) continue;
@@ -50,14 +55,13 @@ function getPublicDisplaySnapshot() {
       calendar.supported = true;
       calendar.kind = "VACATION";
 
-      var calendarData = queueSnapshot.calendarData;
+      var calendarData = getSheetDataAsObjects('Vacation Availability', cache);
       for (var i = 0; i < calendarData.length; i++) {
         var row = calendarData[i];
         var weekId = String(row['Week ID'] || '');
         var startDate = row['Start Date (Monday)'];
 
-        var capacityRaw = parseInt(row['Capacity']);
-        var capacity = isNaN(capacityRaw) ? parseInt(adminOptions['Vacation Weekly Capacity']) || 4 : capacityRaw;
+        var capacity = parseInt(row['Capacity']) || 4;
 
         var assignedNamesStr = String(row['Assigned Participants'] || '');
         var assignedNames = [];
@@ -86,7 +90,7 @@ function getPublicDisplaySnapshot() {
       calendar.supported = true;
       calendar.kind = "WEEKEND";
 
-      var calendarData = queueSnapshot.calendarData;
+      var calendarData = getSheetDataAsObjects('Weekend Coverage', cache);
       for (var i = 0; i < calendarData.length; i++) {
         var row = calendarData[i];
         var assignedNames = [];
@@ -109,7 +113,7 @@ function getPublicDisplaySnapshot() {
         });
       }
 
-      var holidayData = queueSnapshot.holidayData;
+      var holidayData = getSheetDataAsObjects('Holiday Coverage', cache);
       for (var i = 0; i < holidayData.length; i++) {
         var row = holidayData[i];
         var assignedNames = [];
@@ -135,7 +139,7 @@ function getPublicDisplaySnapshot() {
       calendar.supported = true;
       calendar.kind = "HOLIDAY";
 
-      var calendarData = queueSnapshot.calendarData;
+      var calendarData = getSheetDataAsObjects('Holiday Coverage', cache);
       for (var i = 0; i < calendarData.length; i++) {
         var row = calendarData[i];
         var assignedNames = [];
@@ -168,9 +172,9 @@ function getPublicDisplaySnapshot() {
       round: state.round,
       direction: state.direction,
       queue: {
-        activeWindowSize: queueSnapshot.windowSize,
-        activeNames: queueSnapshot.activeNames,
-        upNextNames: queueSnapshot.upNextNames
+        activeWindowSize: queueWindows.windowSize,
+        activeNames: activeNames,
+        upNextNames: upNextNames
       },
       participantNames: participantNames,
       calendar: calendar

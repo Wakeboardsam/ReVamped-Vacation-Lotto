@@ -5,7 +5,8 @@
 /**
  * Helper to fetch all rows dynamically mapped to an object by headers.
  */
-function getSheetDataAsObjects(sheetName) {
+function getSheetDataAsObjects(sheetName, cache) {
+  if (cache && cache[sheetName]) return cache[sheetName];
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sheet) return [];
   var data = sheet.getDataRange().getValues();
@@ -20,22 +21,21 @@ function getSheetDataAsObjects(sheetName) {
     }
     objects.push(obj);
   }
+  if (cache) cache[sheetName] = objects;
   return objects;
 }
 
 /**
  * Get dynamic assignments for a specific participant within a given phase context.
  */
-function getParticipantAssignments(participantName, phase) {
+function getParticipantAssignments(participantName, phase, cache) {
   var count = 0;
 
   if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
-    var vacationData = getSheetDataAsObjects('Vacation Availability');
+    var vacationData = getSheetDataAsObjects('Vacation Availability', cache);
     for (var i = 0; i < vacationData.length; i++) {
       var assignedStr = String(vacationData[i]['Assigned Participants'] || '');
       if (assignedStr.indexOf(participantName) !== -1) {
-        // A simple count of appearances. Since multiple participants could be assigned,
-        // we might split by comma and count.
         var assignees = assignedStr.split(',').map(function(s) { return s.trim(); });
         for (var j = 0; j < assignees.length; j++) {
           if (assignees[j] === participantName) {
@@ -45,14 +45,14 @@ function getParticipantAssignments(participantName, phase) {
       }
     }
   } else if (phase === 'WEEKEND') {
-    var weekendData = getSheetDataAsObjects('Weekend Coverage');
+    var weekendData = getSheetDataAsObjects('Weekend Coverage', cache);
     for (var i = 0; i < weekendData.length; i++) {
       if (weekendData[i]['First Call Assignee'] === participantName) {
         count++;
       }
     }
   } else if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
-    var holidayData = getSheetDataAsObjects('Holiday Coverage');
+    var holidayData = getSheetDataAsObjects('Holiday Coverage', cache);
     for (var i = 0; i < holidayData.length; i++) {
       if (holidayData[i]['Assigned Participant'] === participantName) {
         count++;
@@ -66,194 +66,19 @@ function getParticipantAssignments(participantName, phase) {
 /**
  * Gets the active window of participants based on phase, round, direction, and lead.
  */
-function getActiveParticipants(phase) {
-  var state = getQueueState();
-  var currentRound = state.round;
-  var direction = state.direction; // 'ASCENDING' or 'DESCENDING'
-  var lead = state.lead; // 1-based index (e.g. 1 means position 1)
-
-  var participants = getSheetDataAsObjects('Participant Config');
-
-  // 1. Filter and identify eligible participants
-  var eligiblePool = [];
-
-  // Default target caps
-  var defaultVacationCap = getSystemTarget('Vacation Week Target Default', 9);
-
-  for (var i = 0; i < participants.length; i++) {
-    var p = participants[i];
-
-    // Check if Active for Year
-    if (p['Active for Year'] !== true && p['Active for Year'] !== 'TRUE') {
-      continue;
-    }
-
-    // Phase-specific eligibility
-    var isEligibleForPhase = false;
-    var targetCap = 999;
-
-    if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
-      if (p['Vacation Phase Enabled'] === true || p['Vacation Phase Enabled'] === 'TRUE') {
-        isEligibleForPhase = true;
-        targetCap = p['Vacation Week Target Override'] !== '' ? parseInt(p['Vacation Week Target Override']) : defaultVacationCap;
-      }
-    } else if (phase === 'WEEKEND') {
-      if (p['Weekend Phase Enabled'] === true || p['Weekend Phase Enabled'] === 'TRUE') {
-        isEligibleForPhase = true;
-        targetCap = p['Weekend Assignment Maximum'] !== '' ? parseInt(p['Weekend Assignment Maximum']) : 999;
-      }
-    } else if (phase === 'HOLIDAY_VOLUNTEER') {
-      var volResp = String(p['Holiday Volunteer Response'] || '').toLowerCase();
-      var volFlag = (p['Holiday Volunteer'] === true || p['Holiday Volunteer'] === 'TRUE');
-      if ((volResp === 'yes' || volFlag) && volResp !== 'pass') {
-        isEligibleForPhase = true;
-      }
-    } else if (phase === 'HOLIDAY_MANDATORY') {
-      if (p['Mandatory Holiday Eligible'] === true || p['Mandatory Holiday Eligible'] === 'TRUE') {
-        isEligibleForPhase = true;
-      }
-    } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
-      if (p['Transfer Giver'] === true || p['Transfer Giver'] === 'TRUE') {
-        isEligibleForPhase = true;
-      }
-    } else if (phase === 'TRANSFER_RECEIVER') {
-      if ((p['Transfer Receiver'] === true || p['Transfer Receiver'] === 'TRUE') && p['Transfer Receiver'] !== false && p['Transfer Receiver'] !== 'FALSE') {
-        isEligibleForPhase = true;
-      }
-    }
-
-    if (!isEligibleForPhase) continue;
-
-    // Calculate current actual assignments
-    var actualAssignments = getParticipantAssignments(p['Name'], phase);
-
-    // Calculate effective assignments for Round comparison
-    var skippedTurns = parseInt(p['Skipped Turns Remaining']) || 0;
-    var effectiveAssignments = actualAssignments + skippedTurns;
-
-    // Round Eligibility Check. They are ineligible if they reached the target cap OR met the round quota.
-    var isEligibleForRound = (actualAssignments < targetCap) && (effectiveAssignments < currentRound);
-
-    eligiblePool.push({
-      participant: p,
-      isEligible: isEligibleForRound,
-      sortPosition: phase === 'VACATION_SENIORITY' ? parseInt(p['Seniority Position']) : parseInt(p['Lottery Position'])
-    });
-  }
-
-  // 2. Sort the pool
-  eligiblePool.sort(function(a, b) {
-    return a.sortPosition - b.sortPosition;
-  });
-
-  // 3. Determine active window
-  // The lead dictates the start of the window.
-  var windowSize = getActiveWindowSize(phase);
-  var activeWindow = [];
-
-  // Find the lead index in the sorted pool
-  var startIndex = -1;
-  for (var i = 0; i < eligiblePool.length; i++) {
-    if (eligiblePool[i].sortPosition === lead) {
-      startIndex = i;
-      break;
-    }
-  }
-
-  if (startIndex === -1) {
-    return []; // Lead not found in pool
-  }
-
-  // Build window starting from lead in the specified direction
-  // Loop exactly windowSize times to strictly enforce Head-of-Queue Priority rule.
-  var currentIndex = startIndex;
-  var step = direction === 'ASCENDING' ? 1 : -1;
-  var iterations = 0;
-
-  while (iterations < windowSize && currentIndex >= 0 && currentIndex < eligiblePool.length) {
-    if (eligiblePool[currentIndex].isEligible) {
-      activeWindow.push(eligiblePool[currentIndex].participant);
-    }
-    currentIndex += step;
-    iterations++;
-  }
-
-  return activeWindow;
-}
-
 /**
- * Validates if the queue can advance and advances the 'Lead' correctly.
- *
- * Re-calculates eligibility and finds the next valid lead.
- * If all eligible participants in the current direction have completed their turns,
- * it waits for any remaining participants in the directional window to finish.
- * Once all are finished, it reverses the direction and optionally increments the round.
+ * Shared logic for evaluating eligibility and determining the active window and up next participants.
+ * Does not read state internally to ensure consistency.
  */
-/**
- * Private helper to get the public queue snapshot (Active and Up Next).
- * Calculates both together to avoid reading sheets multiple times.
- */
-function getPublicQueueSnapshot_(phase, adminOptions) {
-  var state = getQueueState();
+function getQueueWindows_(phase, state, cache) {
   var currentRound = state.round;
   var direction = state.direction;
   var lead = state.lead;
 
-  var participants = getSheetDataAsObjects('Participant Config');
-
-  var val = parseInt(adminOptions['Vacation Week Target Default']);
-  var defaultVacationCap = isNaN(val) ? 9 : val;
-
-  var windowSize = 1;
-  if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
-    windowSize = parseInt(adminOptions['Vacation Active Window (participants)']) || 3;
-  } else if (phase === 'WEEKEND') {
-    windowSize = parseInt(adminOptions['Weekend Active Window (participants)']) || 2;
-  } else if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
-    windowSize = parseInt(adminOptions['Holiday Active Window (participants)']) || 2;
-  } else if (phase === 'TRANSFER_OFFER_COLLECTION' || phase === 'TRANSFER_RECEIVER') {
-    windowSize = parseInt(adminOptions['Transfer Active Window (participants)']) || 2;
-  }
-
-  var calendarData = [];
-  var holidayData = [];
-  var assignmentCounts = {};
-
-  if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
-    calendarData = getSheetDataAsObjects('Vacation Availability');
-    for (var i = 0; i < calendarData.length; i++) {
-      var assignedStr = String(calendarData[i]['Assigned Participants'] || '');
-      if (assignedStr) {
-        var assignees = assignedStr.split(',').map(function(s) { return s.trim(); });
-        for (var j = 0; j < assignees.length; j++) {
-          if (assignees[j]) {
-            assignmentCounts[assignees[j]] = (assignmentCounts[assignees[j]] || 0) + 1;
-          }
-        }
-      }
-    }
-  } else if (phase === 'WEEKEND') {
-    calendarData = getSheetDataAsObjects('Weekend Coverage');
-    for (var i = 0; i < calendarData.length; i++) {
-      var assignee = calendarData[i]['First Call Assignee'];
-      if (assignee) {
-        var a = String(assignee).trim();
-        assignmentCounts[a] = (assignmentCounts[a] || 0) + 1;
-      }
-    }
-    holidayData = getSheetDataAsObjects('Holiday Coverage');
-  } else if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
-    calendarData = getSheetDataAsObjects('Holiday Coverage');
-    for (var i = 0; i < calendarData.length; i++) {
-      var assignee = calendarData[i]['Assigned Participant'];
-      if (assignee) {
-        var a = String(assignee).trim();
-        assignmentCounts[a] = (assignmentCounts[a] || 0) + 1;
-      }
-    }
-  }
-
+  var participants = getSheetDataAsObjects('Participant Config', cache);
   var eligiblePool = [];
+  var defaultVacationCap = getSystemTarget('Vacation Week Target Default', 9);
+
   for (var i = 0; i < participants.length; i++) {
     var p = participants[i];
     if (p['Active for Year'] !== true && p['Active for Year'] !== 'TRUE') continue;
@@ -285,23 +110,26 @@ function getPublicQueueSnapshot_(phase, adminOptions) {
 
     if (!isEligibleForPhase) continue;
 
-    var actualAssignments = assignmentCounts[p['Name']] || 0;
+    var actualAssignments = getParticipantAssignments(p['Name'], phase, cache);
     var skippedTurns = parseInt(p['Skipped Turns Remaining']) || 0;
     var effectiveAssignments = actualAssignments + skippedTurns;
 
     var isEligibleForRound = (actualAssignments < targetCap) && (effectiveAssignments < currentRound);
 
     eligiblePool.push({
-      name: String(p['Name'] || '').trim(),
+      participant: p,
       isEligible: isEligibleForRound,
       sortPosition: phase === 'VACATION_SENIORITY' ? parseInt(p['Seniority Position']) : parseInt(p['Lottery Position'])
     });
   }
 
-  eligiblePool.sort(function(a, b) { return a.sortPosition - b.sortPosition; });
+  eligiblePool.sort(function(a, b) {
+    return a.sortPosition - b.sortPosition;
+  });
 
-  var activeNames = [];
-  var upNextNames = [];
+  var windowSize = getActiveWindowSize(phase);
+  var activeWindow = [];
+  var upNextWindow = [];
 
   var startIndex = -1;
   for (var i = 0; i < eligiblePool.length; i++) {
@@ -311,39 +139,47 @@ function getPublicQueueSnapshot_(phase, adminOptions) {
     }
   }
 
-  if (startIndex !== -1) {
-    var currentIndex = startIndex;
-    var step = direction === 'ASCENDING' ? 1 : -1;
-    var iterations = 0;
-
-    while (iterations < windowSize && currentIndex >= 0 && currentIndex < eligiblePool.length) {
-      if (eligiblePool[currentIndex].isEligible) {
-        activeNames.push(eligiblePool[currentIndex].name);
-      }
-      currentIndex += step;
-      iterations++;
-    }
-
-    var upNextIterations = 0;
-    while (upNextIterations < 2 && currentIndex >= 0 && currentIndex < eligiblePool.length) {
-      if (eligiblePool[currentIndex].isEligible) {
-        upNextNames.push(eligiblePool[currentIndex].name);
-        upNextIterations++;
-      }
-      currentIndex += step;
-    }
+  if (startIndex === -1) {
+    return { activeWindow: [], upNextWindow: [], windowSize: windowSize, participants: participants };
   }
 
-  return {
-    state: state,
-    windowSize: windowSize,
-    activeNames: activeNames,
-    upNextNames: upNextNames,
-    participants: participants,
-    calendarData: calendarData,
-    holidayData: holidayData
-  };
+  var currentIndex = startIndex;
+  var step = direction === 'ASCENDING' ? 1 : -1;
+  var iterations = 0;
+
+  while (iterations < windowSize && currentIndex >= 0 && currentIndex < eligiblePool.length) {
+    if (eligiblePool[currentIndex].isEligible) {
+      activeWindow.push(eligiblePool[currentIndex].participant);
+    }
+    currentIndex += step;
+    iterations++;
+  }
+
+  var upNextCount = 0;
+  while (upNextCount < 2 && currentIndex >= 0 && currentIndex < eligiblePool.length) {
+    if (eligiblePool[currentIndex].isEligible) {
+      upNextWindow.push(eligiblePool[currentIndex].participant);
+      upNextCount++;
+    }
+    currentIndex += step;
+  }
+
+  return { activeWindow: activeWindow, upNextWindow: upNextWindow, windowSize: windowSize, participants: participants };
 }
+
+function getActiveParticipants(phase) {
+  var state = getQueueState();
+  return getQueueWindows_(phase, state, {}).activeWindow;
+}
+
+/**
+ * Validates if the queue can advance and advances the 'Lead' correctly.
+ *
+ * Re-calculates eligibility and finds the next valid lead.
+ * If all eligible participants in the current direction have completed their turns,
+ * it waits for any remaining participants in the directional window to finish.
+ * Once all are finished, it reverses the direction and optionally increments the round.
+ */
 
 function advanceQueue() {
   return withScriptLock(function() {
@@ -399,7 +235,7 @@ function advanceQueue() {
 
       if (!isEligibleForPhase) continue;
 
-      var actualAssignments = getParticipantAssignments(p['Name'], phase);
+      var actualAssignments = getParticipantAssignments(p['Name'], phase, {});
       var skippedTurns = parseInt(p['Skipped Turns Remaining']) || 0;
       var effectiveAssignments = actualAssignments + skippedTurns;
 
@@ -444,7 +280,7 @@ function advanceQueue() {
     var leadParticipant = eligiblePool[currentIndex].participant;
     var leadSkippedTurns = parseInt(leadParticipant['Skipped Turns Remaining']) || 0;
     if (leadSkippedTurns > 0) {
-      var leadActual = getParticipantAssignments(leadParticipant['Name'], phase);
+      var leadActual = getParticipantAssignments(leadParticipant['Name'], phase, {});
       if (leadActual + leadSkippedTurns >= currentRound) {
         // They are no longer eligible because the skipped turn pushed them over the round requirement.
         // Decrement their skipped turns and write to sheet.
@@ -514,7 +350,7 @@ function advanceQueue() {
       // Re-evaluate eligibility for the new round
       for (var i = startIdx; i >= 0 && i < eligiblePool.length; i += newStep) {
         var p = eligiblePool[i].participant;
-        var actual = getParticipantAssignments(p['Name'], phase);
+        var actual = getParticipantAssignments(p['Name'], phase, {});
         var skipped = parseInt(p['Skipped Turns Remaining']) || 0;
         if (actual + skipped < newRound) {
            newLeadIdx = i;
