@@ -14,6 +14,14 @@
     adjacentHolidayPending: null
   };
 
+  // Public Display State
+  var publicDisplayState = {
+    snapshot: null,
+    selectedPerson: '',
+    loaded: false,
+    loading: false
+  };
+
   // Utility to show toasts
   function showToast(message, type) {
     type = type || 'error';
@@ -52,6 +60,7 @@
       showMainScreen();
     } else {
       document.getElementById('loginScreen').classList.add('active');
+      loadPublicDisplay();
     }
 
     // Event Listeners
@@ -136,6 +145,7 @@
     document.getElementById('loginName').value = '';
     document.getElementById('loginPin').value = '';
     setLoginLoading(false);
+    loadPublicDisplay();
   }
 
   // Main Screen & Data Loading
@@ -775,6 +785,289 @@
     appState.adjacentHolidayPending = 'DECLINED';
     document.getElementById('holidayPromptModal').style.display = 'none';
     submitSelection(false);
+  }
+
+  // =========================================================================
+  // Public Display
+  // =========================================================================
+
+  function loadPublicDisplay() {
+    if (publicDisplayState.loaded || publicDisplayState.loading) return;
+
+    publicDisplayState.loading = true;
+    document.getElementById('publicDisplayLoading').style.display = 'block';
+    document.getElementById('publicDisplayError').style.display = 'none';
+    document.getElementById('publicDisplayContent').style.display = 'none';
+
+    google.script.run
+      .withSuccessHandler(onPublicDisplayLoaded)
+      .withFailureHandler(onPublicDisplayError)
+      .getPublicDisplaySnapshot();
+  }
+
+  function onPublicDisplayError() {
+    publicDisplayState.loading = false;
+    var errEl = document.getElementById('publicDisplayError');
+    errEl.textContent = "The current schedule is temporarily unavailable.";
+    errEl.style.display = 'block';
+    document.getElementById('publicDisplayLoading').style.display = 'none';
+  }
+
+  function onPublicDisplayLoaded(snapshot) {
+    publicDisplayState.loading = false;
+
+    if (!snapshot || typeof snapshot !== 'object' || snapshot.success !== true || !snapshot.calendar || typeof snapshot.calendar !== 'object' || !Array.isArray(snapshot.participantNames)) {
+      onPublicDisplayError();
+      return;
+    }
+
+    publicDisplayState.loaded = true;
+    publicDisplayState.snapshot = snapshot;
+
+    document.getElementById('publicDisplayLoading').style.display = 'none';
+    document.getElementById('publicDisplayError').style.display = 'none';
+    document.getElementById('publicDisplayContent').style.display = 'block';
+
+    renderPublicPhaseHeading(snapshot);
+    populateFindPerson(snapshot.participantNames);
+    renderPublicCalendar(snapshot);
+  }
+
+  function renderPublicPhaseHeading(snapshot) {
+    var headingEl = document.getElementById('publicPhaseHeading');
+    if (!snapshot.activeYear && !snapshot.phase) {
+      headingEl.textContent = "Schedule";
+      return;
+    }
+
+    var phaseLabel = snapshot.phase;
+    if (phaseLabel === 'VACATION_SENIORITY') phaseLabel = 'VACATION SENIORITY';
+    else if (phaseLabel === 'VACATION_RANDOM') phaseLabel = 'VACATION LOTTERY';
+    else if (phaseLabel === 'WEEKEND') phaseLabel = 'WEEKEND COVERAGE';
+    else if (phaseLabel === 'HOLIDAY_VOLUNTEER') phaseLabel = 'HOLIDAY VOLUNTEER';
+    else if (phaseLabel === 'HOLIDAY_MANDATORY') phaseLabel = 'HOLIDAY MANDATORY';
+
+    var dirLabel = '';
+    if (snapshot.direction === 'ASCENDING') dirLabel = ' (Forward)';
+    else if (snapshot.direction === 'DESCENDING') dirLabel = ' (Reverse)';
+
+    var parts = [];
+    if (snapshot.activeYear) parts.push(snapshot.activeYear);
+    if (phaseLabel) parts.push(phaseLabel);
+    if (snapshot.round) parts.push('R' + snapshot.round + dirLabel);
+
+    headingEl.textContent = parts.join(' ');
+  }
+
+  function formatPublicDate(val) {
+    if (!val) return '';
+    var str = String(val);
+    var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
+    if (match) {
+      var y = parseInt(match[1], 10);
+      var m = parseInt(match[2], 10);
+      var d = parseInt(match[3], 10);
+      var dateObj = new Date(y, m - 1, d);
+      return dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    return str;
+  }
+
+  function createPublicItem(type, obj) {
+    var item = document.createElement('div');
+    item.className = 'public-calendar-item card'; // Note: card handles the box look, we will override pointer/hover in CSS
+
+    var assignedStr = '';
+    if (obj.assignedNames && obj.assignedNames.length > 0) {
+      assignedStr = obj.assignedNames.join(', ');
+    } else {
+      assignedStr = 'No assignments';
+    }
+
+    // Store assigned names for highlighting
+    item.setAttribute('data-assignees', (obj.assignedNames || []).map(function(n) { return n.trim().toLowerCase(); }).join('|'));
+
+    var header = document.createElement('h4');
+    header.className = 'public-calendar-heading';
+
+    var subHtml = '';
+    var remStr = obj.assignedCount + ' of ' + obj.capacity + ' assigned · ' + obj.remainingCapacity + ' remaining';
+    if (obj.remainingCapacity === 0) remStr += ' · Full';
+
+    var subContent = document.createElement('div');
+    if (type === 'VACATION') {
+      header.textContent = 'Week ' + obj.weekId + ' · ' + formatPublicDate(obj.startDate);
+      var badgeContainer = document.createElement('div');
+      badgeContainer.style.marginBottom = '8px';
+
+      if (obj.primeClassification && obj.primeClassification.toLowerCase() === 'prime') {
+         var pBadge = document.createElement('span');
+         pBadge.className = 'badge badge-prime';
+         pBadge.textContent = 'Prime';
+         badgeContainer.appendChild(pBadge);
+      } else if (obj.primeClassification) {
+         var npBadge = document.createElement('span');
+         npBadge.className = 'badge badge-nonprime';
+         npBadge.textContent = 'Non-Prime';
+         badgeContainer.appendChild(npBadge);
+      }
+
+      if (obj.specialWeekDesignation && obj.specialWeekDesignation !== 'None') {
+         var sBadge = document.createElement('span');
+         sBadge.className = 'badge badge-special';
+         sBadge.textContent = obj.specialWeekDesignation;
+         badgeContainer.appendChild(sBadge);
+      }
+
+      if (badgeContainer.hasChildNodes()) {
+         subContent.appendChild(badgeContainer);
+      }
+    } else if (type === 'WEEKEND') {
+      header.textContent = obj.dayOfWeek + ' · ' + formatPublicDate(obj.date);
+      if (obj.vacationAdjacencyWarning) {
+        var vBadge = document.createElement('div');
+        vBadge.className = 'badge badge-warning';
+        vBadge.textContent = obj.vacationAdjacencyWarning;
+        subContent.appendChild(vBadge);
+      }
+      if (obj.holidayProximityWarning) {
+        var hBadge = document.createElement('div');
+        hBadge.className = 'badge badge-warning';
+        hBadge.textContent = obj.holidayProximityWarning;
+        subContent.appendChild(hBadge);
+      }
+    } else if (type === 'HOLIDAY') {
+      header.textContent = obj.holidayName + ' (' + obj.callPosition + ') · ' + formatPublicDate(obj.observedDate);
+    }
+
+    var avail = document.createElement('div');
+    avail.className = 'public-availability card-subtitle';
+    avail.textContent = remStr;
+
+    var assigned = document.createElement('div');
+    assigned.className = 'public-assigned-names assignees';
+    assigned.textContent = assignedStr;
+
+    var content = document.createElement('div');
+    content.className = 'card-content';
+
+    content.appendChild(header);
+    if (subContent.hasChildNodes()) {
+      content.appendChild(subContent);
+    }
+    content.appendChild(avail);
+    content.appendChild(assigned);
+
+    item.appendChild(content);
+    return item;
+  }
+
+  function renderPublicCalendar(snapshot) {
+    var container = document.getElementById('publicCalendarContent');
+    container.innerHTML = '';
+
+    var cal = snapshot.calendar;
+    if (cal.supported === false) {
+      var msg = document.createElement('p');
+      msg.textContent = cal.unsupportedReason || "A calendar display is not available for the current phase.";
+      container.appendChild(msg);
+      return;
+    }
+
+    var grid = document.createElement('div');
+    grid.className = 'public-calendar-grid';
+
+    if (cal.kind === 'VACATION') {
+       var weeks = cal.vacationWeeks || [];
+       for (var i = 0; i < weeks.length; i++) {
+         grid.appendChild(createPublicItem('VACATION', weeks[i]));
+       }
+       container.appendChild(grid);
+    } else if (cal.kind === 'WEEKEND') {
+       var headW = document.createElement('h3');
+       headW.textContent = 'Weekend Coverage';
+       container.appendChild(headW);
+
+       var wGrid = document.createElement('div');
+       wGrid.className = 'public-calendar-grid';
+       var weekends = cal.weekends || [];
+       for (var i = 0; i < weekends.length; i++) {
+         wGrid.appendChild(createPublicItem('WEEKEND', weekends[i]));
+       }
+       container.appendChild(wGrid);
+
+       var headH = document.createElement('h3');
+       headH.textContent = 'Holiday Coverage';
+       container.appendChild(headH);
+
+       var hGrid = document.createElement('div');
+       hGrid.className = 'public-calendar-grid';
+       var holidays = cal.holidays || [];
+       for (var i = 0; i < holidays.length; i++) {
+         hGrid.appendChild(createPublicItem('HOLIDAY', holidays[i]));
+       }
+       container.appendChild(hGrid);
+    } else if (cal.kind === 'HOLIDAY') {
+       var hGrid = document.createElement('div');
+       hGrid.className = 'public-calendar-grid';
+       var holidays = cal.holidays || [];
+       for (var i = 0; i < holidays.length; i++) {
+         hGrid.appendChild(createPublicItem('HOLIDAY', holidays[i]));
+       }
+       container.appendChild(hGrid);
+    }
+  }
+
+  function populateFindPerson(names) {
+    var select = document.getElementById('findPersonSelect');
+    select.innerHTML = '<option value="">Select a person</option>';
+
+    for (var i = 0; i < names.length; i++) {
+       var opt = document.createElement('option');
+       opt.value = names[i];
+       opt.textContent = names[i];
+       select.appendChild(opt);
+    }
+
+    select.addEventListener('change', function() {
+       publicDisplayState.selectedPerson = this.value;
+       applyFindPersonHighlights();
+    });
+
+    document.getElementById('clearPersonBtn').addEventListener('click', function() {
+       select.value = '';
+       publicDisplayState.selectedPerson = '';
+       applyFindPersonHighlights();
+    });
+  }
+
+  function applyFindPersonHighlights() {
+    var searchVal = (publicDisplayState.selectedPerson || '').trim().toLowerCase();
+    var items = document.querySelectorAll('.public-calendar-item');
+    var resultEl = document.getElementById('findPersonResult');
+
+    if (!searchVal) {
+       items.forEach(function(item) {
+          item.classList.remove('person-highlight');
+       });
+       resultEl.textContent = '';
+       return;
+    }
+
+    var matchCount = 0;
+    items.forEach(function(item) {
+       var assignees = item.getAttribute('data-assignees');
+       var assigneeList = assignees ? assignees.split('|') : [];
+       var isMatch = assigneeList.indexOf(searchVal) !== -1;
+       item.classList.toggle('person-highlight', isMatch);
+       if (isMatch) matchCount++;
+    });
+
+    if (matchCount === 0) {
+       resultEl.textContent = "No assignments found for " + publicDisplayState.selectedPerson + " in the current calendar.";
+    } else {
+       resultEl.textContent = matchCount + " assignment" + (matchCount === 1 ? "" : "s") + " highlighted for " + publicDisplayState.selectedPerson + ".";
+    }
   }
 
 </script>
