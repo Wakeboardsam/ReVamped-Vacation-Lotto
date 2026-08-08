@@ -189,6 +189,162 @@ function getActiveParticipants(phase) {
  * it waits for any remaining participants in the directional window to finish.
  * Once all are finished, it reverses the direction and optionally increments the round.
  */
+/**
+ * Private helper to get the public queue snapshot (Active and Up Next).
+ * Calculates both together to avoid reading sheets multiple times.
+ */
+function getPublicQueueSnapshot_(phase, adminOptions) {
+  var state = getQueueState();
+  var currentRound = state.round;
+  var direction = state.direction;
+  var lead = state.lead;
+
+  var participants = getSheetDataAsObjects('Participant Config');
+
+  var val = parseInt(adminOptions['Vacation Week Target Default']);
+  var defaultVacationCap = isNaN(val) ? 9 : val;
+
+  var windowSize = 1;
+  if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
+    windowSize = parseInt(adminOptions['Vacation Active Window (participants)']) || 3;
+  } else if (phase === 'WEEKEND') {
+    windowSize = parseInt(adminOptions['Weekend Active Window (participants)']) || 2;
+  } else if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
+    windowSize = parseInt(adminOptions['Holiday Active Window (participants)']) || 2;
+  } else if (phase === 'TRANSFER_OFFER_COLLECTION' || phase === 'TRANSFER_RECEIVER') {
+    windowSize = parseInt(adminOptions['Transfer Active Window (participants)']) || 2;
+  }
+
+  var calendarData = [];
+  var holidayData = [];
+  var assignmentCounts = {};
+
+  if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
+    calendarData = getSheetDataAsObjects('Vacation Availability');
+    for (var i = 0; i < calendarData.length; i++) {
+      var assignedStr = String(calendarData[i]['Assigned Participants'] || '');
+      if (assignedStr) {
+        var assignees = assignedStr.split(',').map(function(s) { return s.trim(); });
+        for (var j = 0; j < assignees.length; j++) {
+          if (assignees[j]) {
+            assignmentCounts[assignees[j]] = (assignmentCounts[assignees[j]] || 0) + 1;
+          }
+        }
+      }
+    }
+  } else if (phase === 'WEEKEND') {
+    calendarData = getSheetDataAsObjects('Weekend Coverage');
+    for (var i = 0; i < calendarData.length; i++) {
+      var assignee = calendarData[i]['First Call Assignee'];
+      if (assignee) {
+        var a = String(assignee).trim();
+        assignmentCounts[a] = (assignmentCounts[a] || 0) + 1;
+      }
+    }
+    holidayData = getSheetDataAsObjects('Holiday Coverage');
+  } else if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
+    calendarData = getSheetDataAsObjects('Holiday Coverage');
+    for (var i = 0; i < calendarData.length; i++) {
+      var assignee = calendarData[i]['Assigned Participant'];
+      if (assignee) {
+        var a = String(assignee).trim();
+        assignmentCounts[a] = (assignmentCounts[a] || 0) + 1;
+      }
+    }
+  }
+
+  var eligiblePool = [];
+  for (var i = 0; i < participants.length; i++) {
+    var p = participants[i];
+    if (p['Active for Year'] !== true && p['Active for Year'] !== 'TRUE') continue;
+
+    var isEligibleForPhase = false;
+    var targetCap = 999;
+
+    if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
+      if (p['Vacation Phase Enabled'] === true || p['Vacation Phase Enabled'] === 'TRUE') {
+        isEligibleForPhase = true;
+        targetCap = p['Vacation Week Target Override'] !== '' ? parseInt(p['Vacation Week Target Override']) : defaultVacationCap;
+      }
+    } else if (phase === 'WEEKEND') {
+      if (p['Weekend Phase Enabled'] === true || p['Weekend Phase Enabled'] === 'TRUE') {
+        isEligibleForPhase = true;
+        targetCap = p['Weekend Assignment Maximum'] !== '' ? parseInt(p['Weekend Assignment Maximum']) : 999;
+      }
+    } else if (phase === 'HOLIDAY_VOLUNTEER') {
+      var volResp = String(p['Holiday Volunteer Response'] || '').toLowerCase();
+      var volFlag = (p['Holiday Volunteer'] === true || p['Holiday Volunteer'] === 'TRUE');
+      if ((volResp === 'yes' || volFlag) && volResp !== 'pass') isEligibleForPhase = true;
+    } else if (phase === 'HOLIDAY_MANDATORY') {
+      if (p['Mandatory Holiday Eligible'] === true || p['Mandatory Holiday Eligible'] === 'TRUE') isEligibleForPhase = true;
+    } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
+      if (p['Transfer Giver'] === true || p['Transfer Giver'] === 'TRUE') isEligibleForPhase = true;
+    } else if (phase === 'TRANSFER_RECEIVER') {
+      if ((p['Transfer Receiver'] === true || p['Transfer Receiver'] === 'TRUE') && p['Transfer Receiver'] !== false && p['Transfer Receiver'] !== 'FALSE') isEligibleForPhase = true;
+    }
+
+    if (!isEligibleForPhase) continue;
+
+    var actualAssignments = assignmentCounts[p['Name']] || 0;
+    var skippedTurns = parseInt(p['Skipped Turns Remaining']) || 0;
+    var effectiveAssignments = actualAssignments + skippedTurns;
+
+    var isEligibleForRound = (actualAssignments < targetCap) && (effectiveAssignments < currentRound);
+
+    eligiblePool.push({
+      name: String(p['Name'] || '').trim(),
+      isEligible: isEligibleForRound,
+      sortPosition: phase === 'VACATION_SENIORITY' ? parseInt(p['Seniority Position']) : parseInt(p['Lottery Position'])
+    });
+  }
+
+  eligiblePool.sort(function(a, b) { return a.sortPosition - b.sortPosition; });
+
+  var activeNames = [];
+  var upNextNames = [];
+
+  var startIndex = -1;
+  for (var i = 0; i < eligiblePool.length; i++) {
+    if (eligiblePool[i].sortPosition === lead) {
+      startIndex = i;
+      break;
+    }
+  }
+
+  if (startIndex !== -1) {
+    var currentIndex = startIndex;
+    var step = direction === 'ASCENDING' ? 1 : -1;
+    var iterations = 0;
+
+    while (iterations < windowSize && currentIndex >= 0 && currentIndex < eligiblePool.length) {
+      if (eligiblePool[currentIndex].isEligible) {
+        activeNames.push(eligiblePool[currentIndex].name);
+      }
+      currentIndex += step;
+      iterations++;
+    }
+
+    var upNextIterations = 0;
+    while (upNextIterations < 2 && currentIndex >= 0 && currentIndex < eligiblePool.length) {
+      if (eligiblePool[currentIndex].isEligible) {
+        upNextNames.push(eligiblePool[currentIndex].name);
+        upNextIterations++;
+      }
+      currentIndex += step;
+    }
+  }
+
+  return {
+    state: state,
+    windowSize: windowSize,
+    activeNames: activeNames,
+    upNextNames: upNextNames,
+    participants: participants,
+    calendarData: calendarData,
+    holidayData: holidayData
+  };
+}
+
 function advanceQueue() {
   return withScriptLock(function() {
     var state = getQueueState();
