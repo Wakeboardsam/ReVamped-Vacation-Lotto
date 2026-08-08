@@ -815,13 +815,13 @@
 
   function onPublicDisplayLoaded(snapshot) {
     publicDisplayState.loading = false;
-    publicDisplayState.loaded = true;
 
     if (!snapshot || typeof snapshot !== 'object' || snapshot.success !== true || !snapshot.calendar || typeof snapshot.calendar !== 'object' || !Array.isArray(snapshot.participantNames)) {
       onPublicDisplayError();
       return;
     }
 
+    publicDisplayState.loaded = true;
     publicDisplayState.snapshot = snapshot;
 
     document.getElementById('publicDisplayLoading').style.display = 'none';
