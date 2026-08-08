@@ -104,4 +104,75 @@
 
   @keyframes fadein { from { opacity: 0; right: 0; } to { opacity: 1; right: 20px; } }
   @keyframes fadeout { from { opacity: 1; } to { opacity: 0; } }
+
+  /* Public Display */
+  .public-display {
+    max-width: 1000px;
+    margin: 40px auto;
+    padding: 20px;
+  }
+
+  .login-explanation {
+    text-align: center;
+    color: var(--secondary);
+    margin-bottom: 20px;
+  }
+
+  .find-person-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+
+  .find-person-controls label {
+    font-weight: bold;
+  }
+
+  .find-person-controls select {
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 16px;
+    flex: 1;
+    min-width: 200px;
+  }
+
+  #findPersonResult {
+    margin-bottom: 20px;
+    font-size: 14px;
+    color: var(--secondary);
+    min-height: 20px;
+  }
+
+  .public-calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 12px;
+    margin-bottom: 30px;
+  }
+
+  /* Override card cursor and hover for public items since they are read-only */
+  .public-calendar-item {
+    cursor: default;
+    border: 1px solid var(--border);
+  }
+
+  .public-calendar-item:hover {
+    box-shadow: none;
+  }
+
+  .public-calendar-heading {
+    font-size: 16px;
+    font-weight: bold;
+    margin: 0 0 8px 0;
+  }
+
+  /* Highlight state for Find Person */
+  .person-highlight {
+    border: 2px solid var(--primary);
+    background-color: #e3f2fd;
+    box-shadow: inset 0 0 0 1px rgba(33, 150, 243, 0.2);
+  }
 </style>

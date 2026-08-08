@@ -4,14 +4,15 @@
     <base target="_top">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>Vacation Lottery System</title>
+    <title>Vacation Lottery</title>
     <?!= HtmlService.createHtmlOutputFromFile('CSS').getContent(); ?>
   </head>
   <body>
     <!-- Login Screen -->
     <div id="loginScreen" class="screen active">
       <div class="login-container">
-        <h2>Vacation Lottery System</h2>
+        <h2>Vacation Lottery</h2>
+        <p class="login-explanation">The current schedule is available below. Log in only when it is your turn to make a selection.</p>
         <div class="form-group">
           <label for="loginName">Name</label>
           <input type="text" id="loginName" placeholder="Enter your name">
@@ -23,6 +24,27 @@
         <button id="loginBtn" class="btn btn-primary">Login</button>
         <div id="loginError" class="error-text" style="display:none;"></div>
       </div>
+
+      <!-- Public Display Section -->
+      <section id="publicDisplaySection" class="public-display" aria-labelledby="publicPhaseHeading">
+        <div id="publicDisplayLoading">Loading current schedule...</div>
+        <div id="publicDisplayError" class="error-text" role="status" style="display:none;"></div>
+
+        <div id="publicDisplayContent" style="display:none;">
+          <h2 id="publicPhaseHeading"></h2>
+
+          <div class="find-person-controls">
+            <label for="findPersonSelect">Find Person</label>
+            <select id="findPersonSelect">
+              <option value="">Select a person</option>
+            </select>
+            <button id="clearPersonBtn" class="btn btn-secondary" type="button">Clear</button>
+          </div>
+
+          <div id="findPersonResult" role="status"></div>
+          <div id="publicCalendarContent"></div>
+        </div>
+      </section>
     </div>
 
     <!-- Main App Screen -->

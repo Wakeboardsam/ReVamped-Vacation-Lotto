@@ -1,4 +1,3 @@
-<script>
   // State
   var appState = {
     participantId: null,
@@ -894,47 +893,25 @@
     var remStr = obj.assignedCount + ' of ' + obj.capacity + ' assigned · ' + obj.remainingCapacity + ' remaining';
     if (obj.remainingCapacity === 0) remStr += ' · Full';
 
-    var subContent = document.createElement('div');
     if (type === 'VACATION') {
       header.textContent = 'Week ' + obj.weekId + ' · ' + formatPublicDate(obj.startDate);
-      var badgeContainer = document.createElement('div');
-      badgeContainer.style.marginBottom = '8px';
-
+      var badges = '';
       if (obj.primeClassification && obj.primeClassification.toLowerCase() === 'prime') {
-         var pBadge = document.createElement('span');
-         pBadge.className = 'badge badge-prime';
-         pBadge.textContent = 'Prime';
-         badgeContainer.appendChild(pBadge);
+         badges += '<span class="badge badge-prime">Prime</span>';
       } else if (obj.primeClassification) {
-         var npBadge = document.createElement('span');
-         npBadge.className = 'badge badge-nonprime';
-         npBadge.textContent = 'Non-Prime';
-         badgeContainer.appendChild(npBadge);
+         badges += '<span class="badge badge-nonprime">Non-Prime</span>';
       }
-
       if (obj.specialWeekDesignation && obj.specialWeekDesignation !== 'None') {
-         var sBadge = document.createElement('span');
-         sBadge.className = 'badge badge-special';
-         sBadge.textContent = obj.specialWeekDesignation;
-         badgeContainer.appendChild(sBadge);
+         badges += '<span class="badge badge-special">' + obj.specialWeekDesignation + '</span>';
       }
-
-      if (badgeContainer.hasChildNodes()) {
-         subContent.appendChild(badgeContainer);
-      }
+      subHtml += '<div style="margin-bottom:8px;">' + badges + '</div>';
     } else if (type === 'WEEKEND') {
       header.textContent = obj.dayOfWeek + ' · ' + formatPublicDate(obj.date);
       if (obj.vacationAdjacencyWarning) {
-        var vBadge = document.createElement('div');
-        vBadge.className = 'badge badge-warning';
-        vBadge.textContent = obj.vacationAdjacencyWarning;
-        subContent.appendChild(vBadge);
+        subHtml += '<div class="badge badge-warning">' + obj.vacationAdjacencyWarning + '</div>';
       }
       if (obj.holidayProximityWarning) {
-        var hBadge = document.createElement('div');
-        hBadge.className = 'badge badge-warning';
-        hBadge.textContent = obj.holidayProximityWarning;
-        subContent.appendChild(hBadge);
+        subHtml += '<div class="badge badge-warning">' + obj.holidayProximityWarning + '</div>';
       }
     } else if (type === 'HOLIDAY') {
       header.textContent = obj.holidayName + ' (' + obj.callPosition + ') · ' + formatPublicDate(obj.observedDate);
@@ -952,8 +929,10 @@
     content.className = 'card-content';
 
     content.appendChild(header);
-    if (subContent.hasChildNodes()) {
-      content.appendChild(subContent);
+    if (subHtml) {
+      var d = document.createElement('div');
+      d.innerHTML = subHtml; // Safe because badges are hardcoded strings or sheet-controlled labels.
+      content.appendChild(d);
     }
     content.appendChild(avail);
     content.appendChild(assigned);
@@ -1069,5 +1048,3 @@
        resultEl.textContent = matchCount + " assignment" + (matchCount === 1 ? "" : "s") + " highlighted for " + publicDisplayState.selectedPerson + ".";
     }
   }
-
-</script>

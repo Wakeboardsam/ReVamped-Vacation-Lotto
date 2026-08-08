@@ -1,0 +1,115 @@
+<<<<<<< SEARCH
+    if (type === 'VACATION') {
+      header.textContent = 'Week ' + obj.weekId + ' · ' + formatPublicDate(obj.startDate);
+      var badges = '';
+      if (obj.primeClassification && obj.primeClassification.toLowerCase() === 'prime') {
+         badges += '<span class="badge badge-prime">Prime</span>';
+      } else if (obj.primeClassification) {
+         badges += '<span class="badge badge-nonprime">Non-Prime</span>';
+      }
+      if (obj.specialWeekDesignation && obj.specialWeekDesignation !== 'None') {
+         badges += '<span class="badge badge-special">' + obj.specialWeekDesignation + '</span>';
+      }
+      subHtml += '<div style="margin-bottom:8px;">' + badges + '</div>';
+    } else if (type === 'WEEKEND') {
+      header.textContent = obj.dayOfWeek + ' · ' + formatPublicDate(obj.date);
+      if (obj.vacationAdjacencyWarning) {
+        subHtml += '<div class="badge badge-warning">' + obj.vacationAdjacencyWarning + '</div>';
+      }
+      if (obj.holidayProximityWarning) {
+        subHtml += '<div class="badge badge-warning">' + obj.holidayProximityWarning + '</div>';
+      }
+    } else if (type === 'HOLIDAY') {
+      header.textContent = obj.holidayName + ' (' + obj.callPosition + ') · ' + formatPublicDate(obj.observedDate);
+    }
+
+    var avail = document.createElement('div');
+    avail.className = 'public-availability card-subtitle';
+    avail.textContent = remStr;
+
+    var assigned = document.createElement('div');
+    assigned.className = 'public-assigned-names assignees';
+    assigned.textContent = assignedStr;
+
+    var content = document.createElement('div');
+    content.className = 'card-content';
+
+    content.appendChild(header);
+    if (subHtml) {
+      var d = document.createElement('div');
+      d.innerHTML = subHtml; // Safe because badges are hardcoded strings or sheet-controlled labels.
+      content.appendChild(d);
+    }
+    content.appendChild(avail);
+    content.appendChild(assigned);
+
+    item.appendChild(content);
+    return item;
+=======
+    var subContent = document.createElement('div');
+    if (type === 'VACATION') {
+      header.textContent = 'Week ' + obj.weekId + ' · ' + formatPublicDate(obj.startDate);
+      var badgeContainer = document.createElement('div');
+      badgeContainer.style.marginBottom = '8px';
+
+      if (obj.primeClassification && obj.primeClassification.toLowerCase() === 'prime') {
+         var pBadge = document.createElement('span');
+         pBadge.className = 'badge badge-prime';
+         pBadge.textContent = 'Prime';
+         badgeContainer.appendChild(pBadge);
+      } else if (obj.primeClassification) {
+         var npBadge = document.createElement('span');
+         npBadge.className = 'badge badge-nonprime';
+         npBadge.textContent = 'Non-Prime';
+         badgeContainer.appendChild(npBadge);
+      }
+
+      if (obj.specialWeekDesignation && obj.specialWeekDesignation !== 'None') {
+         var sBadge = document.createElement('span');
+         sBadge.className = 'badge badge-special';
+         sBadge.textContent = obj.specialWeekDesignation;
+         badgeContainer.appendChild(sBadge);
+      }
+
+      if (badgeContainer.hasChildNodes()) {
+         subContent.appendChild(badgeContainer);
+      }
+    } else if (type === 'WEEKEND') {
+      header.textContent = obj.dayOfWeek + ' · ' + formatPublicDate(obj.date);
+      if (obj.vacationAdjacencyWarning) {
+        var vBadge = document.createElement('div');
+        vBadge.className = 'badge badge-warning';
+        vBadge.textContent = obj.vacationAdjacencyWarning;
+        subContent.appendChild(vBadge);
+      }
+      if (obj.holidayProximityWarning) {
+        var hBadge = document.createElement('div');
+        hBadge.className = 'badge badge-warning';
+        hBadge.textContent = obj.holidayProximityWarning;
+        subContent.appendChild(hBadge);
+      }
+    } else if (type === 'HOLIDAY') {
+      header.textContent = obj.holidayName + ' (' + obj.callPosition + ') · ' + formatPublicDate(obj.observedDate);
+    }
+
+    var avail = document.createElement('div');
+    avail.className = 'public-availability card-subtitle';
+    avail.textContent = remStr;
+
+    var assigned = document.createElement('div');
+    assigned.className = 'public-assigned-names assignees';
+    assigned.textContent = assignedStr;
+
+    var content = document.createElement('div');
+    content.className = 'card-content';
+
+    content.appendChild(header);
+    if (subContent.hasChildNodes()) {
+      content.appendChild(subContent);
+    }
+    content.appendChild(avail);
+    content.appendChild(assigned);
+
+    item.appendChild(content);
+    return item;
+>>>>>>> REPLACE
