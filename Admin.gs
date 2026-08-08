@@ -33,7 +33,7 @@ function runAutoFillFromMenu() {
  * Transitions phase state to VACATION_SENIORITY and opens Round 1.
  */
 function beginSeniorityRound() {
-  setQueueState({ phase: 'VACATION_SENIORITY', round: 1, direction: 'ASCENDING' });
+  setQueueState({ phase: 'VACATION_SENIORITY', round: 1, direction: 'ASCENDING', lead: 1 });
   advanceQueue();
   SpreadsheetApp.getUi().alert('Lottery state changed to VACATION_SENIORITY. Seniority Round 1 is now active!');
 }

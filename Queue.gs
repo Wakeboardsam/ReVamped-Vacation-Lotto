@@ -340,6 +340,16 @@ function advanceQueue() {
       var newDirection = direction === 'ASCENDING' ? 'DESCENDING' : 'ASCENDING';
       var newRound = currentRound + 1;
 
+      if (phase === 'VACATION_SENIORITY' && newRound === 2) {
+        setQueueState({
+          phase: 'VACATION_RANDOM',
+          round: 2,
+          direction: 'ASCENDING',
+          lead: 1
+        });
+        return;
+      }
+
       // Find the first eligible person in the NEW direction for the NEW round
       var newStep = newDirection === 'ASCENDING' ? 1 : -1;
       var startIdx = newDirection === 'ASCENDING' ? 0 : eligiblePool.length - 1;
