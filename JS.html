@@ -111,18 +111,12 @@
       document.getElementById('infoModal').style.display = 'none';
     });
 
-    // Segmented toggle listeners for hidden inputs
+    // Segmented toggle listeners
     document.querySelectorAll('input[name="volunteerChoice"]').forEach(function(radio) {
-      radio.addEventListener('change', function() {
-        document.getElementById('volunteerChoice').value = this.value;
-        checkRulesForm();
-      });
+      radio.addEventListener('change', checkRulesForm);
     });
     document.querySelectorAll('input[name="transferPrefRadio"]').forEach(function(radio) {
-      radio.addEventListener('change', function() {
-        document.getElementById('transferPref').value = this.value;
-        checkRulesForm();
-      });
+      radio.addEventListener('change', checkRulesForm);
     });
 
     document.getElementById('saveRulesBtn').addEventListener('click', saveRules);
@@ -286,7 +280,15 @@
     if (appState.activeYear) {
       document.getElementById('activeYearLabel').innerText = appState.activeYear;
     }
-    var phaseName = appState.phase ? appState.phase.replace(/_/g, ' ') : 'LOADING';
+
+    var phaseName = appState.phase || 'LOADING';
+    if (phaseName === 'VACATION_SENIORITY') phaseName = 'VACATION SENIORITY';
+    else if (phaseName === 'VACATION_RANDOM') phaseName = 'VACATION LOTTERY';
+    else if (phaseName === 'WEEKEND') phaseName = 'WEEKEND COVERAGE';
+    else if (phaseName === 'HOLIDAY_VOLUNTEER') phaseName = 'HOLIDAY VOLUNTEER';
+    else if (phaseName === 'HOLIDAY_MANDATORY') phaseName = 'HOLIDAY MANDATORY';
+    else phaseName = phaseName.replace(/_/g, ' ');
+
     document.getElementById('phaseLabel').innerText = phaseName;
 
     if (appState.round) {
@@ -342,14 +344,19 @@
   }
 
   function checkRulesForm() {
-    var vol = document.getElementById('volunteerChoice').value;
-    var trans = document.getElementById('transferPref').value;
+    var volRadio = document.querySelector('input[name="volunteerChoice"]:checked');
+    var transRadio = document.querySelector('input[name="transferPrefRadio"]:checked');
+    var vol = volRadio ? volRadio.value : '';
+    var trans = transRadio ? transRadio.value : '';
     document.getElementById('saveRulesBtn').disabled = !(vol && trans);
   }
 
   function saveRules() {
-    var vol = document.getElementById('volunteerChoice').value;
-    var trans = document.getElementById('transferPref').value;
+    var volRadio = document.querySelector('input[name="volunteerChoice"]:checked');
+    var transRadio = document.querySelector('input[name="transferPrefRadio"]:checked');
+    var vol = volRadio ? volRadio.value : '';
+    var trans = transRadio ? transRadio.value : '';
+
     var btn = document.getElementById('saveRulesBtn');
 
     btn.disabled = true;
