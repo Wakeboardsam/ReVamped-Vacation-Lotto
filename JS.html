@@ -1208,6 +1208,7 @@
 
   function populateFindPerson(names) {
     var select = document.getElementById('findPersonSelect');
+    var loginSelect = document.getElementById('loginName');
 
     // Only populate options if empty (initial load)
     if (select.options.length <= 1) {
@@ -1217,6 +1218,16 @@
          opt.value = names[i];
          opt.textContent = names[i];
          select.appendChild(opt);
+      }
+    }
+
+    if (loginSelect && loginSelect.options.length <= 1) {
+      loginSelect.innerHTML = '<option value="">Select your name</option>';
+      for (var i = 0; i < names.length; i++) {
+         var opt = document.createElement('option');
+         opt.value = names[i];
+         opt.textContent = names[i];
+         loginSelect.appendChild(opt);
       }
     }
   }
