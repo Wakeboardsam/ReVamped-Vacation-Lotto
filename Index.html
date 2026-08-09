@@ -33,6 +33,24 @@
         <div id="publicDisplayContent" style="display:none;">
           <h2 id="publicPhaseHeading"></h2>
 
+          <section id="publicQueueSection" class="public-queue" aria-labelledby="publicQueueHeading">
+            <h3 id="publicQueueHeading">Current Selection Queue</h3>
+
+            <div class="public-queue-grid">
+              <div class="public-active-panel">
+                <h4>ACTIVE — May Select Now</h4>
+                <p class="public-queue-help">These participants may make their selections now.</p>
+                <div id="publicActiveList"></div>
+              </div>
+
+              <div class="public-up-next-panel">
+                <h4>Up Next</h4>
+                <p class="public-queue-help">Preview only — wait until your name moves to ACTIVE before making a selection.</p>
+                <div id="publicUpNextList"></div>
+              </div>
+            </div>
+          </section>
+
           <div class="find-person-controls">
             <label for="findPersonSelect">Find Person</label>
             <select id="findPersonSelect">
