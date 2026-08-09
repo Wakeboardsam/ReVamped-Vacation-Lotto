@@ -19,7 +19,9 @@
     snapshot: null,
     selectedPerson: '',
     loaded: false,
-    loading: false
+    loading: false,
+    refreshPending: false,
+    refreshTimerId: null
   };
 
   // Utility to show toasts
@@ -61,6 +63,42 @@
     } else {
       document.getElementById('loginScreen').classList.add('active');
       loadPublicDisplay();
+    }
+
+    // Background refresh timer
+    if (!publicDisplayState.refreshTimerId) {
+      publicDisplayState.refreshTimerId = setInterval(function() {
+        if (document.visibilityState === 'visible' && document.getElementById('loginScreen').classList.contains('active')) {
+          if (!publicDisplayState.loading) {
+            loadPublicDisplay();
+          }
+        }
+      }, 60000);
+    }
+
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible' && document.getElementById('loginScreen').classList.contains('active')) {
+        if (!publicDisplayState.loading) {
+          loadPublicDisplay();
+        }
+      }
+    });
+
+    var findPersonSelect = document.getElementById('findPersonSelect');
+    if (findPersonSelect) {
+      findPersonSelect.addEventListener('change', function() {
+        publicDisplayState.selectedPerson = this.value;
+        applyFindPersonHighlights();
+      });
+    }
+
+    var clearPersonBtn = document.getElementById('clearPersonBtn');
+    if (clearPersonBtn) {
+      clearPersonBtn.addEventListener('click', function() {
+        if (findPersonSelect) findPersonSelect.value = '';
+        publicDisplayState.selectedPerson = '';
+        applyFindPersonHighlights();
+      });
     }
 
     // Event Listeners
@@ -145,7 +183,7 @@
     document.getElementById('loginName').value = '';
     document.getElementById('loginPin').value = '';
     setLoginLoading(false);
-    loadPublicDisplay();
+    loadPublicDisplay(true); // Forced refresh on logout
   }
 
   // Main Screen & Data Loading
@@ -164,6 +202,7 @@
       document.getElementById('loginScreen').classList.add('active');
       showToast("Received invalid response from server.");
       document.getElementById('loadingIndicator').style.display = 'none';
+      loadPublicDisplay(); // ensure public display is loaded
       return;
     }
 
@@ -175,6 +214,7 @@
       document.getElementById('loginScreen').classList.add('active');
       showToast(state.error || "Session invalid");
       document.getElementById('loadingIndicator').style.display = 'none';
+      loadPublicDisplay(); // ensure public display is loaded
       return;
     }
 
@@ -186,6 +226,7 @@
       document.getElementById('loginScreen').classList.add('active');
       showToast("Malformed state response from server.");
       document.getElementById('loadingIndicator').style.display = 'none';
+      loadPublicDisplay(); // ensure public display is loaded
       return;
     }
 
@@ -699,7 +740,8 @@
         if (res.success) {
           appState.adjacentHolidayPending = null;
           showToast("Submission successful!", "success");
-          loadInitialState(); // Reload state
+          fetchInitialState(appState.participantId); // Reload state
+          loadPublicDisplay(true); // Forced public refresh
         }
       })
       .withFailureHandler(function(error) {
@@ -791,13 +833,22 @@
   // Public Display
   // =========================================================================
 
-  function loadPublicDisplay() {
-    if (publicDisplayState.loaded || publicDisplayState.loading) return;
+  function loadPublicDisplay(isForcedRefresh) {
+    if (publicDisplayState.loading) {
+      if (isForcedRefresh) {
+        publicDisplayState.refreshPending = true;
+      }
+      return;
+    }
 
     publicDisplayState.loading = true;
-    document.getElementById('publicDisplayLoading').style.display = 'block';
-    document.getElementById('publicDisplayError').style.display = 'none';
-    document.getElementById('publicDisplayContent').style.display = 'none';
+
+    // Only show loading indicator if we don't already have a valid snapshot loaded
+    if (!publicDisplayState.loaded) {
+      document.getElementById('publicDisplayLoading').style.display = 'block';
+      document.getElementById('publicDisplayError').style.display = 'none';
+      document.getElementById('publicDisplayContent').style.display = 'none';
+    }
 
     google.script.run
       .withSuccessHandler(onPublicDisplayLoaded)
@@ -807,16 +858,23 @@
 
   function onPublicDisplayError() {
     publicDisplayState.loading = false;
-    var errEl = document.getElementById('publicDisplayError');
-    errEl.textContent = "The current schedule is temporarily unavailable.";
-    errEl.style.display = 'block';
-    document.getElementById('publicDisplayLoading').style.display = 'none';
+
+    // Only show error if we don't have a successful snapshot already loaded
+    if (!publicDisplayState.loaded) {
+      var errEl = document.getElementById('publicDisplayError');
+      errEl.textContent = "The current schedule is temporarily unavailable.";
+      errEl.style.display = 'block';
+      document.getElementById('publicDisplayLoading').style.display = 'none';
+    }
+
+    checkPendingRefresh();
   }
 
   function onPublicDisplayLoaded(snapshot) {
     publicDisplayState.loading = false;
 
-    if (!snapshot || typeof snapshot !== 'object' || snapshot.success !== true || !snapshot.calendar || typeof snapshot.calendar !== 'object' || !Array.isArray(snapshot.participantNames)) {
+    // Validate Snapshot
+    if (!snapshot || typeof snapshot !== 'object' || snapshot.success !== true || !snapshot.calendar || typeof snapshot.calendar !== 'object' || !Array.isArray(snapshot.participantNames) || !snapshot.queue || typeof snapshot.queue !== 'object' || !Array.isArray(snapshot.queue.activeNames) || !Array.isArray(snapshot.queue.upNextNames)) {
       onPublicDisplayError();
       return;
     }
@@ -830,7 +888,79 @@
 
     renderPublicPhaseHeading(snapshot);
     populateFindPerson(snapshot.participantNames);
+    renderPublicQueue(snapshot);
     renderPublicCalendar(snapshot);
+    applyFindPersonHighlights(); // reapply highlights after rendering new calendar
+
+    checkPendingRefresh();
+  }
+
+  function checkPendingRefresh() {
+    if (publicDisplayState.refreshPending) {
+      publicDisplayState.refreshPending = false;
+      loadPublicDisplay(true);
+    }
+  }
+
+  function renderPublicQueue(snapshot) {
+    var activeList = document.getElementById('publicActiveList');
+    var upNextList = document.getElementById('publicUpNextList');
+
+    activeList.innerHTML = '';
+    upNextList.innerHTML = '';
+
+    var queue = snapshot.queue || {};
+    var activeNames = queue.activeNames || [];
+    var upNextNames = queue.upNextNames || [];
+
+    var validActive = [];
+    for (var i = 0; i < activeNames.length; i++) {
+      var name = String(activeNames[i] || '').trim();
+      if (name) validActive.push(name);
+    }
+
+    if (validActive.length === 0) {
+      var p = document.createElement('p');
+      p.textContent = "No participants are currently ACTIVE.";
+      activeList.appendChild(p);
+    } else {
+      var ul = document.createElement('ul');
+      ul.className = 'public-queue-list';
+      for (var i = 0; i < validActive.length; i++) {
+        var li = document.createElement('li');
+        li.className = 'public-queue-name public-active-name';
+        li.textContent = validActive[i];
+        ul.appendChild(li);
+      }
+      activeList.appendChild(ul);
+    }
+
+    var validUpNext = [];
+    for (var i = 0; i < upNextNames.length; i++) {
+      var name = String(upNextNames[i] || '').trim();
+      if (name) validUpNext.push(name);
+      if (validUpNext.length === 2) break; // Maximum 2
+    }
+
+    if (validUpNext.length === 0) {
+      var p = document.createElement('p');
+      p.textContent = "No eligible participants are currently previewed.";
+      upNextList.appendChild(p);
+    } else {
+      var ol = document.createElement('ol');
+      ol.className = 'public-queue-list';
+      for (var i = 0; i < validUpNext.length; i++) {
+        var li = document.createElement('li');
+        li.className = 'public-queue-name public-up-next-name';
+        var posSpan = document.createElement('span');
+        posSpan.className = 'public-up-next-position';
+        posSpan.textContent = (i + 1) + '. ';
+        li.appendChild(posSpan);
+        li.appendChild(document.createTextNode(validUpNext[i]));
+        ol.appendChild(li);
+      }
+      upNextList.appendChild(ol);
+    }
   }
 
   function renderPublicPhaseHeading(snapshot) {
@@ -1020,25 +1150,17 @@
 
   function populateFindPerson(names) {
     var select = document.getElementById('findPersonSelect');
-    select.innerHTML = '<option value="">Select a person</option>';
 
-    for (var i = 0; i < names.length; i++) {
-       var opt = document.createElement('option');
-       opt.value = names[i];
-       opt.textContent = names[i];
-       select.appendChild(opt);
+    // Only populate options if empty (initial load)
+    if (select.options.length <= 1) {
+      select.innerHTML = '<option value="">Select a person</option>';
+      for (var i = 0; i < names.length; i++) {
+         var opt = document.createElement('option');
+         opt.value = names[i];
+         opt.textContent = names[i];
+         select.appendChild(opt);
+      }
     }
-
-    select.addEventListener('change', function() {
-       publicDisplayState.selectedPerson = this.value;
-       applyFindPersonHighlights();
-    });
-
-    document.getElementById('clearPersonBtn').addEventListener('click', function() {
-       select.value = '';
-       publicDisplayState.selectedPerson = '';
-       applyFindPersonHighlights();
-    });
   }
 
   function applyFindPersonHighlights() {
