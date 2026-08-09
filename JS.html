@@ -404,7 +404,7 @@
   function formatDateDisplay(dateStr) {
     if (!dateStr) return '';
     try {
-      var d = new Date(dateStr);
+      var d = new Date(dateStr + 'T00:00:00');
       if (isNaN(d.getTime())) return dateStr;
       return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     } catch(e) { return dateStr; }
@@ -494,7 +494,7 @@
       } else if (dateStr) {
           // Attempt format
           try {
-             var d = new Date(dateStr);
+             var d = new Date(dateStr + 'T00:00:00');
              var m = '' + (d.getMonth() + 1);
              var dDay = '' + d.getDate();
              var y = d.getFullYear();
