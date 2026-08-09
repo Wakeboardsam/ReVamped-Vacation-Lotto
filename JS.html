@@ -111,8 +111,14 @@
       document.getElementById('infoModal').style.display = 'none';
     });
 
-    document.getElementById('volunteerChoice').addEventListener('change', checkRulesForm);
-    document.getElementById('transferPref').addEventListener('change', checkRulesForm);
+    // Segmented toggle listeners
+    document.querySelectorAll('input[name="volunteerChoice"]').forEach(function(radio) {
+      radio.addEventListener('change', checkRulesForm);
+    });
+    document.querySelectorAll('input[name="transferPrefRadio"]').forEach(function(radio) {
+      radio.addEventListener('change', checkRulesForm);
+    });
+
     document.getElementById('saveRulesBtn').addEventListener('click', saveRules);
 
     document.getElementById('submitSelectionBtn').addEventListener('click', submitSelection);
@@ -271,21 +277,53 @@
   }
 
   function updateHeader() {
-    document.getElementById('activeYearLabel').innerText = appState.activeYear;
-    var phaseName = appState.phase ? appState.phase.replace(/_/g, ' ') : 'LOADING';
+    if (appState.activeYear) {
+      document.getElementById('activeYearLabel').innerText = appState.activeYear;
+    }
+
+    var phaseName = appState.phase || 'LOADING';
+    if (phaseName === 'VACATION_SENIORITY') phaseName = 'VACATION SENIORITY';
+    else if (phaseName === 'VACATION_RANDOM') phaseName = 'VACATION LOTTERY';
+    else if (phaseName === 'WEEKEND') phaseName = 'WEEKEND COVERAGE';
+    else if (phaseName === 'HOLIDAY_VOLUNTEER') phaseName = 'HOLIDAY VOLUNTEER';
+    else if (phaseName === 'HOLIDAY_MANDATORY') phaseName = 'HOLIDAY MANDATORY';
+    else phaseName = phaseName.replace(/_/g, ' ');
+
     document.getElementById('phaseLabel').innerText = phaseName;
+
     if (appState.round) {
       document.getElementById('roundLabel').innerText = "R" + appState.round + " (" + (appState.direction === 'ASCENDING' ? 'Forward' : 'Reverse') + ")";
     } else {
       document.getElementById('roundLabel').innerText = "";
     }
-    document.getElementById('userNameLabel').innerText = appState.name;
+
+    // Auth-specific header items
+    var isLogged = !!appState.participantId;
+    var nameLabel = document.getElementById('userNameLabel');
+    var rulesBtn = document.getElementById('rulesBtn');
+    var logoutBtn = document.getElementById('logoutBtn');
+
+    nameLabel.style.display = isLogged ? 'inline' : 'none';
+    rulesBtn.style.display = isLogged ? 'inline-block' : 'none';
+    logoutBtn.style.display = isLogged ? 'inline-block' : 'none';
+
+    if (isLogged) {
+      nameLabel.innerText = appState.name;
+    }
 
     var badge = document.getElementById('statusBadge');
-    if (appState.isActive) {
-      badge.style.display = 'block';
+
+    if (isLogged) {
+      if (appState.isActive) {
+        badge.className = 'status-pill status-active';
+        badge.innerText = 'ACTIVE - YOUR TURN';
+      } else {
+        badge.className = 'status-pill status-waiting';
+        badge.innerText = 'WAITING - IN QUEUE';
+      }
     } else {
-      badge.style.display = 'none';
+      badge.className = 'status-pill status-guest';
+      badge.innerText = 'GUEST / LOG IN';
     }
   }
 
@@ -306,14 +344,19 @@
   }
 
   function checkRulesForm() {
-    var vol = document.getElementById('volunteerChoice').value;
-    var trans = document.getElementById('transferPref').value;
+    var volRadio = document.querySelector('input[name="volunteerChoice"]:checked');
+    var transRadio = document.querySelector('input[name="transferPrefRadio"]:checked');
+    var vol = volRadio ? volRadio.value : '';
+    var trans = transRadio ? transRadio.value : '';
     document.getElementById('saveRulesBtn').disabled = !(vol && trans);
   }
 
   function saveRules() {
-    var vol = document.getElementById('volunteerChoice').value;
-    var trans = document.getElementById('transferPref').value;
+    var volRadio = document.querySelector('input[name="volunteerChoice"]:checked');
+    var transRadio = document.querySelector('input[name="transferPrefRadio"]:checked');
+    var vol = volRadio ? volRadio.value : '';
+    var trans = transRadio ? transRadio.value : '';
+
     var btn = document.getElementById('saveRulesBtn');
 
     btn.disabled = true;
@@ -410,11 +453,20 @@
       if (special && special !== 'None') badgesHtml += '<span class="badge badge-special">' + special + '</span>';
       if (disableReason) badgesHtml += '<span class="badge badge-warning">' + disableReason + '</span>';
 
+      var assignedPills = '';
+      if (assigneesList.length > 0) {
+        for (var j = 0; j < assigneesList.length; j++) {
+            assignedPills += '<span class="assignee-pill">' + assigneesList[j] + '</span>';
+        }
+      } else {
+        assignedPills = '<span>None</span>';
+      }
+
       html += '<div class="' + cardClass + '" data-id="' + weekId + '" data-prime="' + isPrime + '" onclick="toggleSelection(this, \'vacation\')">';
       html += '  <div class="card-content">';
       html += '    <h4 class="card-title">Week ' + weekId + ' (' + formatDateDisplay(w['Start Date (Monday)']) + ')</h4>';
-      html += '    <div style="margin-bottom:8px;">' + badgesHtml + '</div>';
-      html += '    <div class="assignees">Assigned (' + assigneesList.length + '/' + capacity + '): ' + (assigneesStr || 'None') + '</div>';
+      html += '    <div class="badge-container">' + badgesHtml + '</div>';
+      html += '    <div class="assignees"><span class="capacity-text">Assigned (' + assigneesList.length + '/' + capacity + '):</span> ' + assignedPills + '</div>';
       html += '  </div>';
       html += '</div>';
     }
@@ -964,29 +1016,37 @@
   }
 
   function renderPublicPhaseHeading(snapshot) {
+    // We now render this info into the persistent top header instead of the main content area
     var headingEl = document.getElementById('publicPhaseHeading');
-    if (!snapshot.activeYear && !snapshot.phase) {
-      headingEl.textContent = "Schedule";
-      return;
+    if (headingEl) {
+        headingEl.style.display = 'none'; // Ensure it stays hidden
     }
 
-    var phaseLabel = snapshot.phase;
-    if (phaseLabel === 'VACATION_SENIORITY') phaseLabel = 'VACATION SENIORITY';
-    else if (phaseLabel === 'VACATION_RANDOM') phaseLabel = 'VACATION LOTTERY';
-    else if (phaseLabel === 'WEEKEND') phaseLabel = 'WEEKEND COVERAGE';
-    else if (phaseLabel === 'HOLIDAY_VOLUNTEER') phaseLabel = 'HOLIDAY VOLUNTEER';
-    else if (phaseLabel === 'HOLIDAY_MANDATORY') phaseLabel = 'HOLIDAY MANDATORY';
+    if (!appState.participantId) {
+        // Only update if guest; if logged in, main state syncs it
+        if (snapshot.activeYear) {
+            document.getElementById('activeYearLabel').innerText = snapshot.activeYear;
+        }
 
-    var dirLabel = '';
-    if (snapshot.direction === 'ASCENDING') dirLabel = ' (Forward)';
-    else if (snapshot.direction === 'DESCENDING') dirLabel = ' (Reverse)';
+        var phaseLabel = snapshot.phase || 'LOADING';
+        if (phaseLabel === 'VACATION_SENIORITY') phaseLabel = 'VACATION SENIORITY';
+        else if (phaseLabel === 'VACATION_RANDOM') phaseLabel = 'VACATION LOTTERY';
+        else if (phaseLabel === 'WEEKEND') phaseLabel = 'WEEKEND COVERAGE';
+        else if (phaseLabel === 'HOLIDAY_VOLUNTEER') phaseLabel = 'HOLIDAY VOLUNTEER';
+        else if (phaseLabel === 'HOLIDAY_MANDATORY') phaseLabel = 'HOLIDAY MANDATORY';
 
-    var parts = [];
-    if (snapshot.activeYear) parts.push(snapshot.activeYear);
-    if (phaseLabel) parts.push(phaseLabel);
-    if (snapshot.round) parts.push('R' + snapshot.round + dirLabel);
+        document.getElementById('phaseLabel').innerText = phaseLabel;
 
-    headingEl.textContent = parts.join(' ');
+        var dirLabel = '';
+        if (snapshot.direction === 'ASCENDING') dirLabel = ' (Forward)';
+        else if (snapshot.direction === 'DESCENDING') dirLabel = ' (Reverse)';
+
+        if (snapshot.round) {
+            document.getElementById('roundLabel').innerText = 'R' + snapshot.round + dirLabel;
+        } else {
+            document.getElementById('roundLabel').innerText = '';
+        }
+    }
   }
 
   function formatPublicDate(val) {
@@ -1007,50 +1067,38 @@
     var item = document.createElement('div');
     item.className = 'public-calendar-item card'; // Note: card handles the box look, we will override pointer/hover in CSS
 
-    var assignedStr = '';
-    if (obj.assignedNames && obj.assignedNames.length > 0) {
-      assignedStr = obj.assignedNames.join(', ');
-    } else {
-      assignedStr = 'No assignments';
-    }
-
     // Store assigned names for highlighting
     item.setAttribute('data-assignees', (obj.assignedNames || []).map(function(n) { return n.trim().toLowerCase(); }).join('|'));
 
     var header = document.createElement('h4');
     header.className = 'public-calendar-heading';
 
-    var subHtml = '';
     var remStr = obj.assignedCount + ' of ' + obj.capacity + ' assigned · ' + obj.remainingCapacity + ' remaining';
     if (obj.remainingCapacity === 0) remStr += ' · Full';
 
     var subContent = document.createElement('div');
+    subContent.className = 'badge-container';
+
     if (type === 'VACATION') {
       header.textContent = 'Week ' + obj.weekId + ' · ' + formatPublicDate(obj.startDate);
-      var badgeContainer = document.createElement('div');
-      badgeContainer.style.marginBottom = '8px';
 
       if (obj.primeClassification && obj.primeClassification.toLowerCase() === 'prime') {
          var pBadge = document.createElement('span');
          pBadge.className = 'badge badge-prime';
          pBadge.textContent = 'Prime';
-         badgeContainer.appendChild(pBadge);
+         subContent.appendChild(pBadge);
       } else if (obj.primeClassification) {
          var npBadge = document.createElement('span');
          npBadge.className = 'badge badge-nonprime';
          npBadge.textContent = 'Non-Prime';
-         badgeContainer.appendChild(npBadge);
+         subContent.appendChild(npBadge);
       }
 
       if (obj.specialWeekDesignation && obj.specialWeekDesignation !== 'None') {
          var sBadge = document.createElement('span');
          sBadge.className = 'badge badge-special';
          sBadge.textContent = obj.specialWeekDesignation;
-         badgeContainer.appendChild(sBadge);
-      }
-
-      if (badgeContainer.hasChildNodes()) {
-         subContent.appendChild(badgeContainer);
+         subContent.appendChild(sBadge);
       }
     } else if (type === 'WEEKEND') {
       header.textContent = obj.dayOfWeek + ' · ' + formatPublicDate(obj.date);
@@ -1076,7 +1124,17 @@
 
     var assigned = document.createElement('div');
     assigned.className = 'public-assigned-names assignees';
-    assigned.textContent = assignedStr;
+
+    if (obj.assignedNames && obj.assignedNames.length > 0) {
+      for (var j = 0; j < obj.assignedNames.length; j++) {
+        var p = document.createElement('span');
+        p.className = 'assignee-pill';
+        p.textContent = obj.assignedNames[j];
+        assigned.appendChild(p);
+      }
+    } else {
+      assigned.textContent = 'No assignments';
+    }
 
     var content = document.createElement('div');
     content.className = 'card-content';
