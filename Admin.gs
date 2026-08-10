@@ -59,27 +59,30 @@ function beginSeniorityRound() {
  * Transitions phase state to WEEKEND.
  */
 function beginWeekendPhase() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var pSheet = ss.getSheetByName('Participant Config');
+  if (!pSheet) throw new Error("Participant Config sheet not found.");
+
+  var pData = pSheet.getDataRange().getValues();
+  if (pData.length < 1) throw new Error("'Participant Config' sheet is empty.");
+  var pHeaders = pData[0];
+
+  var entryColIdx = pHeaders.indexOf('Entry Timestamp') + 1;
+  var reminderColIdx = pHeaders.indexOf('Reminder Sent') + 1;
+  var alertColIdx = pHeaders.indexOf('Admin Alert Sent') + 1;
+
+  if (entryColIdx === 0 || reminderColIdx === 0 || alertColIdx === 0) {
+     throw new Error("Missing required headers in 'Participant Config' sheet.");
+  }
+
+  // 1. Calculate and populate Vacation Adjacency Warnings
+  // This will securely throw errors if required sheets/headers are missing
+  var affectedRows = calculateVacationAdjacency_();
+
   return withScriptLock(function() {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var pSheet = ss.getSheetByName('Participant Config');
-    if (!pSheet) throw new Error("Participant Config sheet not found.");
-
-    // 1. Calculate and populate Vacation Adjacency Warnings
-    // This will securely throw errors if required sheets/headers are missing
-    var affectedRows = calculateVacationAdjacency_();
-
-    // 2. Clear stale ACTIVE state
-    var pData = pSheet.getDataRange().getValues();
-    var pHeaders = pData[0];
-
-    var activeColIdx = pHeaders.indexOf('Currently Active') + 1;
-    var entryColIdx = pHeaders.indexOf('Entry Timestamp') + 1;
-    var reminderColIdx = pHeaders.indexOf('Reminder Sent') + 1;
-    var alertColIdx = pHeaders.indexOf('Admin Alert Sent') + 1;
-
+    // 2. Clear stale ACTIVE state (Currently Active is not in schema, rely on Entry Timestamp/Reminder/Alert)
     for (var i = 1; i < pData.length; i++) {
       var row = i + 1;
-      pSheet.getRange(row, activeColIdx).setValue(false);
       pSheet.getRange(row, entryColIdx).clearContent();
       pSheet.getRange(row, reminderColIdx).setValue(false);
       pSheet.getRange(row, alertColIdx).setValue(false);
@@ -94,7 +97,7 @@ function beginWeekendPhase() {
     });
 
     // 4. Initialize first ACTIVE window
-    advanceQueue();
+    advanceQueue_internal(); // Non-locking internal advance
 
     // 5. Gather summary
     var activeParticipants = getActiveParticipants('WEEKEND');

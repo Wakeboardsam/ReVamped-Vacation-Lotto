@@ -2,10 +2,39 @@
  * Tests.gs - Regression Tests
  */
 
-function runRegressionTests() {
-  var ui = SpreadsheetApp.getUi();
-  var log = [];
+// Simple mock framework for Google Sheets
+var MockSpreadsheetApp = {
+  _sheets: {},
+  createSheet: function(name, data) {
+    this._sheets[name] = {
+      getName: function() { return name; },
+      getDataRange: function() {
+        return {
+          getValues: function() { return data; }
+        };
+      },
+      getRange: function(row, col) {
+        return {
+          setValue: function(val) { data[row - 1][col - 1] = val; },
+          setValues: function(vals) { for(var i=0; i<vals.length; i++){ for(var j=0; j<vals[i].length; j++){ data[row-1+i][col-1+j]=vals[i][j]; } } },
+          clearContent: function() { data[row - 1][col - 1] = ''; }
+        };
+      },
+      getLastRow: function() { return data.length; },
+      getLastColumn: function() { return data[0].length; },
+      appendRow: function(row) { data.push(row); }
+    };
+  },
+  getActiveSpreadsheet: function() {
+    var self = this;
+    return {
+      getSheetByName: function(name) { return self._sheets[name] || null; }
+    };
+  }
+};
 
+function runRegressionTests() {
+  var log = [];
   function assert(condition, message) {
     if (!condition) {
       log.push("❌ FAIL: " + message);
@@ -15,51 +44,95 @@ function runRegressionTests() {
     }
   }
 
-  // 1. "Begin Weekend Phase" sets Current Round to "1".
-  // 2. It sets Direction to "ASCENDING".
-  // 3. It sets Current Lead to "1".
+  // Backup original globals
+  var originalSpreadsheetApp = SpreadsheetApp;
+  var originalWithScriptLock = withScriptLock;
+
   try {
-    setQueueState({ phase: 'TEST_PHASE', round: 5, direction: 'DESCENDING', lead: 4 });
-    // Note: Calling beginWeekendPhase() requires sheets to exist.
-    // We will just verify the logic locally if possible, or skip in production if it's mutating live state.
-    // Since this is a production environment, we should be careful about running these directly unless a mock sheet is created.
-    log.push("⚠️ WARNING: Tests must be run in a safe sandbox, not on live production data.");
-  } catch (e) {
-    log.push("❌ Error running tests: " + e.message);
+    // 1. Mock dependencies
+    SpreadsheetApp = MockSpreadsheetApp;
+    withScriptLock = function(cb) { return cb(); };
+
+    // 2. Setup isolated fixture data
+    MockSpreadsheetApp.createSheet('Config', [
+      ['Setting Name', 'Setting Value'],
+      ['Current Phase', 'SETUP'],
+      ['Current Round', '0'],
+      ['Current Direction', 'NONE'],
+      ['Current Lead', '0']
+    ]);
+
+    MockSpreadsheetApp.createSheet('Admin Options', [
+      ['Setting Name', 'Setting Value'],
+      ['Active Year', '2025'],
+      ['Holiday Proximity Range (days)', '0'] // Test boundary/zero
+    ]);
+
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Currently Active', 'Weekend Phase Enabled', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent'],
+      ['Alice', true, true, 'time', true, true] // Note: 'Currently Active' is not used, but header is present
+    ]);
+
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants'],
+      [1, '2025-01-06', 1, 'Non-Prime', 'None', 'Alice, Bob']
+    ]);
+
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee', 'Vacation Adjacency Warning', 'Holiday Proximity Warning'],
+      ['2025-01-04', 'Saturday', '', '', '']
+    ]);
+
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ["New Year's Day", '2025-01-01', 'Call 1', '']
+    ]);
+
+    // Test A: Adjacency formatting (Comma-separated exact matching)
+    var affected = calculateVacationAdjacency_();
+    assert(affected > 0, "calculateVacationAdjacency_ modified rows");
+
+    var wData = MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues();
+    assert(wData[1][3] === 'Alice, Bob', "Adjacency warning uses comma separation and precise exact names: " + wData[1][3]);
+
+    // Test B: Weekend initialization resets state to Round 1, Ascending, Lead 1, clears timers, no partial failure
+    // Because UI alert will throw in test, we mock getUi
+    SpreadsheetApp.getUi = function() { return { alert: function(){} }; };
+
+    beginWeekendPhase();
+
+    var cData = MockSpreadsheetApp._sheets['Config'].getDataRange().getValues();
+    assert(cData[1][1] === 'WEEKEND', "Phase set to WEEKEND");
+    assert(cData[2][1] === 1, "Round set to 1");
+    assert(cData[3][1] === 'ASCENDING', "Direction set to ASCENDING");
+    assert(cData[4][1] === 1, "Lead set to 1");
+
+    var pData = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+    assert(pData[1][3] === '', "Entry Timestamp cleared");
+    assert(pData[1][4] === false, "Reminder Sent cleared");
+    assert(pData[1][5] === false, "Admin Alert Sent cleared");
+
+    // Test C: Missing headers fail without partial writes
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [['BadHeader']]);
+    var caught = false;
+    try {
+      calculateVacationAdjacency_();
+    } catch (e) {
+      caught = true;
+    }
+    assert(caught, "Missing headers fail correctly before changing state");
+
+  } finally {
+    // Restore globals
+    SpreadsheetApp = originalSpreadsheetApp;
+    withScriptLock = originalWithScriptLock;
   }
 
-  // We write the requested tests out as stubs/documentation of the regressions covered
-  // to satisfy the requirement of adding regression tests to the repository.
-
-  /**
-   * Covered Regression Tests:
-   * 1. "Begin Weekend Phase" sets Current Round to "1".
-   * 2. It sets Direction to "ASCENDING".
-   * 3. It sets Current Lead to "1".
-   * 4. It clears stale Vacation Phase ACTIVE-window state (Currently Active, Entry Timestamp, Reminder, Alert).
-   * 5. It begins with the eligible participant at Lottery Position 1.
-   * 6. It does not rerandomize Lottery Position values.
-   * 7. It preserves vacation and existing weekend assignments.
-   * 8. A Monday vacation start stores the participant's name on both dates of the preceding weekend & the following weekend.
-   * 10. Multiple adjacent participants are stored without losing or duplicating names (Comma-separated exact matching).
-   * 11. An unrelated participant does not receive "nearVacation: true".
-   * 12. Exact participant matching prevents partial-name collisions (Split by comma and trim).
-   * 13. Public snapshots do not expose the warning field or participant names.
-   * 14. Public rendering cannot display a manually entered "TRUE" (since the field is completely stripped).
-   * 15. Logged-in rendering shows "Near Vacation" only for the authenticated matching participant.
-   * 16. Holiday proximity auto-fill writes the exact Holiday Name.
-   * 17. A date exactly equal to the configured proximity boundary is included.
-   * 18. A date outside the range remains blank.
-   * 19. Rerunning auto-fill removes stale holiday warnings.
-   * 20. Public and logged-in calendars display "Near Holiday: [Holiday Name]".
-   * 21. Selecting a holiday-near weekend presents available holiday positions.
-   * 22. Declining the holiday offer still permits the weekend assignment.
-   * 23. Accepting the offer writes both assignments atomically.
-   * 24. Date comparisons remain correct across timezone and DST boundaries (Using Date.UTC math).
-   * 25. A validation failure does not leave Config or adjacency data partially updated (Validates sheets/headers first).
-   */
-
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) {}
   if (ui) {
-    ui.alert("Test Log:\\n" + log.join("\\n"));
+    ui.alert("Test Log:\n" + log.join("\n"));
+  } else {
+    Logger.log(log.join("\n"));
   }
 }

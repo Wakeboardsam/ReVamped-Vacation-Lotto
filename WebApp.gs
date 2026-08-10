@@ -260,7 +260,7 @@ function submitSelection(participantId, selectionData) {
         pSheet.getRange(pRowIdx, pHeaders.indexOf('Transfer Receiver') + 1).setValue(false);
       }
       // advance queue
-      advanceQueue();
+      advanceQueue_internal();
       return { success: true };
     }
 
@@ -497,7 +497,7 @@ function submitSelection(participantId, selectionData) {
       }
 
       // Advance Queue after successful selection submission
-      advanceQueue();
+      advanceQueue_internal();
       return { success: true };
     }
 

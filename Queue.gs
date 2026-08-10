@@ -183,6 +183,11 @@ function getActiveParticipants(phase) {
 
 function advanceQueue() {
   return withScriptLock(function() {
+    return advanceQueue_internal();
+  });
+}
+
+function advanceQueue_internal() {
     var state = getQueueState();
     var phase = state.phase;
     var currentRound = state.round;
@@ -373,5 +378,4 @@ function advanceQueue() {
         });
       }
     }
-  });
 }
