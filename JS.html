@@ -517,7 +517,7 @@
       // or calculated on the fly. We'll add support for the column 'Consecutive Weekends Warning' just in case,
       // or a generic "Consecutive" badge.
       if (w['Consecutive Weekends Warning']) badgesHtml += '<span class="badge badge-warning">Consecutive</span>';
-      if (w['Vacation Adjacency Warning']) badgesHtml += '<span class="badge badge-warning">Near Vacation</span>';
+      if (w.nearVacation) badgesHtml += '<span class="badge badge-warning">Near Vacation</span>';
       if (w['Holiday Proximity Warning']) badgesHtml += '<span class="badge badge-info">Near Holiday: ' + w['Holiday Proximity Warning'] + '</span>';
 
       var displayDate = formatDateDisplay(w['Date']);
@@ -876,6 +876,7 @@
   }
 
   function declineHolidaySelection() {
+    // Explicitly record that the user declined the holiday offer, so only the weekend is selected
     appState.adjacentHolidayPending = 'DECLINED';
     document.getElementById('holidayPromptModal').style.display = 'none';
     submitSelection(false);
@@ -1102,12 +1103,7 @@
       }
     } else if (type === 'WEEKEND') {
       header.textContent = obj.dayOfWeek + ' · ' + formatPublicDate(obj.date);
-      if (obj.vacationAdjacencyWarning) {
-        var vBadge = document.createElement('div');
-        vBadge.className = 'badge badge-warning';
-        vBadge.textContent = obj.vacationAdjacencyWarning;
-        subContent.appendChild(vBadge);
-      }
+      // Vacation Adjacency Warnings are strictly private and not displayed on the public calendar
       if (obj.holidayProximityWarning) {
         var hBadge = document.createElement('div');
         hBadge.className = 'badge badge-warning';

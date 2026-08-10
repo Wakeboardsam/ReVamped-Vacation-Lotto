@@ -59,9 +59,56 @@ function beginSeniorityRound() {
  * Transitions phase state to WEEKEND.
  */
 function beginWeekendPhase() {
-  setQueueState({ phase: 'WEEKEND' });
-  advanceQueue();
-  SpreadsheetApp.getUi().alert('Lottery state changed to WEEKEND coverage phase.');
+  return withScriptLock(function() {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var pSheet = ss.getSheetByName('Participant Config');
+    if (!pSheet) throw new Error("Participant Config sheet not found.");
+
+    // 1. Calculate and populate Vacation Adjacency Warnings
+    var affectedRows = calculateVacationAdjacency_() || 0;
+
+    // 2. Clear stale ACTIVE state
+    var pData = pSheet.getDataRange().getValues();
+    var pHeaders = pData[0];
+
+    var activeColIdx = pHeaders.indexOf('Currently Active') + 1;
+    var entryColIdx = pHeaders.indexOf('Entry Timestamp') + 1;
+    var reminderColIdx = pHeaders.indexOf('Reminder Sent') + 1;
+    var alertColIdx = pHeaders.indexOf('Admin Alert Sent') + 1;
+
+    for (var i = 1; i < pData.length; i++) {
+      var row = i + 1;
+      pSheet.getRange(row, activeColIdx).setValue(false);
+      pSheet.getRange(row, entryColIdx).clearContent();
+      pSheet.getRange(row, reminderColIdx).setValue(false);
+      pSheet.getRange(row, alertColIdx).setValue(false);
+    }
+
+    // 3. Reset Config & Queue State
+    setQueueState({
+      phase: 'WEEKEND',
+      round: 1,
+      direction: 'ASCENDING',
+      lead: 1
+    });
+
+    // 4. Initialize first ACTIVE window
+    advanceQueue();
+
+    // 5. Gather summary
+    var activeParticipants = getActiveParticipants('WEEKEND');
+    var activeNames = activeParticipants.map(function(p) { return p['Name']; }).join(', ');
+
+    var summary = 'Weekend Phase started successfully.\n\n' +
+                  '- Phase: WEEKEND\n' +
+                  '- Round: 1\n' +
+                  '- Direction: ASCENDING\n' +
+                  '- Current Lead: 1\n' +
+                  '- Weekend rows given vacation-adjacency warnings: ' + affectedRows + '\n' +
+                  '- Participants currently ACTIVE: ' + (activeNames || 'None');
+
+    SpreadsheetApp.getUi().alert(summary);
+  });
 }
 
 /**
@@ -80,6 +127,111 @@ function beginTransferPhase() {
   setQueueState({ phase: 'TRANSFER_OFFER_COLLECTION' });
   advanceQueue();
   SpreadsheetApp.getUi().alert('Lottery state changed to TRANSFER_OFFER_COLLECTION phase.');
+}
+
+
+/**
+ * Calculates vacation adjacency and stores participant names in Weekend Coverage.
+ */
+function calculateVacationAdjacency_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var vacSheet = ss.getSheetByName('Vacation Availability');
+  var weekendSheet = ss.getSheetByName('Weekend Coverage');
+
+  if (!vacSheet || !weekendSheet) return;
+
+  var vacData = vacSheet.getDataRange().getValues();
+  var weekendData = weekendSheet.getDataRange().getValues();
+
+  if (vacData.length < 2 || weekendData.length < 2) return;
+
+  var vacHeaders = vacData[0];
+  var weekendHeaders = weekendData[0];
+
+  var dateColIdx = vacHeaders.indexOf('Start Date (Monday)');
+  var assigneesColIdx = vacHeaders.indexOf('Assigned Participants');
+
+  if (dateColIdx === -1 || assigneesColIdx === -1) return;
+
+  var wDateColIdx = weekendHeaders.indexOf('Date');
+  var wAdjColIdx = weekendHeaders.indexOf('Vacation Adjacency Warning');
+
+  if (wDateColIdx === -1 || wAdjColIdx === -1) return;
+
+  // Build a map of dates that should trigger warnings, and the participant names for that date.
+  // We'll use YYYY-MM-DD strings as keys.
+  var adjacencyMap = {};
+
+  for (var i = 1; i < vacData.length; i++) {
+    var rawDate = vacData[i][dateColIdx];
+    var assigneesStr = String(vacData[i][assigneesColIdx] || '').trim();
+
+    if (!rawDate || !assigneesStr) continue;
+
+    var assignees = assigneesStr.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+    if (assignees.length === 0) continue;
+
+    var startDate = new Date(rawDate); // It's already YYYY-MM-DD or Date object
+    // Assuming startDate is Monday
+
+    // Sat/Sun before
+    var satBefore = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() - 2);
+    var sunBefore = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() - 1);
+
+    // Sat/Sun after end Friday (Friday is startDate + 4)
+    // Saturday after is startDate + 5
+    // Sunday after is startDate + 6
+    var satAfter = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + 5);
+    var sunAfter = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + 6);
+
+    var adjDates = [formatDate(satBefore), formatDate(sunBefore), formatDate(satAfter), formatDate(sunAfter)];
+
+    for (var j = 0; j < adjDates.length; j++) {
+      var dStr = adjDates[j];
+      if (!adjacencyMap[dStr]) {
+        adjacencyMap[dStr] = [];
+      }
+      for (var k = 0; k < assignees.length; k++) {
+        var name = assignees[k];
+        if (adjacencyMap[dStr].indexOf(name) === -1) {
+          adjacencyMap[dStr].push(name);
+        }
+      }
+    }
+  }
+
+  // Now update weekend sheet
+  var updates = [];
+  var totalAffectedRows = 0;
+
+  for (var i = 1; i < weekendData.length; i++) {
+    var wDate = weekendData[i][wDateColIdx];
+    if (!wDate) continue;
+
+    var wDateStr = formatDate(wDate);
+    var namesForDate = adjacencyMap[wDateStr] || [];
+
+    var val = '';
+    if (namesForDate.length > 0) {
+      val = namesForDate.join('\n'); // newline separated exact names
+      totalAffectedRows++;
+    }
+
+    // Only update if it's different to save writes
+    if (weekendData[i][wAdjColIdx] !== val) {
+      updates.push({
+        row: i + 1,
+        col: wAdjColIdx + 1,
+        val: val
+      });
+    }
+  }
+
+  for (var i = 0; i < updates.length; i++) {
+    weekendSheet.getRange(updates[i].row, updates[i].col).setValue(updates[i].val);
+  }
+
+  return totalAffectedRows;
 }
 
 function autoFillAndRandomize(targetYear) {
@@ -140,6 +292,10 @@ function autoFillAndRandomize(targetYear) {
   // 2. Generate Weekends
   var weekendSheet = ss.getSheetByName('Weekend Coverage');
   if (weekendSheet) {
+    var adminOptions = getAdminOptions();
+    var proximityRange = parseInt(adminOptions['Holiday Proximity Range (days)']) || 3;
+    var holidays = getHolidaysForYear(targetYear);
+
     var startDate = new Date(targetYear, 0, 1);
     var endDate = new Date(targetYear, 11, 31);
     var currentDate = new Date(startDate.getTime());
@@ -148,12 +304,48 @@ function autoFillAndRandomize(targetYear) {
     while (currentDate <= endDate) {
       var dayOfWeek = currentDate.getDay();
       if (dayOfWeek === 0 || dayOfWeek === 6) { // Sunday or Saturday
+        var holWarning = '';
+        var minDiff = Infinity;
+        var earliestDate = Infinity;
+        var closestHolidayName = '';
+
+        // Local date for distance calc to prevent timezone shifting
+        var cDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
+
+        for (var hName in holidays) {
+          if (holidays.hasOwnProperty(hName)) {
+            var hDate = holidays[hName];
+            var hLocalDate = new Date(hDate.getFullYear(), hDate.getMonth(), hDate.getDate());
+
+            var diffTime = Math.abs(cDate.getTime() - hLocalDate.getTime());
+            var diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            if (diffDays <= proximityRange) {
+              if (diffDays < minDiff) {
+                minDiff = diffDays;
+                earliestDate = hLocalDate.getTime();
+                closestHolidayName = hName;
+              } else if (diffDays === minDiff) {
+                // Break ties using earliest holiday date
+                if (hLocalDate.getTime() < earliestDate) {
+                   earliestDate = hLocalDate.getTime();
+                   closestHolidayName = hName;
+                }
+              }
+            }
+          }
+        }
+
+        if (closestHolidayName) {
+           holWarning = closestHolidayName;
+        }
+
         weekendData.push([
           formatDate(currentDate),
           dayOfWeek === 0 ? 'Sunday' : 'Saturday',
           '', // First Call Assignee
           '', // Vacation Adjacency Warning
-          ''  // Holiday Proximity Warning
+          holWarning  // Holiday Proximity Warning
         ]);
       }
       currentDate.setDate(currentDate.getDate() + 1);

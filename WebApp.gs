@@ -100,7 +100,31 @@ function getInitialState(participantId) {
   if (state.phase === 'VACATION_SENIORITY' || state.phase === 'VACATION_RANDOM') {
     response.availableChoices.vacation = getSheetDataAsObjects('Vacation Availability');
   } else if (state.phase === 'WEEKEND') {
-    response.availableChoices.weekend = getSheetDataAsObjects('Weekend Coverage');
+    var rawWeekends = getSheetDataAsObjects('Weekend Coverage');
+    var processedWeekends = [];
+    var pName = participant['Name']; // exact canonical name
+
+    for (var i = 0; i < rawWeekends.length; i++) {
+      var w = rawWeekends[i];
+      var warnStr = String(w['Vacation Adjacency Warning'] || '');
+      var affectedNames = warnStr.split('\n');
+
+      // Exact canonical name matching
+      var nearVacation = false;
+      for (var k = 0; k < affectedNames.length; k++) {
+        if (affectedNames[k] === pName) {
+           nearVacation = true;
+           break;
+        }
+      }
+
+      w['nearVacation'] = nearVacation;
+      delete w['Vacation Adjacency Warning']; // Prevent names from leaking to client
+
+      processedWeekends.push(w);
+    }
+
+    response.availableChoices.weekend = processedWeekends;
     response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
   } else if (state.phase === 'HOLIDAY_VOLUNTEER' || state.phase === 'HOLIDAY_MANDATORY') {
     response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
@@ -263,7 +287,7 @@ function submitSelection(participantId, selectionData) {
               var assignees = assigneesStr ? assigneesStr.split(',').map(function(n) { return n.trim(); }) : [];
 
               if (assignees.length >= cap) {
-                throw new Error("That position was just selected by another participant. Please try again.");
+                throw new Error("The requested weekend position is no longer available. Please try again.");
               }
               if (assignees.indexOf(participantId) !== -1) {
                 throw new Error("You already selected this week.");
@@ -309,7 +333,7 @@ function submitSelection(participantId, selectionData) {
             if (rowDate instanceof Date) rowDate = formatDate(rowDate);
             if (String(rowDate) === String(dateStr)) {
               if (wData[i][wHeaders.indexOf('First Call Assignee')]) {
-                throw new Error("That position was just selected by another participant. Please try again.");
+                throw new Error("The requested weekend position is no longer available. Please try again.");
               }
               weekendUpdates.push({row: i + 1, col: wHeaders.indexOf('First Call Assignee') + 1});
               found = true;
@@ -330,7 +354,7 @@ function submitSelection(participantId, selectionData) {
              if (hData[i][hHeaders.indexOf('Holiday Name')] === selectionData.adjacentHoliday.holidayName &&
                  hData[i][hHeaders.indexOf('Call Position (Call 1 / Call 2)')] === selectionData.adjacentHoliday.position) {
                  if (hData[i][hHeaders.indexOf('Assigned Participant')]) {
-                    throw new Error("That adjacent holiday was just selected by another participant.");
+                    throw new Error("The requested holiday position is no longer available. Please try again.");
                  }
                  holidayUpdate = {sheet: hSheet, row: i + 1, col: hHeaders.indexOf('Assigned Participant') + 1};
                  hFound = true;
@@ -373,7 +397,7 @@ function submitSelection(participantId, selectionData) {
           if (hData[i][hHeaders.indexOf('Holiday Name')] === selectedItem.name &&
               hData[i][hHeaders.indexOf('Call Position (Call 1 / Call 2)')] === selectedItem.position) {
               if (hData[i][hHeaders.indexOf('Assigned Participant')]) {
-                throw new Error("That position was just selected by another participant. Please try again.");
+                throw new Error("The requested weekend position is no longer available. Please try again.");
               }
               hSheet.getRange(i + 1, hHeaders.indexOf('Assigned Participant') + 1).setValue(participantId);
               found = true;
