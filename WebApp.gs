@@ -107,7 +107,7 @@ function getInitialState(participantId) {
     for (var i = 0; i < rawWeekends.length; i++) {
       var w = rawWeekends[i];
       var warnStr = String(w['Vacation Adjacency Warning'] || '');
-      var affectedNames = warnStr.split('\n');
+      var affectedNames = warnStr.split(',').map(function(s) { return s.trim(); });
 
       // Exact canonical name matching
       var nearVacation = false;
@@ -287,7 +287,7 @@ function submitSelection(participantId, selectionData) {
               var assignees = assigneesStr ? assigneesStr.split(',').map(function(n) { return n.trim(); }) : [];
 
               if (assignees.length >= cap) {
-                throw new Error("The requested weekend position is no longer available. Please try again.");
+                throw new Error("That position was just selected by another participant. Please try again.");
               }
               if (assignees.indexOf(participantId) !== -1) {
                 throw new Error("You already selected this week.");
@@ -333,7 +333,7 @@ function submitSelection(participantId, selectionData) {
             if (rowDate instanceof Date) rowDate = formatDate(rowDate);
             if (String(rowDate) === String(dateStr)) {
               if (wData[i][wHeaders.indexOf('First Call Assignee')]) {
-                throw new Error("The requested weekend position is no longer available. Please try again.");
+                throw new Error("That position was just selected by another participant. Please try again.");
               }
               weekendUpdates.push({row: i + 1, col: wHeaders.indexOf('First Call Assignee') + 1});
               found = true;
@@ -354,7 +354,7 @@ function submitSelection(participantId, selectionData) {
              if (hData[i][hHeaders.indexOf('Holiday Name')] === selectionData.adjacentHoliday.holidayName &&
                  hData[i][hHeaders.indexOf('Call Position (Call 1 / Call 2)')] === selectionData.adjacentHoliday.position) {
                  if (hData[i][hHeaders.indexOf('Assigned Participant')]) {
-                    throw new Error("The requested holiday position is no longer available. Please try again.");
+                    throw new Error("That adjacent holiday was just selected by another participant.");
                  }
                  holidayUpdate = {sheet: hSheet, row: i + 1, col: hHeaders.indexOf('Assigned Participant') + 1};
                  hFound = true;
@@ -397,7 +397,7 @@ function submitSelection(participantId, selectionData) {
           if (hData[i][hHeaders.indexOf('Holiday Name')] === selectedItem.name &&
               hData[i][hHeaders.indexOf('Call Position (Call 1 / Call 2)')] === selectedItem.position) {
               if (hData[i][hHeaders.indexOf('Assigned Participant')]) {
-                throw new Error("The requested weekend position is no longer available. Please try again.");
+                throw new Error("That position was just selected by another participant. Please try again.");
               }
               hSheet.getRange(i + 1, hHeaders.indexOf('Assigned Participant') + 1).setValue(participantId);
               found = true;

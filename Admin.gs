@@ -65,7 +65,8 @@ function beginWeekendPhase() {
     if (!pSheet) throw new Error("Participant Config sheet not found.");
 
     // 1. Calculate and populate Vacation Adjacency Warnings
-    var affectedRows = calculateVacationAdjacency_() || 0;
+    // This will securely throw errors if required sheets/headers are missing
+    var affectedRows = calculateVacationAdjacency_();
 
     // 2. Clear stale ACTIVE state
     var pData = pSheet.getDataRange().getValues();
@@ -138,12 +139,14 @@ function calculateVacationAdjacency_() {
   var vacSheet = ss.getSheetByName('Vacation Availability');
   var weekendSheet = ss.getSheetByName('Weekend Coverage');
 
-  if (!vacSheet || !weekendSheet) return;
+  if (!vacSheet) throw new Error("Missing 'Vacation Availability' sheet.");
+  if (!weekendSheet) throw new Error("Missing 'Weekend Coverage' sheet.");
 
   var vacData = vacSheet.getDataRange().getValues();
   var weekendData = weekendSheet.getDataRange().getValues();
 
-  if (vacData.length < 2 || weekendData.length < 2) return;
+  if (vacData.length < 1) throw new Error("'Vacation Availability' sheet is empty.");
+  if (weekendData.length < 1) throw new Error("'Weekend Coverage' sheet is empty.");
 
   var vacHeaders = vacData[0];
   var weekendHeaders = weekendData[0];
@@ -151,12 +154,12 @@ function calculateVacationAdjacency_() {
   var dateColIdx = vacHeaders.indexOf('Start Date (Monday)');
   var assigneesColIdx = vacHeaders.indexOf('Assigned Participants');
 
-  if (dateColIdx === -1 || assigneesColIdx === -1) return;
+  if (dateColIdx === -1 || assigneesColIdx === -1) throw new Error("Missing required headers in 'Vacation Availability' sheet.");
 
   var wDateColIdx = weekendHeaders.indexOf('Date');
   var wAdjColIdx = weekendHeaders.indexOf('Vacation Adjacency Warning');
 
-  if (wDateColIdx === -1 || wAdjColIdx === -1) return;
+  if (wDateColIdx === -1 || wAdjColIdx === -1) throw new Error("Missing required headers in 'Weekend Coverage' sheet.");
 
   // Build a map of dates that should trigger warnings, and the participant names for that date.
   // We'll use YYYY-MM-DD strings as keys.
@@ -213,7 +216,7 @@ function calculateVacationAdjacency_() {
 
     var val = '';
     if (namesForDate.length > 0) {
-      val = namesForDate.join('\n'); // newline separated exact names
+      val = namesForDate.join(', '); // comma separated exact names
       totalAffectedRows++;
     }
 
@@ -293,7 +296,8 @@ function autoFillAndRandomize(targetYear) {
   var weekendSheet = ss.getSheetByName('Weekend Coverage');
   if (weekendSheet) {
     var adminOptions = getAdminOptions();
-    var proximityRange = parseInt(adminOptions['Holiday Proximity Range (days)']) || 3;
+    var proximityStr = adminOptions['Holiday Proximity Range (days)'];
+    var proximityRange = (proximityStr !== undefined && proximityStr !== '') ? parseInt(proximityStr) : 3;
     var holidays = getHolidaysForYear(targetYear);
 
     var startDate = new Date(targetYear, 0, 1);
@@ -317,8 +321,11 @@ function autoFillAndRandomize(targetYear) {
             var hDate = holidays[hName];
             var hLocalDate = new Date(hDate.getFullYear(), hDate.getMonth(), hDate.getDate());
 
-            var diffTime = Math.abs(cDate.getTime() - hLocalDate.getTime());
-            var diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            // UTC math to prevent DST errors
+            var utc1 = Date.UTC(cDate.getFullYear(), cDate.getMonth(), cDate.getDate());
+            var utc2 = Date.UTC(hLocalDate.getFullYear(), hLocalDate.getMonth(), hLocalDate.getDate());
+            var diffTime = Math.abs(utc1 - utc2);
+            var diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
             if (diffDays <= proximityRange) {
               if (diffDays < minDiff) {
