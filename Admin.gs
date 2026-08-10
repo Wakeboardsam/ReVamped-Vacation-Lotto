@@ -26,7 +26,24 @@ function onOpen(e) {
 function runAutoFillFromMenu() {
   var year = getAdminOptions()['Active Year'] || 2027;
   autoFillAndRandomize(Number(year));
-  SpreadsheetApp.getUi().alert('Auto-Fill & Randomization complete for target year ' + year + '!');
+
+  var successMessage = 'Setup completed successfully for ' + year + '.\n\n' +
+    '✓ Vacation weeks generated\n' +
+    '✓ Weekend coverage dates generated\n' +
+    '✓ Official holiday Call 1 and Call 2 positions generated\n' +
+    '✓ Soft holiday warning dates generated\n' +
+    '✓ Active participant roster randomized\n' +
+    '✓ Lottery positions assigned\n' +
+    '✓ Prime Classification defaulted to Non-Prime\n' +
+    '✓ Special Week Designation defaulted to None\n\n' +
+    'Before beginning the lottery:\n\n' +
+    '• Mark all applicable Prime weeks\n' +
+    '• Designate the Spring Break and Christmas weeks\n' +
+    '• Review vacation-week capacities\n' +
+    '• Confirm all generated vacation, weekend, and holiday dates\n\n' +
+    'Important: Running this setup again will clear and regenerate existing date rows, assignments, and administrative adjustments.';
+
+  SpreadsheetApp.getUi().alert(successMessage);
 }
 
 /**
@@ -85,8 +102,8 @@ function autoFillAndRandomize(targetYear) {
         weekId,
         formatDate(currentMonday),
         '', // Capacity
-        '', // Prime Classification
-        '', // Special Week Designation
+        'Non-Prime', // Prime Classification
+        'None', // Special Week Designation
         ''  // Assigned Participants
       ]);
       currentMonday.setDate(currentMonday.getDate() + 7);
@@ -94,11 +111,29 @@ function autoFillAndRandomize(targetYear) {
     }
 
     if (vacationData.length > 0) {
+      var lastRow = vacationSheet.getLastRow();
       // Clear existing data (keep headers)
-      if (vacationSheet.getLastRow() > 1) {
-        vacationSheet.getRange(2, 1, vacationSheet.getLastRow() - 1, vacationSheet.getLastColumn()).clearContent();
+      if (lastRow > 1) {
+        vacationSheet.getRange(2, 1, lastRow - 1, vacationSheet.getLastColumn()).clearContent();
+
+        // Clear old validations for the specific columns (Prime Classification is col 4, Special Week Designation is col 5)
+        vacationSheet.getRange(2, 4, lastRow - 1, 1).clearDataValidations();
+        vacationSheet.getRange(2, 5, lastRow - 1, 1).clearDataValidations();
       }
       vacationSheet.getRange(2, 1, vacationData.length, vacationData[0].length).setValues(vacationData);
+
+      // Apply new strict dropdown validations to the newly generated rows
+      var primeRule = SpreadsheetApp.newDataValidation()
+        .requireValueInList(['Non-Prime', 'Prime'], true)
+        .setAllowInvalid(false)
+        .build();
+      var specialRule = SpreadsheetApp.newDataValidation()
+        .requireValueInList(['None', 'Spring Break', 'Christmas'], true)
+        .setAllowInvalid(false)
+        .build();
+
+      vacationSheet.getRange(2, 4, vacationData.length, 1).setDataValidation(primeRule);
+      vacationSheet.getRange(2, 5, vacationData.length, 1).setDataValidation(specialRule);
     }
   }
 
