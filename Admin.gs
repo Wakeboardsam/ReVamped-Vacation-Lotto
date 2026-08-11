@@ -240,23 +240,46 @@ function beginWeekendPhase() {
 }
 
 /**
- * Transitions phase state to HOLIDAY_VOLUNTEER.
+ * Starts the Holiday Phase from Lottery Position 1.
  */
 function beginHolidayPhase() {
-  setQueueState({ phase: 'HOLIDAY_VOLUNTEER' });
+  setQueueState({
+    phase: 'HOLIDAY_VOLUNTEER',
+    round: 1,
+    direction: 'ASCENDING',
+    lead: 1
+  });
+
   advanceQueue();
-  SpreadsheetApp.getUi().alert('Lottery state changed to HOLIDAY_VOLUNTEER phase.');
+
+  SpreadsheetApp.getUi().alert(
+    'Holiday Phase started.\n\n' +
+    'Round: 1\n' +
+    'Direction: ASCENDING\n' +
+    'Current Lead: 1'
+  );
 }
 
 /**
- * Transitions phase state to TRANSFER_OFFER_COLLECTION.
+ * Starts the Transfer Phase from Lottery Position 1.
  */
 function beginTransferPhase() {
-  setQueueState({ phase: 'TRANSFER_OFFER_COLLECTION' });
-  advanceQueue();
-  SpreadsheetApp.getUi().alert('Lottery state changed to TRANSFER_OFFER_COLLECTION phase.');
-}
+  setQueueState({
+    phase: 'TRANSFER_OFFER_COLLECTION',
+    round: 1,
+    direction: 'ASCENDING',
+    lead: 1
+  });
 
+  advanceQueue();
+
+  SpreadsheetApp.getUi().alert(
+    'Transfer Phase started.\n\n' +
+    'Round: 1\n' +
+    'Direction: ASCENDING\n' +
+    'Current Lead: 1'
+  );
+}
 
 /**
  * Calculates vacation adjacency and stores participant names in Weekend Coverage.
