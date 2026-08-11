@@ -59,33 +59,126 @@ function beginSeniorityRound() {
  * Transitions phase state to WEEKEND.
  */
 function beginWeekendPhase() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var pSheet = ss.getSheetByName('Participant Config');
-  if (!pSheet) throw new Error("Participant Config sheet not found.");
-
-  var pData = pSheet.getDataRange().getValues();
-  if (pData.length < 1) throw new Error("'Participant Config' sheet is empty.");
-  var pHeaders = pData[0];
-
-  var entryColIdx = pHeaders.indexOf('Entry Timestamp') + 1;
-  var reminderColIdx = pHeaders.indexOf('Reminder Sent') + 1;
-  var alertColIdx = pHeaders.indexOf('Admin Alert Sent') + 1;
-
-  if (entryColIdx === 0 || reminderColIdx === 0 || alertColIdx === 0) {
-     throw new Error("Missing required headers in 'Participant Config' sheet.");
-  }
-
-  // 1. Calculate and populate Vacation Adjacency Warnings
-  // This will securely throw errors if required sheets/headers are missing
-  var affectedRows = calculateVacationAdjacency_();
-
   return withScriptLock(function() {
-    // 2. Clear stale ACTIVE state (Currently Active is not in schema, rely on Entry Timestamp/Reminder/Alert)
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // -- VALIDATION PHASE --
+
+    // 1. Validate Participant Config
+    var pSheet = ss.getSheetByName('Participant Config');
+    if (!pSheet) throw new Error("Participant Config sheet not found.");
+    var pData = pSheet.getDataRange().getValues();
+    if (pData.length < 2) throw new Error("'Participant Config' sheet is missing data.");
+    var pHeaders = pData[0];
+    var entryColIdx = pHeaders.indexOf('Entry Timestamp') + 1;
+    var reminderColIdx = pHeaders.indexOf('Reminder Sent') + 1;
+    var alertColIdx = pHeaders.indexOf('Admin Alert Sent') + 1;
+    if (entryColIdx === 0 || reminderColIdx === 0 || alertColIdx === 0) {
+       throw new Error("Missing required tracking headers in 'Participant Config'.");
+    }
+
+    // 2. Validate Vacation Availability
+    var vacSheet = ss.getSheetByName('Vacation Availability');
+    if (!vacSheet) throw new Error("Missing 'Vacation Availability' sheet.");
+    var vacData = vacSheet.getDataRange().getValues();
+    if (vacData.length < 2) throw new Error("'Vacation Availability' sheet is empty.");
+    var vacHeaders = vacData[0];
+    var dateColIdx = vacHeaders.indexOf('Start Date (Monday)');
+    var assigneesColIdx = vacHeaders.indexOf('Assigned Participants');
+    if (dateColIdx === -1 || assigneesColIdx === -1) {
+       throw new Error("Missing required headers in 'Vacation Availability' sheet.");
+    }
+
+    // 3. Validate Weekend Coverage
+    var weekendSheet = ss.getSheetByName('Weekend Coverage');
+    if (!weekendSheet) throw new Error("Missing 'Weekend Coverage' sheet.");
+    var weekendData = weekendSheet.getDataRange().getValues();
+    if (weekendData.length < 2) throw new Error("'Weekend Coverage' sheet is empty.");
+    var weekendHeaders = weekendData[0];
+    var wDateColIdx = weekendHeaders.indexOf('Date');
+    var wAdjColIdx = weekendHeaders.indexOf('Vacation Adjacency Warning');
+    if (wDateColIdx === -1 || wAdjColIdx === -1) {
+       throw new Error("Missing required headers in 'Weekend Coverage' sheet.");
+    }
+
+    // -- CALCULATION PHASE --
+    var adjacencyMap = {};
+    for (var i = 1; i < vacData.length; i++) {
+      var rawDate = vacData[i][dateColIdx];
+      var assigneesStr = String(vacData[i][assigneesColIdx] || '').trim();
+      if (!rawDate || !assigneesStr) continue;
+
+      var assignees = assigneesStr.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+      if (assignees.length === 0) continue;
+
+      // Safely parse YYYY-MM-DD instead of relying on new Date('YYYY-MM-DD')
+      var startDate;
+      if (rawDate instanceof Date) {
+        startDate = new Date(rawDate.getTime());
+      } else {
+        var parts = String(rawDate).split('-');
+        if (parts.length === 3) {
+           startDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        } else {
+           continue; // unparseable
+        }
+      }
+
+      // Sat/Sun before
+      var satBefore = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() - 2);
+      var sunBefore = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() - 1);
+
+      // Sat/Sun after end Friday (Friday is startDate + 4)
+      var satAfter = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + 5);
+      var sunAfter = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + 6);
+
+      var adjDates = [formatDate(satBefore), formatDate(sunBefore), formatDate(satAfter), formatDate(sunAfter)];
+
+      for (var j = 0; j < adjDates.length; j++) {
+        var dStr = adjDates[j];
+        if (!adjacencyMap[dStr]) adjacencyMap[dStr] = [];
+        for (var k = 0; k < assignees.length; k++) {
+          var name = assignees[k];
+          if (adjacencyMap[dStr].indexOf(name) === -1) {
+            adjacencyMap[dStr].push(name);
+          }
+        }
+      }
+    }
+
+    // -- WRITE PHASE --
+
+    // 1. Reset Participant Config tracking fields
     for (var i = 1; i < pData.length; i++) {
       var row = i + 1;
       pSheet.getRange(row, entryColIdx).clearContent();
       pSheet.getRange(row, reminderColIdx).setValue(false);
       pSheet.getRange(row, alertColIdx).setValue(false);
+    }
+
+    // 2. Write Weekend Adjacency warnings
+    var totalAffectedRows = 0;
+    var wUpdates = [];
+    for (var i = 1; i < weekendData.length; i++) {
+      var wDate = weekendData[i][wDateColIdx];
+      if (!wDate) continue;
+
+      var wDateStr = (wDate instanceof Date) ? formatDate(wDate) : String(wDate);
+      var namesForDate = adjacencyMap[wDateStr] || [];
+
+      var val = '';
+      if (namesForDate.length > 0) {
+        val = namesForDate.join(', '); // comma separated exact names
+        totalAffectedRows++;
+      }
+
+      if (weekendData[i][wAdjColIdx] !== val) {
+        wUpdates.push({ row: i + 1, col: wAdjColIdx + 1, val: val });
+      }
+    }
+
+    for (var i = 0; i < wUpdates.length; i++) {
+      weekendSheet.getRange(wUpdates[i].row, wUpdates[i].col).setValue(wUpdates[i].val);
     }
 
     // 3. Reset Config & Queue State
@@ -97,7 +190,7 @@ function beginWeekendPhase() {
     });
 
     // 4. Initialize first ACTIVE window
-    advanceQueue_internal(); // Non-locking internal advance
+    advanceQueueInternal_();
 
     // 5. Gather summary
     var activeParticipants = getActiveParticipants('WEEKEND');
@@ -108,7 +201,7 @@ function beginWeekendPhase() {
                   '- Round: 1\n' +
                   '- Direction: ASCENDING\n' +
                   '- Current Lead: 1\n' +
-                  '- Weekend rows given vacation-adjacency warnings: ' + affectedRows + '\n' +
+                  '- Weekend rows given vacation-adjacency warnings: ' + totalAffectedRows + '\n' +
                   '- Participants currently ACTIVE: ' + (activeNames || 'None');
 
     SpreadsheetApp.getUi().alert(summary);
@@ -137,108 +230,7 @@ function beginTransferPhase() {
 /**
  * Calculates vacation adjacency and stores participant names in Weekend Coverage.
  */
-function calculateVacationAdjacency_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var vacSheet = ss.getSheetByName('Vacation Availability');
-  var weekendSheet = ss.getSheetByName('Weekend Coverage');
 
-  if (!vacSheet) throw new Error("Missing 'Vacation Availability' sheet.");
-  if (!weekendSheet) throw new Error("Missing 'Weekend Coverage' sheet.");
-
-  var vacData = vacSheet.getDataRange().getValues();
-  var weekendData = weekendSheet.getDataRange().getValues();
-
-  if (vacData.length < 1) throw new Error("'Vacation Availability' sheet is empty.");
-  if (weekendData.length < 1) throw new Error("'Weekend Coverage' sheet is empty.");
-
-  var vacHeaders = vacData[0];
-  var weekendHeaders = weekendData[0];
-
-  var dateColIdx = vacHeaders.indexOf('Start Date (Monday)');
-  var assigneesColIdx = vacHeaders.indexOf('Assigned Participants');
-
-  if (dateColIdx === -1 || assigneesColIdx === -1) throw new Error("Missing required headers in 'Vacation Availability' sheet.");
-
-  var wDateColIdx = weekendHeaders.indexOf('Date');
-  var wAdjColIdx = weekendHeaders.indexOf('Vacation Adjacency Warning');
-
-  if (wDateColIdx === -1 || wAdjColIdx === -1) throw new Error("Missing required headers in 'Weekend Coverage' sheet.");
-
-  // Build a map of dates that should trigger warnings, and the participant names for that date.
-  // We'll use YYYY-MM-DD strings as keys.
-  var adjacencyMap = {};
-
-  for (var i = 1; i < vacData.length; i++) {
-    var rawDate = vacData[i][dateColIdx];
-    var assigneesStr = String(vacData[i][assigneesColIdx] || '').trim();
-
-    if (!rawDate || !assigneesStr) continue;
-
-    var assignees = assigneesStr.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
-    if (assignees.length === 0) continue;
-
-    var startDate = new Date(rawDate); // It's already YYYY-MM-DD or Date object
-    // Assuming startDate is Monday
-
-    // Sat/Sun before
-    var satBefore = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() - 2);
-    var sunBefore = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() - 1);
-
-    // Sat/Sun after end Friday (Friday is startDate + 4)
-    // Saturday after is startDate + 5
-    // Sunday after is startDate + 6
-    var satAfter = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + 5);
-    var sunAfter = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + 6);
-
-    var adjDates = [formatDate(satBefore), formatDate(sunBefore), formatDate(satAfter), formatDate(sunAfter)];
-
-    for (var j = 0; j < adjDates.length; j++) {
-      var dStr = adjDates[j];
-      if (!adjacencyMap[dStr]) {
-        adjacencyMap[dStr] = [];
-      }
-      for (var k = 0; k < assignees.length; k++) {
-        var name = assignees[k];
-        if (adjacencyMap[dStr].indexOf(name) === -1) {
-          adjacencyMap[dStr].push(name);
-        }
-      }
-    }
-  }
-
-  // Now update weekend sheet
-  var updates = [];
-  var totalAffectedRows = 0;
-
-  for (var i = 1; i < weekendData.length; i++) {
-    var wDate = weekendData[i][wDateColIdx];
-    if (!wDate) continue;
-
-    var wDateStr = formatDate(wDate);
-    var namesForDate = adjacencyMap[wDateStr] || [];
-
-    var val = '';
-    if (namesForDate.length > 0) {
-      val = namesForDate.join(', '); // comma separated exact names
-      totalAffectedRows++;
-    }
-
-    // Only update if it's different to save writes
-    if (weekendData[i][wAdjColIdx] !== val) {
-      updates.push({
-        row: i + 1,
-        col: wAdjColIdx + 1,
-        val: val
-      });
-    }
-  }
-
-  for (var i = 0; i < updates.length; i++) {
-    weekendSheet.getRange(updates[i].row, updates[i].col).setValue(updates[i].val);
-  }
-
-  return totalAffectedRows;
-}
 
 function autoFillAndRandomize(targetYear) {
   // Fallback to Admin Options setting or 2027 default if no argument is passed
@@ -295,13 +287,68 @@ function autoFillAndRandomize(targetYear) {
     }
   }
 
-  // 2. Generate Weekends
+  // 2. Generate Official Holidays (Call 1 and Call 2)
+  var holidaySheet = ss.getSheetByName('Holiday Coverage');
+  var finalHolidayData = []; // Store it to use for weekend generation
+  if (holidaySheet) {
+    var existingHolidays = {};
+    var existingDates = {};
+    if (holidaySheet.getLastRow() > 1) {
+      var hData = holidaySheet.getDataRange().getValues();
+      var hHeaders = hData[0];
+      var hNameIdx = hHeaders.indexOf('Holiday Name');
+      var hDateIdx = hHeaders.indexOf('Observed Date');
+      var hPosIdx = hHeaders.indexOf('Call Position (Call 1 / Call 2)');
+      var hAssigneeIdx = hHeaders.indexOf('Assigned Participant');
+
+      if (hNameIdx !== -1 && hPosIdx !== -1 && hAssigneeIdx !== -1 && hDateIdx !== -1) {
+         for (var i = 1; i < hData.length; i++) {
+           var name = hData[i][hNameIdx];
+           var pos = hData[i][hPosIdx];
+           var key = name + '|' + pos;
+           existingHolidays[key] = hData[i][hAssigneeIdx];
+
+           var rawD = hData[i][hDateIdx];
+           if (rawD) existingDates[name] = (rawD instanceof Date) ? formatDate(rawD) : String(rawD);
+         }
+      }
+    }
+
+    var holidays = getHolidaysForYear(targetYear);
+    var holidayData = [];
+
+    for (var hName in holidays) {
+      if (holidays.hasOwnProperty(hName)) {
+        // Use existing observed date from sheet if it exists, otherwise generate default
+        var hDate = existingDates[hName] || formatDate(holidays[hName]);
+
+        var assignee1 = existingHolidays[hName + '|Call 1'] || '';
+        var assignee2 = existingHolidays[hName + '|Call 2'] || '';
+
+        holidayData.push([hName, hDate, 'Call 1', assignee1]);
+        holidayData.push([hName, hDate, 'Call 2', assignee2]);
+
+        // We only need to push the name and date once per holiday for proximity calc
+        if (!finalHolidayData.some(function(h) { return h.name === hName; })) {
+          finalHolidayData.push({ name: hName, dateStr: hDate });
+        }
+      }
+    }
+
+    if (holidayData.length > 0) {
+      if (holidaySheet.getLastRow() > 1) {
+        holidaySheet.getRange(2, 1, holidaySheet.getLastRow() - 1, holidaySheet.getLastColumn()).clearContent();
+      }
+      holidaySheet.getRange(2, 1, holidayData.length, holidayData[0].length).setValues(holidayData);
+    }
+  }
+
+  // 3. Generate Weekends
   var weekendSheet = ss.getSheetByName('Weekend Coverage');
   if (weekendSheet) {
     var adminOptions = getAdminOptions();
     var proximityStr = adminOptions['Holiday Proximity Range (days)'];
     var proximityRange = (proximityStr !== undefined && proximityStr !== '') ? parseInt(proximityStr) : 3;
-    var holidays = getHolidaysForYear(targetYear);
 
     var startDate = new Date(targetYear, 0, 1);
     var endDate = new Date(targetYear, 11, 31);
@@ -319,28 +366,31 @@ function autoFillAndRandomize(targetYear) {
         // Local date for distance calc to prevent timezone shifting
         var cDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
 
-        for (var hName in holidays) {
-          if (holidays.hasOwnProperty(hName)) {
-            var hDate = holidays[hName];
-            var hLocalDate = new Date(hDate.getFullYear(), hDate.getMonth(), hDate.getDate());
+        for (var i = 0; i < finalHolidayData.length; i++) {
+          var hName = finalHolidayData[i].name;
+          var rawDate = finalHolidayData[i].dateStr; // YYYY-MM-DD
 
-            // UTC math to prevent DST errors
-            var utc1 = Date.UTC(cDate.getFullYear(), cDate.getMonth(), cDate.getDate());
-            var utc2 = Date.UTC(hLocalDate.getFullYear(), hLocalDate.getMonth(), hLocalDate.getDate());
-            var diffTime = Math.abs(utc1 - utc2);
-            var diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+          var parts = String(rawDate).split('-');
+          if (parts.length !== 3) continue;
 
-            if (diffDays <= proximityRange) {
-              if (diffDays < minDiff) {
-                minDiff = diffDays;
-                earliestDate = hLocalDate.getTime();
-                closestHolidayName = hName;
-              } else if (diffDays === minDiff) {
-                // Break ties using earliest holiday date
-                if (hLocalDate.getTime() < earliestDate) {
-                   earliestDate = hLocalDate.getTime();
-                   closestHolidayName = hName;
-                }
+          var hLocalDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+
+          // UTC math to prevent DST errors
+          var utc1 = Date.UTC(cDate.getFullYear(), cDate.getMonth(), cDate.getDate());
+          var utc2 = Date.UTC(hLocalDate.getFullYear(), hLocalDate.getMonth(), hLocalDate.getDate());
+          var diffTime = Math.abs(utc1 - utc2);
+          var diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+          if (diffDays <= proximityRange) {
+            if (diffDays < minDiff) {
+              minDiff = diffDays;
+              earliestDate = hLocalDate.getTime();
+              closestHolidayName = hName;
+            } else if (diffDays === minDiff) {
+              // Break ties using earliest holiday date
+              if (hLocalDate.getTime() < earliestDate) {
+                 earliestDate = hLocalDate.getTime();
+                 closestHolidayName = hName;
               }
             }
           }
@@ -366,28 +416,6 @@ function autoFillAndRandomize(targetYear) {
         weekendSheet.getRange(2, 1, weekendSheet.getLastRow() - 1, weekendSheet.getLastColumn()).clearContent();
       }
       weekendSheet.getRange(2, 1, weekendData.length, weekendData[0].length).setValues(weekendData);
-    }
-  }
-
-  // 3. Generate Official Holidays (Call 1 and Call 2)
-  var holidaySheet = ss.getSheetByName('Holiday Coverage');
-  if (holidaySheet) {
-    var holidays = getHolidaysForYear(targetYear);
-    var holidayData = [];
-
-    for (var hName in holidays) {
-      if (holidays.hasOwnProperty(hName)) {
-        var hDate = formatDate(holidays[hName]);
-        holidayData.push([hName, hDate, 'Call 1', '']);
-        holidayData.push([hName, hDate, 'Call 2', '']);
-      }
-    }
-
-    if (holidayData.length > 0) {
-      if (holidaySheet.getLastRow() > 1) {
-        holidaySheet.getRange(2, 1, holidaySheet.getLastRow() - 1, holidaySheet.getLastColumn()).clearContent();
-      }
-      holidaySheet.getRange(2, 1, holidayData.length, holidayData[0].length).setValues(holidayData);
     }
   }
 
@@ -463,9 +491,6 @@ function autoFillAndRandomize(targetYear) {
   sanitizeParticipantConfigSheet();
 }
 
-/**
- * Sets up the time-driven trigger for SMS notifications (runs every 15 minutes).
- */
 function setupSmsTriggers() {
   // First, delete any existing triggers for this function to avoid duplicates
   var triggers = ScriptApp.getProjectTriggers();

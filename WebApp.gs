@@ -49,8 +49,9 @@ function authenticateParticipant(name, pin) {
  * @param {string} participantId
  * @returns {object} Application state
  */
-function getInitialState(participantId) {
+function getInitialState(participantId, pin) {
   var sanitizedId = (participantId || '').toString().trim();
+  var sanitizedPin = (pin || '').toString().trim();
 
   var adminOptions = getAdminOptions();
   var state = getQueueState();
@@ -59,7 +60,7 @@ function getInitialState(participantId) {
   var participants = getSheetDataAsObjects('Participant Config');
   var participant = null;
   for (var i = 0; i < participants.length; i++) {
-    if (participants[i]['Name'] === sanitizedId) {
+    if (participants[i]['Name'] === sanitizedId && String(participants[i]['PIN']).trim() === sanitizedPin) {
       participant = participants[i];
       break;
     }
@@ -260,7 +261,7 @@ function submitSelection(participantId, selectionData) {
         pSheet.getRange(pRowIdx, pHeaders.indexOf('Transfer Receiver') + 1).setValue(false);
       }
       // advance queue
-      advanceQueue_internal();
+      advanceQueueInternal_();
       return { success: true };
     }
 
@@ -497,7 +498,7 @@ function submitSelection(participantId, selectionData) {
       }
 
       // Advance Queue after successful selection submission
-      advanceQueue_internal();
+      advanceQueueInternal_();
       return { success: true };
     }
 

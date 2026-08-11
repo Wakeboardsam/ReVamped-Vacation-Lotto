@@ -273,7 +273,7 @@
     google.script.run
       .withSuccessHandler(onStateLoaded)
       .withFailureHandler(onStateError)
-      .getInitialState(user);
+      .getInitialState(user, appState.pin);
   }
 
   function updateHeader() {
