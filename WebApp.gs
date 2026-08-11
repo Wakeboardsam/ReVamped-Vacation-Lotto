@@ -100,6 +100,7 @@ function getInitialState(participantId, pin) {
   // Populate available choices based on phase
   if (state.phase === 'VACATION_SENIORITY' || state.phase === 'VACATION_RANDOM') {
     response.availableChoices.vacation = getSheetDataAsObjects('Vacation Availability');
+    attachSoftHolidayWarnings_(response.availableChoices.vacation, 'Start Date (Monday)', 4);
   } else if (state.phase === 'WEEKEND') {
     var rawWeekends = getSheetDataAsObjects('Weekend Coverage');
     var processedWeekends = [];
@@ -125,10 +126,13 @@ function getInitialState(participantId, pin) {
       processedWeekends.push(w);
     }
 
+    attachSoftHolidayWarnings_(processedWeekends, 'Date', 0);
     response.availableChoices.weekend = processedWeekends;
     response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
+    attachSoftHolidayWarnings_(response.availableChoices.holiday, 'Observed Date', 0);
   } else if (state.phase === 'HOLIDAY_VOLUNTEER' || state.phase === 'HOLIDAY_MANDATORY') {
     response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
+    attachSoftHolidayWarnings_(response.availableChoices.holiday, 'Observed Date', 0);
   } else if (state.phase === 'TRANSFER_OFFER_COLLECTION') {
     // Stage A: Givers
     var myAssignments = [];

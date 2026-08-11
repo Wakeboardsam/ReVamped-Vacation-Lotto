@@ -1,0 +1,26 @@
+<<<<<<< SEARCH
+  if (state.phase === 'VACATION_SENIORITY' || state.phase === 'VACATION_RANDOM') {
+    response.availableChoices.vacation = getSheetDataAsObjects('Vacation Availability');
+  } else if (state.phase === 'WEEKEND') {
+=======
+  if (state.phase === 'VACATION_SENIORITY' || state.phase === 'VACATION_RANDOM') {
+    response.availableChoices.vacation = getSheetDataAsObjects('Vacation Availability');
+    attachSoftHolidayWarnings_(response.availableChoices.vacation, 'Start Date (Monday)', 4);
+  } else if (state.phase === 'WEEKEND') {
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+    response.availableChoices.weekend = processedWeekends;
+    response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
+  } else if (state.phase === 'HOLIDAY_VOLUNTEER' || state.phase === 'HOLIDAY_MANDATORY') {
+    response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
+  } else if (state.phase === 'TRANSFER_OFFER_COLLECTION') {
+=======
+    attachSoftHolidayWarnings_(processedWeekends, 'Date', 0);
+    response.availableChoices.weekend = processedWeekends;
+    response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
+    attachSoftHolidayWarnings_(response.availableChoices.holiday, 'Observed Date', 0);
+  } else if (state.phase === 'HOLIDAY_VOLUNTEER' || state.phase === 'HOLIDAY_MANDATORY') {
+    response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
+    attachSoftHolidayWarnings_(response.availableChoices.holiday, 'Observed Date', 0);
+  } else if (state.phase === 'TRANSFER_OFFER_COLLECTION') {
+>>>>>>> REPLACE

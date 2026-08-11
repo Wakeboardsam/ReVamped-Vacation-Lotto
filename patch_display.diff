@@ -1,0 +1,110 @@
+<<<<<<< SEARCH
+        calendar.vacationWeeks.push({
+          weekId: weekId,
+          startDate: startDate,
+          capacity: capacity,
+          assignedCount: assignedCount,
+          remainingCapacity: remainingCapacity,
+          primeClassification: String(row['Prime Classification'] || ''),
+          specialWeekDesignation: String(row['Special Week Designation'] || ''),
+          assignedNames: assignedNames
+        });
+      }
+    } else if (phase === 'WEEKEND') {
+=======
+        calendar.vacationWeeks.push({
+          weekId: weekId,
+          startDate: startDate,
+          capacity: capacity,
+          assignedCount: assignedCount,
+          remainingCapacity: remainingCapacity,
+          primeClassification: String(row['Prime Classification'] || ''),
+          specialWeekDesignation: String(row['Special Week Designation'] || ''),
+          assignedNames: assignedNames
+        });
+      }
+      attachSoftHolidayWarnings_(calendar.vacationWeeks, 'startDate', 4);
+    } else if (phase === 'WEEKEND') {
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+        calendar.weekends.push({
+          date: row['Date'],
+          dayOfWeek: String(row['Day of Week'] || ''),
+          capacity: capacity,
+          assignedCount: assignedCount,
+          remainingCapacity: remainingCapacity,
+          assignedNames: assignedNames,
+          holidayProximityWarning: String(row['Holiday Proximity Warning'] || '')
+        });
+      }
+
+      var holidayData = getSheetDataAsObjects('Holiday Coverage', cache);
+=======
+        calendar.weekends.push({
+          date: row['Date'],
+          dayOfWeek: String(row['Day of Week'] || ''),
+          capacity: capacity,
+          assignedCount: assignedCount,
+          remainingCapacity: remainingCapacity,
+          assignedNames: assignedNames,
+          holidayProximityWarning: String(row['Holiday Proximity Warning'] || '')
+        });
+      }
+      attachSoftHolidayWarnings_(calendar.weekends, 'date', 0);
+
+      var holidayData = getSheetDataAsObjects('Holiday Coverage', cache);
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+        calendar.holidays.push({
+          holidayName: String(row['Holiday Name'] || ''),
+          observedDate: row['Observed Date'],
+          callPosition: String(row['Call Position (Call 1 / Call 2)'] || ''),
+          capacity: capacity,
+          assignedCount: assignedCount,
+          remainingCapacity: remainingCapacity,
+          assignedNames: assignedNames
+        });
+      }
+
+    } else if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
+=======
+        calendar.holidays.push({
+          holidayName: String(row['Holiday Name'] || ''),
+          observedDate: row['Observed Date'],
+          callPosition: String(row['Call Position (Call 1 / Call 2)'] || ''),
+          capacity: capacity,
+          assignedCount: assignedCount,
+          remainingCapacity: remainingCapacity,
+          assignedNames: assignedNames
+        });
+      }
+      attachSoftHolidayWarnings_(calendar.holidays, 'observedDate', 0);
+
+    } else if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+        calendar.holidays.push({
+          holidayName: String(row['Holiday Name'] || ''),
+          observedDate: row['Observed Date'],
+          callPosition: String(row['Call Position (Call 1 / Call 2)'] || ''),
+          capacity: capacity,
+          assignedCount: assignedCount,
+          remainingCapacity: remainingCapacity,
+          assignedNames: assignedNames
+        });
+      }
+    } else {
+=======
+        calendar.holidays.push({
+          holidayName: String(row['Holiday Name'] || ''),
+          observedDate: row['Observed Date'],
+          callPosition: String(row['Call Position (Call 1 / Call 2)'] || ''),
+          capacity: capacity,
+          assignedCount: assignedCount,
+          remainingCapacity: remainingCapacity,
+          assignedNames: assignedNames
+        });
+      }
+      attachSoftHolidayWarnings_(calendar.holidays, 'observedDate', 0);
+    } else {
+>>>>>>> REPLACE

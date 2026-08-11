@@ -86,6 +86,7 @@ function getPublicDisplaySnapshot() {
           assignedNames: assignedNames
         });
       }
+      attachSoftHolidayWarnings_(calendar.vacationWeeks, 'startDate', 4);
     } else if (phase === 'WEEKEND') {
       calendar.supported = true;
       calendar.kind = "WEEKEND";
@@ -111,6 +112,7 @@ function getPublicDisplaySnapshot() {
           holidayProximityWarning: String(row['Holiday Proximity Warning'] || '')
         });
       }
+      attachSoftHolidayWarnings_(calendar.weekends, 'date', 0);
 
       var holidayData = getSheetDataAsObjects('Holiday Coverage', cache);
       for (var i = 0; i < holidayData.length; i++) {
@@ -133,6 +135,7 @@ function getPublicDisplaySnapshot() {
           assignedNames: assignedNames
         });
       }
+      attachSoftHolidayWarnings_(calendar.holidays, 'observedDate', 0);
 
     } else if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
       calendar.supported = true;
@@ -159,6 +162,7 @@ function getPublicDisplaySnapshot() {
           assignedNames: assignedNames
         });
       }
+      attachSoftHolidayWarnings_(calendar.holidays, 'observedDate', 0);
     } else {
       calendar.unsupportedReason = "A calendar display is not available for the current phase.";
     }

@@ -404,6 +404,44 @@
     updateActionBar();
   }
 
+  function escapeSoftHolidayText_(value) {
+    return String(value || '').replace(/[&<>"']/g, function(character) {
+      return {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[character];
+    });
+  }
+
+  function softHolidayBadgesHtml_(warnings) {
+    var html = '';
+    warnings = warnings || [];
+
+    for (var i = 0; i < warnings.length; i++) {
+      html +=
+        '<span class="badge badge-info">' +
+        'Soft Holiday: ' +
+        escapeSoftHolidayText_(warnings[i]) +
+        '</span>';
+    }
+
+    return html;
+  }
+
+  function appendPublicSoftHolidayBadges_(container, warnings) {
+    warnings = warnings || [];
+
+    for (var i = 0; i < warnings.length; i++) {
+      var badge = document.createElement('span');
+      badge.className = 'badge badge-info';
+      badge.textContent = 'Soft Holiday: ' + warnings[i];
+      container.appendChild(badge);
+    }
+  }
+
   function formatDateDisplay(dateStr) {
     if (!dateStr) return '';
     try {
@@ -454,6 +492,7 @@
       if (isPrime) badgesHtml += '<span class="badge badge-prime">Prime</span>';
       else badgesHtml += '<span class="badge badge-nonprime">Non-Prime</span>';
       if (special && special !== 'None') badgesHtml += '<span class="badge badge-special">' + special + '</span>';
+      badgesHtml += softHolidayBadgesHtml_(w.softHolidayWarnings);
       if (disableReason) badgesHtml += '<span class="badge badge-warning">' + disableReason + '</span>';
 
       var assignedPills = '';
@@ -522,6 +561,7 @@
       if (w['Consecutive Weekends Warning']) badgesHtml += '<span class="badge badge-warning">Consecutive</span>';
       if (w.nearVacation) badgesHtml += '<span class="badge badge-warning">Near Vacation</span>';
       if (w['Holiday Proximity Warning']) badgesHtml += '<span class="badge badge-info">Near Holiday: ' + w['Holiday Proximity Warning'] + '</span>';
+      badgesHtml += softHolidayBadgesHtml_(w.softHolidayWarnings);
 
       var displayDate = formatDateDisplay(w['Date']);
 
@@ -556,11 +596,15 @@
 
       var idStr = h['Holiday Name'] + '|' + h['Call Position (Call 1 / Call 2)'];
       var posLabel = h['Call Position (Call 1 / Call 2)'];
+      var badgesHtml = softHolidayBadgesHtml_(h.softHolidayWarnings);
 
       html += '<div class="' + cardClass + '" data-id="' + idStr + '" data-name="' + h['Holiday Name'] + '" data-pos="' + posLabel + '" onclick="toggleSelection(this, \'holiday\')">';
       html += '  <div class="card-content">';
       html += '    <h4 class="card-title">' + h['Holiday Name'] + ' - ' + posLabel + '</h4>';
       html += '    <div class="card-subtitle">' + formatDateDisplay(h['Observed Date']) + '</div>';
+      if (badgesHtml) {
+        html += '    <div style="margin-bottom:8px;">' + badgesHtml + '</div>';
+      }
       html += '    <div class="assignees">Assignee: ' + (assignee || 'Available') + '</div>';
       html += '  </div>';
       html += '</div>';
@@ -1116,6 +1160,11 @@
     } else if (type === 'HOLIDAY') {
       header.textContent = obj.holidayName + ' (' + obj.callPosition + ') · ' + formatPublicDate(obj.observedDate);
     }
+
+    appendPublicSoftHolidayBadges_(
+      subContent,
+      obj.softHolidayWarnings
+    );
 
     var avail = document.createElement('div');
     avail.className = 'public-availability card-subtitle';
