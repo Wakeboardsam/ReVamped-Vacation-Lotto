@@ -108,7 +108,6 @@ function getPublicDisplaySnapshot() {
           assignedCount: assignedCount,
           remainingCapacity: remainingCapacity,
           assignedNames: assignedNames,
-          vacationAdjacencyWarning: String(row['Vacation Adjacency Warning'] || ''),
           holidayProximityWarning: String(row['Holiday Proximity Warning'] || '')
         });
       }

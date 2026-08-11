@@ -166,6 +166,7 @@
           localStorage.setItem('lotto_user', res.participantName);
           appState.participantId = res.participantName;
           appState.name = res.participantName;
+          appState.pin = pin; // Securely store pin in memory for privacy context fetches
           document.getElementById('loginScreen').classList.remove('active');
           document.getElementById('mainScreen').style.display = 'block';
           fetchInitialState(res.participantName);
@@ -184,6 +185,8 @@
   function handleLogout() {
     localStorage.removeItem('lotto_user');
     appState.participantId = null;
+    appState.pin = null;
+    appState.isActive = false;
     document.getElementById('mainScreen').style.display = 'none';
     document.getElementById('loginScreen').classList.add('active');
     document.getElementById('loginName').value = '';
@@ -273,7 +276,7 @@
     google.script.run
       .withSuccessHandler(onStateLoaded)
       .withFailureHandler(onStateError)
-      .getInitialState(user);
+      .getInitialState(user, appState.pin);
   }
 
   function updateHeader() {
@@ -517,7 +520,7 @@
       // or calculated on the fly. We'll add support for the column 'Consecutive Weekends Warning' just in case,
       // or a generic "Consecutive" badge.
       if (w['Consecutive Weekends Warning']) badgesHtml += '<span class="badge badge-warning">Consecutive</span>';
-      if (w['Vacation Adjacency Warning']) badgesHtml += '<span class="badge badge-warning">Near Vacation</span>';
+      if (w.nearVacation) badgesHtml += '<span class="badge badge-warning">Near Vacation</span>';
       if (w['Holiday Proximity Warning']) badgesHtml += '<span class="badge badge-info">Near Holiday: ' + w['Holiday Proximity Warning'] + '</span>';
 
       var displayDate = formatDateDisplay(w['Date']);
@@ -876,6 +879,7 @@
   }
 
   function declineHolidaySelection() {
+    // Explicitly record that the user declined the holiday offer, so only the weekend is selected
     appState.adjacentHolidayPending = 'DECLINED';
     document.getElementById('holidayPromptModal').style.display = 'none';
     submitSelection(false);
@@ -1102,12 +1106,7 @@
       }
     } else if (type === 'WEEKEND') {
       header.textContent = obj.dayOfWeek + ' · ' + formatPublicDate(obj.date);
-      if (obj.vacationAdjacencyWarning) {
-        var vBadge = document.createElement('div');
-        vBadge.className = 'badge badge-warning';
-        vBadge.textContent = obj.vacationAdjacencyWarning;
-        subContent.appendChild(vBadge);
-      }
+      // Vacation Adjacency Warnings are strictly private and not displayed on the public calendar
       if (obj.holidayProximityWarning) {
         var hBadge = document.createElement('div');
         hBadge.className = 'badge badge-warning';

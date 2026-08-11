@@ -49,8 +49,9 @@ function authenticateParticipant(name, pin) {
  * @param {string} participantId
  * @returns {object} Application state
  */
-function getInitialState(participantId) {
+function getInitialState(participantId, pin) {
   var sanitizedId = (participantId || '').toString().trim();
+  var sanitizedPin = (pin || '').toString().trim();
 
   var adminOptions = getAdminOptions();
   var state = getQueueState();
@@ -59,7 +60,7 @@ function getInitialState(participantId) {
   var participants = getSheetDataAsObjects('Participant Config');
   var participant = null;
   for (var i = 0; i < participants.length; i++) {
-    if (participants[i]['Name'] === sanitizedId) {
+    if (participants[i]['Name'] === sanitizedId && String(participants[i]['PIN']).trim() === sanitizedPin) {
       participant = participants[i];
       break;
     }
@@ -100,7 +101,31 @@ function getInitialState(participantId) {
   if (state.phase === 'VACATION_SENIORITY' || state.phase === 'VACATION_RANDOM') {
     response.availableChoices.vacation = getSheetDataAsObjects('Vacation Availability');
   } else if (state.phase === 'WEEKEND') {
-    response.availableChoices.weekend = getSheetDataAsObjects('Weekend Coverage');
+    var rawWeekends = getSheetDataAsObjects('Weekend Coverage');
+    var processedWeekends = [];
+    var pName = participant['Name']; // exact canonical name
+
+    for (var i = 0; i < rawWeekends.length; i++) {
+      var w = rawWeekends[i];
+      var warnStr = String(w['Vacation Adjacency Warning'] || '');
+      var affectedNames = warnStr.split(',').map(function(s) { return s.trim(); });
+
+      // Exact canonical name matching
+      var nearVacation = false;
+      for (var k = 0; k < affectedNames.length; k++) {
+        if (affectedNames[k] === pName) {
+           nearVacation = true;
+           break;
+        }
+      }
+
+      w['nearVacation'] = nearVacation;
+      delete w['Vacation Adjacency Warning']; // Prevent names from leaking to client
+
+      processedWeekends.push(w);
+    }
+
+    response.availableChoices.weekend = processedWeekends;
     response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
   } else if (state.phase === 'HOLIDAY_VOLUNTEER' || state.phase === 'HOLIDAY_MANDATORY') {
     response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
@@ -236,7 +261,7 @@ function submitSelection(participantId, selectionData) {
         pSheet.getRange(pRowIdx, pHeaders.indexOf('Transfer Receiver') + 1).setValue(false);
       }
       // advance queue
-      advanceQueue();
+      advanceQueueInternal_();
       return { success: true };
     }
 
@@ -473,7 +498,7 @@ function submitSelection(participantId, selectionData) {
       }
 
       // Advance Queue after successful selection submission
-      advanceQueue();
+      advanceQueueInternal_();
       return { success: true };
     }
 
