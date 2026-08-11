@@ -166,6 +166,7 @@
           localStorage.setItem('lotto_user', res.participantName);
           appState.participantId = res.participantName;
           appState.name = res.participantName;
+          appState.pin = pin; // Securely store pin in memory for privacy context fetches
           document.getElementById('loginScreen').classList.remove('active');
           document.getElementById('mainScreen').style.display = 'block';
           fetchInitialState(res.participantName);
@@ -184,6 +185,8 @@
   function handleLogout() {
     localStorage.removeItem('lotto_user');
     appState.participantId = null;
+    appState.pin = null;
+    appState.isActive = false;
     document.getElementById('mainScreen').style.display = 'none';
     document.getElementById('loginScreen').classList.add('active');
     document.getElementById('loginName').value = '';

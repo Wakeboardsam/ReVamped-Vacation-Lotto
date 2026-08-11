@@ -70,11 +70,42 @@ function beginWeekendPhase() {
     var pData = pSheet.getDataRange().getValues();
     if (pData.length < 2) throw new Error("'Participant Config' sheet is missing data.");
     var pHeaders = pData[0];
+
     var entryColIdx = pHeaders.indexOf('Entry Timestamp') + 1;
     var reminderColIdx = pHeaders.indexOf('Reminder Sent') + 1;
     var alertColIdx = pHeaders.indexOf('Admin Alert Sent') + 1;
-    if (entryColIdx === 0 || reminderColIdx === 0 || alertColIdx === 0) {
-       throw new Error("Missing required tracking headers in 'Participant Config'.");
+    var wpColIdx = pHeaders.indexOf('Weekend Phase Enabled');
+    var lpColIdx = pHeaders.indexOf('Lottery Position');
+
+    if (entryColIdx === 0 || reminderColIdx === 0 || alertColIdx === 0 || wpColIdx === -1 || lpColIdx === -1) {
+       throw new Error("Missing required headers in 'Participant Config'.");
+    }
+
+    var eligibleCount = 0;
+    var lotteryPositions = [];
+    for (var i = 1; i < pData.length; i++) {
+       var wp = pData[i][wpColIdx];
+       if (wp === true || wp === 'TRUE') {
+          eligibleCount++;
+       }
+       var lp = pData[i][lpColIdx];
+       if (lp !== '' && lp !== undefined && lp !== null) {
+          var lpNum = Number(lp);
+          if (isNaN(lpNum)) {
+             throw new Error("Invalid Lottery Position for participant " + pData[i][pHeaders.indexOf('Name')] + ". Must be numeric.");
+          }
+          if (lotteryPositions.indexOf(lpNum) !== -1) {
+             throw new Error("Duplicate Lottery Position detected: " + lpNum);
+          }
+          lotteryPositions.push(lpNum);
+       }
+    }
+
+    if (eligibleCount === 0) {
+       throw new Error("No participants are eligible for the Weekend Phase.");
+    }
+    if (lotteryPositions.indexOf(1) === -1) {
+       throw new Error("Missing Lottery Position 1. Ensure participants are randomized.");
     }
 
     // 2. Validate Vacation Availability
@@ -316,22 +347,32 @@ function autoFillAndRandomize(targetYear) {
 
     var holidays = getHolidaysForYear(targetYear);
     var holidayData = [];
+    var processedNames = {};
 
-    for (var hName in holidays) {
-      if (holidays.hasOwnProperty(hName)) {
-        // Use existing observed date from sheet if it exists, otherwise generate default
-        var hDate = existingDates[hName] || formatDate(holidays[hName]);
-
+    // 1. Process existing holidays (standard or custom) to preserve them completely
+    for (var hName in existingDates) {
+      if (existingDates.hasOwnProperty(hName)) {
+        var hDate = existingDates[hName];
         var assignee1 = existingHolidays[hName + '|Call 1'] || '';
         var assignee2 = existingHolidays[hName + '|Call 2'] || '';
 
         holidayData.push([hName, hDate, 'Call 1', assignee1]);
         holidayData.push([hName, hDate, 'Call 2', assignee2]);
 
-        // We only need to push the name and date once per holiday for proximity calc
-        if (!finalHolidayData.some(function(h) { return h.name === hName; })) {
-          finalHolidayData.push({ name: hName, dateStr: hDate });
-        }
+        finalHolidayData.push({ name: hName, dateStr: hDate });
+        processedNames[hName] = true;
+      }
+    }
+
+    // 2. Append any standard holidays missing from the sheet
+    for (var hName in holidays) {
+      if (holidays.hasOwnProperty(hName) && !processedNames[hName]) {
+        var hDate = formatDate(holidays[hName]);
+
+        holidayData.push([hName, hDate, 'Call 1', '']);
+        holidayData.push([hName, hDate, 'Call 2', '']);
+
+        finalHolidayData.push({ name: hName, dateStr: hDate });
       }
     }
 
