@@ -119,3 +119,91 @@ function makeClientSafe_(obj) {
   // Fallback for functions, symbols, etc (though unexpected in standard spreadsheet data)
   return null;
 }
+
+/**
+ * Adds enabled Soft Holiday Warnings to calendar rows.
+ *
+ * spanDays:
+ *   0 = exact date only
+ *   4 = Monday through Friday vacation week
+ */
+function attachSoftHolidayWarnings_(rows, dateField, spanDays) {
+  var softRows = getSheetDataAsObjects('Soft Holiday Warnings');
+  var enabledWarnings = [];
+
+  for (var i = 0; i < softRows.length; i++) {
+    var enabled = softRows[i]['Enabled'];
+    var isEnabled =
+      enabled === true ||
+      String(enabled || '').trim().toUpperCase() === 'TRUE';
+
+    if (!isEnabled) continue;
+
+    var eventName = String(softRows[i]['Event Name'] || '').trim();
+    var eventDate = softHolidayDateKey_(softRows[i]['Date']);
+    var description = String(
+      softRows[i]['Custom Description'] || ''
+    ).trim();
+
+    if (!eventName || !eventDate) continue;
+
+    enabledWarnings.push({
+      date: eventDate,
+      label: eventName + (description ? ': ' + description : '')
+    });
+  }
+
+  for (var r = 0; r < rows.length; r++) {
+    var startDate = softHolidayDateKey_(rows[r][dateField]);
+    var labels = [];
+
+    if (startDate) {
+      var endDate = addDaysToDateKey_(startDate, spanDays || 0);
+
+      for (var w = 0; w < enabledWarnings.length; w++) {
+        if (
+          enabledWarnings[w].date >= startDate &&
+          enabledWarnings[w].date <= endDate
+        ) {
+          labels.push(enabledWarnings[w].label);
+        }
+      }
+    }
+
+    rows[r].softHolidayWarnings = labels;
+  }
+
+  return rows;
+}
+
+/**
+ * Converts a sheet Date or YYYY-MM-DD value to a stable date key.
+ */
+function softHolidayDateKey_(value) {
+  if (!value) return '';
+
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return formatDate(value);
+  }
+
+  var match = String(value).trim().match(
+    /^(\d{4})-(\d{2})-(\d{2})/
+  );
+
+  return match ? match[1] + '-' + match[2] + '-' + match[3] : '';
+}
+
+/**
+ * Adds calendar days without DST or timezone shifting.
+ */
+function addDaysToDateKey_(dateKey, days) {
+  var parts = dateKey.split('-');
+
+  var date = new Date(Date.UTC(
+    Number(parts[0]),
+    Number(parts[1]) - 1,
+    Number(parts[2]) + Number(days || 0)
+  ));
+
+  return Utilities.formatDate(date, 'UTC', 'yyyy-MM-dd');
+}
