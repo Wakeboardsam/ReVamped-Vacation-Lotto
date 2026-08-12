@@ -141,6 +141,10 @@
 
     document.getElementById('saveRulesBtn').addEventListener('click', saveRules);
 
+    document.getElementById('modalRulesBtn').addEventListener('click', function() {
+      document.getElementById('rulesBtn').click();
+    });
+
     document.getElementById('submitSelectionBtn').addEventListener('click', submitSelection);
     document.getElementById('passBtn').addEventListener('click', function() {
       submitSelection(true); // isPass = true
@@ -387,6 +391,8 @@
 
     google.script.run
       .withSuccessHandler(function() {
+        btn.disabled = false;
+        btn.innerText = "Save & Continue";
         document.getElementById('rulesModal').style.display = 'none';
         // Reload state to reflect updated config
         fetchInitialState(appState.participantId);
@@ -855,6 +861,10 @@
 
     google.script.run
       .withSuccessHandler(function(res) {
+        btn.disabled = false;
+        passBtn.disabled = false;
+        btn.innerText = "Submit Selection";
+
         if (res.success) {
           appState.adjacentHolidayPending = null;
           showToast("Submission successful!", "success");
