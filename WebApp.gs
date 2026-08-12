@@ -530,20 +530,24 @@ function getRulesAndTips() {
   }
 
   var headers = data[0];
-  var keyIdx = headers.indexOf('Section Key');
   var textIdx = headers.indexOf('Display Text');
 
-  if (keyIdx === -1 || textIdx === -1) {
+  if (textIdx === -1) {
     return fallbackText;
   }
 
+  var combinedRules = [];
+
   for (var i = 1; i < data.length; i++) {
-    var key = (data[i][keyIdx] || '').toString().trim().toLowerCase();
-    if (key === 'main rules & tips') {
-      var displayText = (data[i][textIdx] || '').toString();
-      return displayText || fallbackText;
+    var displayText = (data[i][textIdx] || '').toString().trim();
+    if (displayText) {
+      combinedRules.push(displayText);
     }
   }
 
-  return fallbackText;
+  if (combinedRules.length === 0) {
+    return fallbackText;
+  }
+
+  return combinedRules.join('\n\n');
 }

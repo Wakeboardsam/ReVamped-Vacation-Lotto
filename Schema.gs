@@ -34,10 +34,7 @@ function setupDatabaseSchema() {
     },
     {
       name: 'Rules & Tips',
-      headers: ['Section Key', 'Display Text'],
-      defaultData: [
-        ['Main Rules & Tips', 'Welcome to the Vacation Lottery System.\n\nPlease refer to your administrator for rules.']
-      ]
+      headers: ['Section Key', 'Display Text']
     },
     {
       name: 'Participant Config',
