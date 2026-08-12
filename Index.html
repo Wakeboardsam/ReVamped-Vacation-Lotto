@@ -18,7 +18,7 @@
         </div>
         <div class="header-actions">
           <span id="userNameLabel" class="user-label" style="display:none; color: var(--header-text); font-weight: 500;"></span>
-          <button id="rulesBtn" class="btn btn-small btn-secondary" style="display:none;">Rules & Tips</button>
+          <button id="rulesBtn" class="btn btn-small btn-secondary" style="display:inline-block;">Rules & Tips</button>
           <button id="logoutBtn" class="btn btn-small btn-danger" style="display:none;">Logout</button>
         </div>
       </div>
@@ -181,13 +181,7 @@
     <div id="infoModal" class="modal" style="display:none;">
        <div class="modal-content">
           <h3>Rules & Tips</h3>
-          <div id="infoContent">
-            <p>Welcome to the Vacation Lottery System.</p>
-            <ul style="padding-left: 20px; color: var(--text-muted);">
-               <li style="margin-bottom: 8px;"><b>Vacation:</b> Select 1 Prime or up to 2 Non-Prime weeks. Selecting 2 Non-Prime will forfeit your next round.</li>
-               <li style="margin-bottom: 8px;"><b>Weekends & Holidays:</b> Selections are atomic. You will see adjacent warnings for weekends near holidays.</li>
-               <li style="margin-bottom: 8px;"><b>Transfers:</b> Participate in offering or receiving previously selected assignments.</li>
-            </ul>
+          <div id="infoContent" style="white-space: pre-wrap; font-family: inherit;">
           </div>
           <div class="modal-actions">
             <button id="closeInfoBtn" class="btn btn-secondary">Close</button>

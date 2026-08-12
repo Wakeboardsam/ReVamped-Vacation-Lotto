@@ -509,3 +509,45 @@ function submitSelection(participantId, selectionData) {
     throw new Error("Invalid action.");
   });
 }
+
+/**
+ * Retrieves the universal Rules & Tips message for the public UI.
+ * Does not require authentication.
+ */
+function getRulesAndTips() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Rules & Tips');
+
+  var fallbackText = 'Rules & Tips have not been configured yet.';
+
+  if (!sheet) {
+    return fallbackText;
+  }
+
+  var data = sheet.getDataRange().getValues();
+  if (data.length <= 1) {
+    return fallbackText;
+  }
+
+  var headers = data[0];
+  var textIdx = headers.indexOf('Display Text');
+
+  if (textIdx === -1) {
+    return fallbackText;
+  }
+
+  var combinedRules = [];
+
+  for (var i = 1; i < data.length; i++) {
+    var displayText = (data[i][textIdx] || '').toString().trim();
+    if (displayText) {
+      combinedRules.push(displayText);
+    }
+  }
+
+  if (combinedRules.length === 0) {
+    return fallbackText;
+  }
+
+  return combinedRules.join('\n\n');
+}

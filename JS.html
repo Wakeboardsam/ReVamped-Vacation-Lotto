@@ -14,6 +14,8 @@
     adjacentHolidayPending: null
   };
 
+  var cachedRulesText = null;
+
   // Public Display State
   var publicDisplayState = {
     snapshot: null,
@@ -105,7 +107,25 @@
     document.getElementById('loginBtn').addEventListener('click', handleLogin);
     document.getElementById('logoutBtn').addEventListener('click', handleLogout);
     document.getElementById('rulesBtn').addEventListener('click', function() {
-      document.getElementById('infoModal').style.display = 'flex';
+      var modal = document.getElementById('infoModal');
+      var content = document.getElementById('infoContent');
+
+      modal.style.display = 'flex';
+
+      if (cachedRulesText !== null) {
+        content.textContent = cachedRulesText;
+      } else {
+        content.textContent = "Loading rules...";
+        google.script.run
+          .withSuccessHandler(function(text) {
+            cachedRulesText = text;
+            content.textContent = text;
+          })
+          .withFailureHandler(function(err) {
+            content.textContent = "Failed to load rules: " + (err.message || "Unknown error");
+          })
+          .getRulesAndTips();
+      }
     });
     document.getElementById('closeInfoBtn').addEventListener('click', function() {
       document.getElementById('infoModal').style.display = 'none';
@@ -307,7 +327,7 @@
     var logoutBtn = document.getElementById('logoutBtn');
 
     nameLabel.style.display = isLogged ? 'inline' : 'none';
-    rulesBtn.style.display = isLogged ? 'inline-block' : 'none';
+    rulesBtn.style.display = 'inline-block';
     logoutBtn.style.display = isLogged ? 'inline-block' : 'none';
 
     if (isLogged) {
