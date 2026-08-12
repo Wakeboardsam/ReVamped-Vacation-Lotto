@@ -38,7 +38,7 @@ function runAutoFillFromMenu() {
     '✓ Special Week Designation defaulted to None\n\n' +
     'Before beginning the lottery:\n\n' +
     '• Mark all applicable Prime weeks\n' +
-    '• Designate the Spring Break and Christmas weeks\n' +
+    '• Designate the Spring Break, Thanksgiving, and Christmas weeks\n' +
     '• Review vacation-week capacities\n' +
     '• Confirm all generated vacation, weekend, and holiday dates\n\n' +
     'Important: Running this setup again will clear and regenerate existing date rows, assignments, and administrative adjustments.';
@@ -332,7 +332,7 @@ function autoFillAndRandomize(targetYear) {
         .setAllowInvalid(false)
         .build();
       var specialRule = SpreadsheetApp.newDataValidation()
-        .requireValueInList(['None', 'Spring Break', 'Christmas'], true)
+        .requireValueInList(['None', 'Spring Break', 'Thanksgiving', 'Christmas'], true)
         .setAllowInvalid(false)
         .build();
 
