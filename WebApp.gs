@@ -310,6 +310,43 @@ function submitSelection(participantId, selectionData) {
           if (!found) throw new Error("Week " + weekId + " not found.");
         }
 
+        // Prevent this submission from exceeding the participant's vacation target.
+        // This runs inside the existing script lock and before any spreadsheet writes.
+        var defaultVacationTarget =
+            getSystemTarget('Vacation Week Target Default', 9);
+
+        var vacationTargetOverride =
+            pData[pRowIdx - 1][pHeaders.indexOf('Vacation Week Target Override')];
+
+        var effectiveVacationTarget = vacationTargetOverride !== ''
+            ? parseInt(vacationTargetOverride, 10)
+            : defaultVacationTarget;
+
+        var currentVacationCount =
+            getParticipantAssignments(participantId, phase, {});
+
+        var remainingVacationWeeks =
+            effectiveVacationTarget - currentVacationCount;
+
+        if (selectedCount > remainingVacationWeeks) {
+          if (remainingVacationWeeks <= 0) {
+            throw new Error(
+              "You have already reached your maximum vacation week allotment. No additional weeks may be selected."
+            );
+          }
+
+          if (remainingVacationWeeks === 1) {
+            throw new Error(
+              "You may select only 1 more vacation week because you have reached your maximum week allotment. Please select one week and submit again."
+            );
+          }
+
+          throw new Error(
+            "You may select only " + remainingVacationWeeks +
+            " more vacation weeks because that would reach your maximum week allotment. Please reduce your selection and submit again."
+          );
+        }
+
         // Write updates
         for (var i = 0; i < toUpdate.length; i++) {
           vSheet.getRange(toUpdate[i].row, vHeaders.indexOf('Assigned Participants') + 1).setValue(toUpdate[i].assigneesStr);
