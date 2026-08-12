@@ -539,6 +539,8 @@ function autoFillAndRandomize(targetYear) {
         var name = String(data[i][nameIdx] || '').trim();
 
         if (!name) {
+          data[i][seniorityPosColIdx] = '';
+          data[i][lotteryPosColIdx] = '';
           continue;
         }
 
