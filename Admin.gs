@@ -25,15 +25,20 @@ function onOpen(e) {
  */
 function runAutoFillFromMenu() {
   var year = getAdminOptions()['Active Year'] || 2027;
-  autoFillAndRandomize(Number(year));
+  var participantCount = autoFillAndRandomize(Number(year)) || 0;
 
   var successMessage = 'Setup completed successfully for ' + year + '.\n\n' +
     '✓ Vacation weeks generated\n' +
     '✓ Weekend coverage dates generated\n' +
     '✓ Official holiday Call 1 and Call 2 positions generated\n' +
     '✓ Soft holiday warning dates generated\n' +
-    '✓ Active participant roster randomized\n' +
-    '✓ Lottery positions assigned\n' +
+    '✓ Participant Config prepared: ' + participantCount + ' named participants\n' +
+    '✓ Active for Year enabled for all named participants\n' +
+    '✓ Vacation Phase Enabled for all named participants\n' +
+    '✓ Weekend Phase Enabled for all named participants\n' +
+    '✓ Mandatory Holiday Eligible enabled for all named participants\n' +
+    '✓ Seniority Position assigned 1–' + participantCount + ' from top to bottom\n' +
+    '✓ Lottery Position randomized 1–' + participantCount + '\n' +
     '✓ Prime Classification defaulted to Non-Prime\n' +
     '✓ Special Week Designation defaulted to None\n\n' +
     'Before beginning the lottery:\n\n' +
@@ -508,40 +513,66 @@ function autoFillAndRandomize(targetYear) {
     }
   }
 
-  // 5. Randomize Participants (Lottery Position)
+  // 5. Setup Participants (Seniority & Lottery Position)
   var participantSheet = ss.getSheetByName('Participant Config');
+  var namedParticipantCount = 0;
+
   if (participantSheet && participantSheet.getLastRow() > 1) {
     var headers = participantSheet.getRange(1, 1, 1, participantSheet.getLastColumn()).getValues()[0];
+    var nameIdx = headers.indexOf('Name');
     var activeColIdx = headers.indexOf('Active for Year');
+    var vacationEnabledIdx = headers.indexOf('Vacation Phase Enabled');
+    var weekendEnabledIdx = headers.indexOf('Weekend Phase Enabled');
+    var holidayEnabledIdx = headers.indexOf('Mandatory Holiday Eligible');
+    var seniorityPosColIdx = headers.indexOf('Seniority Position');
     var lotteryPosColIdx = headers.indexOf('Lottery Position');
 
-    if (activeColIdx !== -1 && lotteryPosColIdx !== -1) {
+    if (nameIdx !== -1 && activeColIdx !== -1 && vacationEnabledIdx !== -1 && weekendEnabledIdx !== -1 &&
+        holidayEnabledIdx !== -1 && seniorityPosColIdx !== -1 && lotteryPosColIdx !== -1) {
+
       var dataRange = participantSheet.getRange(2, 1, participantSheet.getLastRow() - 1, participantSheet.getLastColumn());
       var data = dataRange.getValues();
 
-      var activeParticipants = [];
+      var participantRows = [];
+
       for (var i = 0; i < data.length; i++) {
-        // Clear old lottery position first
-        data[i][lotteryPosColIdx] = '';
-        if (data[i][activeColIdx] === true || data[i][activeColIdx] === 'TRUE') {
-          activeParticipants.push({
-            originalIndex: i
-          });
+        var name = String(data[i][nameIdx] || '').trim();
+
+        if (!name) {
+          continue;
         }
+
+        // Set required checkboxes to boolean true
+        data[i][activeColIdx] = true;
+        data[i][vacationEnabledIdx] = true;
+        data[i][weekendEnabledIdx] = true;
+        data[i][holidayEnabledIdx] = true;
+
+        participantRows.push(i);
       }
 
-      // Shuffle active participants
-      for (var i = activeParticipants.length - 1; i > 0; i--) {
+      namedParticipantCount = participantRows.length;
+      var lotteryPositions = [];
+
+      // Generate sequence 1...N for lottery and seniority positions
+      for (var position = 1; position <= namedParticipantCount; position++) {
+        lotteryPositions.push(position);
+      }
+
+      // Shuffle lottery sequence
+      for (var i = lotteryPositions.length - 1; i > 0; i--) {
         var j = Math.floor(Math.random() * (i + 1));
-        var temp = activeParticipants[i];
-        activeParticipants[i] = activeParticipants[j];
-        activeParticipants[j] = temp;
+        var temp = lotteryPositions[i];
+        lotteryPositions[i] = lotteryPositions[j];
+        lotteryPositions[j] = temp;
       }
 
-      // Assign Lottery Position (1 to N)
-      for (var i = 0; i < activeParticipants.length; i++) {
-        var origIdx = activeParticipants[i].originalIndex;
-        data[origIdx][lotteryPosColIdx] = i + 1;
+      // Assign Seniority and Lottery positions to the tracked rows
+      for (var k = 0; k < participantRows.length; k++) {
+        var rowIndex = participantRows[k];
+
+        data[rowIndex][seniorityPosColIdx] = k + 1;
+        data[rowIndex][lotteryPosColIdx] = lotteryPositions[k];
       }
 
       // Write back to sheet
@@ -553,6 +584,8 @@ function autoFillAndRandomize(targetYear) {
   setAdminOptions({ 'Active Year': targetYear });
 
   sanitizeParticipantConfigSheet();
+
+  return namedParticipantCount;
 }
 
 function setupSmsTriggers() {
