@@ -226,7 +226,12 @@ function advanceQueueInternal_() {
         }
       } else if (phase === 'HOLIDAY_MANDATORY') {
         if (p['Mandatory Holiday Eligible'] === true || p['Mandatory Holiday Eligible'] === 'TRUE') {
-          isEligibleForPhase = true;
+          // getParticipantAssignments explicitly groups HOLIDAY_VOLUNTEER and HOLIDAY_MANDATORY together,
+          // so passing 'HOLIDAY_MANDATORY' naturally checks all holiday assignments on the Holiday Coverage sheet.
+          var actualHolidays = getParticipantAssignments(p['Name'], 'HOLIDAY_MANDATORY', {});
+          if (actualHolidays === 0) {
+            isEligibleForPhase = true;
+          }
         }
       } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
         if (p['Transfer Giver'] === true || p['Transfer Giver'] === 'TRUE') {
@@ -256,6 +261,33 @@ function advanceQueueInternal_() {
     eligiblePool.sort(function(a, b) {
       return a.sortPosition - b.sortPosition;
     });
+
+    if (eligiblePool.length === 0) {
+      if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
+        var hols = getSheetDataAsObjects('Holiday Coverage', {});
+        var unfilled = false;
+        for (var i = 0; i < hols.length; i++) {
+          if (!hols[i]['Assigned Participant']) {
+            unfilled = true;
+            break;
+          }
+        }
+        if (unfilled) {
+          if (phase === 'HOLIDAY_VOLUNTEER') {
+            setQueueState({
+              phase: 'HOLIDAY_MANDATORY',
+              round: 1,
+              direction: 'ASCENDING',
+              lead: 1
+            });
+            return advanceQueueInternal_();
+          } else {
+            return { error: 'No eligible participants remain for Mandatory Holiday, but holiday positions are still unfilled.' };
+          }
+        }
+      }
+      return; // Queue does not advance
+    }
 
     // Determine bounds and find next eligible lead in the current direction
     var currentIndex = -1;
@@ -373,6 +405,31 @@ function advanceQueueInternal_() {
         // If no one is eligible in the new round, the phase is complete!
         // We handle phase transitions in the main controller, but setting state to COMPLETE
         // allows the system to recognize the end of the current phase.
+
+        if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
+          var hols = getSheetDataAsObjects('Holiday Coverage', {});
+          var unfilled = false;
+          for (var j = 0; j < hols.length; j++) {
+            if (!hols[j]['Assigned Participant']) {
+              unfilled = true;
+              break;
+            }
+          }
+          if (unfilled) {
+            if (phase === 'HOLIDAY_VOLUNTEER') {
+              setQueueState({
+                phase: 'HOLIDAY_MANDATORY',
+                round: 1,
+                direction: 'ASCENDING',
+                lead: 1
+              });
+              return advanceQueueInternal_();
+            } else {
+              return { error: 'No eligible participants remain for Mandatory Holiday, but holiday positions are still unfilled.' };
+            }
+          }
+        }
+
         setQueueState({
           phase: 'COMPLETE'
         });
