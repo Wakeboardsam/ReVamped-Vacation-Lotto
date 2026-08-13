@@ -881,7 +881,7 @@
 
         if (res.success) {
           appState.adjacentHolidayPending = null;
-          showToast("Submission successful!", "success");
+          showToast(res.message || "Submission successful!", "success");
           fetchInitialState(appState.participantId); // Reload state
           loadPublicDisplay(true); // Forced public refresh
         }
