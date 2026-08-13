@@ -226,12 +226,7 @@ function advanceQueueInternal_() {
         }
       } else if (phase === 'HOLIDAY_MANDATORY') {
         if (p['Mandatory Holiday Eligible'] === true || p['Mandatory Holiday Eligible'] === 'TRUE') {
-          // getParticipantAssignments explicitly groups HOLIDAY_VOLUNTEER and HOLIDAY_MANDATORY together,
-          // so passing 'HOLIDAY_MANDATORY' naturally checks all holiday assignments on the Holiday Coverage sheet.
-          var actualHolidays = getParticipantAssignments(p['Name'], 'HOLIDAY_MANDATORY', {});
-          if (actualHolidays === 0) {
-            isEligibleForPhase = true;
-          }
+          isEligibleForPhase = true;
         }
       } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
         if (p['Transfer Giver'] === true || p['Transfer Giver'] === 'TRUE') {
@@ -298,39 +293,69 @@ function advanceQueueInternal_() {
       }
     }
 
-    if (currentIndex === -1) {
-      // Something went wrong, reset lead to start
-      currentIndex = direction === 'ASCENDING' ? 0 : eligiblePool.length - 1;
-    }
-
     var step = direction === 'ASCENDING' ? 1 : -1;
     var nextEligibleIndex = -1;
 
-    // Starting from CURRENT index, check if the CURRENT lead is still eligible.
+    var leadFound = (currentIndex !== -1);
+
+    if (!leadFound) {
+      // The current lead is completely gone from the eligible pool.
+      // This happens typically in HOLIDAY_VOLUNTEER when someone hits Pass.
+      // We need to mathematically find where they *would* have been,
+      // or simply resume from the closest valid person.
+      // We'll walk through the pool and find the index *just before* where the lead would be.
+      if (direction === 'ASCENDING') {
+        currentIndex = -1;
+        for (var i = 0; i < eligiblePool.length; i++) {
+          if (eligiblePool[i].sortPosition > lead) {
+            currentIndex = i - 1; // Start searching from here (next step will be +1)
+            break;
+          }
+        }
+        if (currentIndex === -1 && eligiblePool.length > 0 && eligiblePool[eligiblePool.length - 1].sortPosition < lead) {
+           currentIndex = eligiblePool.length - 1;
+        }
+      } else {
+        currentIndex = eligiblePool.length;
+        for (var i = eligiblePool.length - 1; i >= 0; i--) {
+          if (eligiblePool[i].sortPosition < lead) {
+            currentIndex = i + 1; // Start searching from here (next step will be -1)
+            break;
+          }
+        }
+        if (currentIndex === eligiblePool.length && eligiblePool.length > 0 && eligiblePool[0].sortPosition > lead) {
+           currentIndex = 0;
+        }
+      }
+    }
+
+    // Starting from CURRENT index (if found), check if the CURRENT lead is still eligible.
     // The head-of-queue priority rule: if lead is still eligible, queue doesn't advance.
-    if (eligiblePool[currentIndex].isEligible) {
+    if (leadFound && eligiblePool[currentIndex].isEligible) {
       return; // Queue does not advance until lead completes turn
     }
 
     // Handle skipped turns decrement logic for the Lead if they were skipped due to a manual forfeit.
     // We only decrement if they actually skipped and their quota was fulfilled by the skip.
-    var leadParticipant = eligiblePool[currentIndex].participant;
-    var leadSkippedTurns = parseInt(leadParticipant['Skipped Turns Remaining']) || 0;
-    if (leadSkippedTurns > 0) {
-      var leadActual = getParticipantAssignments(leadParticipant['Name'], phase, {});
-      if (leadActual + leadSkippedTurns >= currentRound) {
-        // They are no longer eligible because the skipped turn pushed them over the round requirement.
-        // Decrement their skipped turns and write to sheet.
-        var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
-        var headers = pSheet.getRange(1, 1, 1, pSheet.getLastColumn()).getValues()[0];
-        var skippedColIdx = headers.indexOf('Skipped Turns Remaining') + 1;
-        if (skippedColIdx > 0) {
-          pSheet.getRange(leadParticipant._rowIndex, skippedColIdx).setValue(leadSkippedTurns - 1);
+    if (leadFound) {
+      var leadParticipant = eligiblePool[currentIndex].participant;
+      var leadSkippedTurns = parseInt(leadParticipant['Skipped Turns Remaining']) || 0;
+      if (leadSkippedTurns > 0) {
+        var leadActual = getParticipantAssignments(leadParticipant['Name'], phase, {});
+        if (leadActual + leadSkippedTurns >= currentRound) {
+          // They are no longer eligible because the skipped turn pushed them over the round requirement.
+          // Decrement their skipped turns and write to sheet.
+          var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
+          var headers = pSheet.getRange(1, 1, 1, pSheet.getLastColumn()).getValues()[0];
+          var skippedColIdx = headers.indexOf('Skipped Turns Remaining') + 1;
+          if (skippedColIdx > 0) {
+            pSheet.getRange(leadParticipant._rowIndex, skippedColIdx).setValue(leadSkippedTurns - 1);
+          }
         }
       }
     }
 
-    // Lead completed turn, find the next eligible person in the current direction
+    // Lead completed turn (or was removed), find the next eligible person in the current direction
     for (var i = currentIndex + step; i >= 0 && i < eligiblePool.length; i += step) {
       if (eligiblePool[i].isEligible) {
         nextEligibleIndex = i;
@@ -340,18 +365,20 @@ function advanceQueueInternal_() {
 
     // --- CLEAR FLAGS FOR THE FINISHED LEAD ---
     // The previous lead has completed their turn, so we reset their tracking flags.
-    var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
-    var pData = pSheet.getDataRange().getValues();
-    var pHeaders = pData[0];
+    if (leadFound) {
+      var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
+      var pData = pSheet.getDataRange().getValues();
+      var pHeaders = pData[0];
 
-    var entryCol = pHeaders.indexOf('Entry Timestamp') + 1;
-    var remCol = pHeaders.indexOf('Reminder Sent') + 1;
-    var alertCol = pHeaders.indexOf('Admin Alert Sent') + 1;
+      var entryCol = pHeaders.indexOf('Entry Timestamp') + 1;
+      var remCol = pHeaders.indexOf('Reminder Sent') + 1;
+      var alertCol = pHeaders.indexOf('Admin Alert Sent') + 1;
 
-    if (entryCol > 0) {
-      pSheet.getRange(leadParticipant._rowIndex, entryCol).clearContent();
-      pSheet.getRange(leadParticipant._rowIndex, remCol).setValue(false);
-      pSheet.getRange(leadParticipant._rowIndex, alertCol).setValue(false);
+      if (entryCol > 0) {
+        pSheet.getRange(leadParticipant._rowIndex, entryCol).clearContent();
+        pSheet.getRange(leadParticipant._rowIndex, remCol).setValue(false);
+        pSheet.getRange(leadParticipant._rowIndex, alertCol).setValue(false);
+      }
     }
 
     if (nextEligibleIndex !== -1) {
