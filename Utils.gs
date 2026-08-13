@@ -207,3 +207,99 @@ function addDaysToDateKey_(dateKey, days) {
 
   return Utilities.formatDate(date, 'UTC', 'yyyy-MM-dd');
 }
+
+/**
+ * Returns true when at least one official holiday call position is still open.
+ */
+function hasOpenHolidayPositions_() {
+  var holidays = getSheetDataAsObjects('Holiday Coverage');
+
+  for (var i = 0; i < holidays.length; i++) {
+    if (!String(holidays[i]['Assigned Participant'] || '').trim()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Prevent one participant from holding both Call 1 and Call 2
+ * for the same holiday.
+ */
+function participantAlreadyHasHoliday_(participantName, holidayName, holidayData, holidayHeaders) {
+  var nameCol = holidayHeaders.indexOf('Holiday Name');
+  var assigneeCol = holidayHeaders.indexOf('Assigned Participant');
+
+  for (var i = 1; i < holidayData.length; i++) {
+    if (
+      String(holidayData[i][nameCol]) === String(holidayName) &&
+      String(holidayData[i][assigneeCol]).trim() === String(participantName).trim()
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Return a stable weekend key for either Saturday or Sunday.
+ * Both days of the same weekend produce the same Saturday YYYY-MM-DD key.
+ */
+function getWeekendKey_(dateValue) {
+  var d;
+
+  if (dateValue instanceof Date) {
+    d = new Date(
+      dateValue.getFullYear(),
+      dateValue.getMonth(),
+      dateValue.getDate()
+    );
+  } else {
+    var parts = String(dateValue).split('-');
+    if (parts.length !== 3) return '';
+
+    d = new Date(
+      parseInt(parts[0], 10),
+      parseInt(parts[1], 10) - 1,
+      parseInt(parts[2], 10)
+    );
+  }
+
+  var day = d.getDay();
+
+  // Saturday = 6, Sunday = 0
+  if (day === 0) {
+    d.setDate(d.getDate() - 1);
+  } else if (day !== 6) {
+    return '';
+  }
+
+  return formatDate(d);
+}
+
+/**
+ * Prevent one participant from holding Saturday AND Sunday
+ * First Call of the same weekend.
+ */
+function participantAlreadyHasWeekend_(participantName, selectedDate, weekendData, weekendHeaders) {
+  var selectedWeekendKey = getWeekendKey_(selectedDate);
+  var dateCol = weekendHeaders.indexOf('Date');
+  var assigneeCol = weekendHeaders.indexOf('First Call Assignee');
+
+  if (!selectedWeekendKey) return false;
+
+  for (var i = 1; i < weekendData.length; i++) {
+    var assignee = String(weekendData[i][assigneeCol] || '').trim();
+
+    if (
+      assignee === String(participantName).trim() &&
+      getWeekendKey_(weekendData[i][dateCol]) === selectedWeekendKey
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}

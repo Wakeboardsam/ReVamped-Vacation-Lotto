@@ -340,7 +340,9 @@ function submitSelection(participantId, selectionData) {
 
     // 2. Route by Phase & Action
     if (selectionData.action === 'PASS' || selectionData.action === 'NONE') {
-      if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
+      if (phase === 'HOLIDAY_MANDATORY') {
+        throw new Error('Passing is not allowed during Mandatory Holiday selection.');
+      } else if (phase === 'HOLIDAY_VOLUNTEER') {
         pSheet.getRange(pRowIdx, pHeaders.indexOf('Holiday Volunteer Response') + 1).setValue('Pass');
       } else if (phase === 'TRANSFER_RECEIVER') {
         pSheet.getRange(pRowIdx, pHeaders.indexOf('Transfer Receiver') + 1).setValue(false);
@@ -450,6 +452,18 @@ function submitSelection(participantId, selectionData) {
         var weekendUpdates = [];
         for (var s = 0; s < selectionData.selections.length; s++) {
           var dateStr = selectionData.selections[s];
+          if (participantAlreadyHasWeekend_(
+                participantId,
+                dateStr,
+                wData,
+                wHeaders
+              )) {
+            throw new Error(
+              "You already hold the other First Call position for this weekend. " +
+              "You cannot select both Saturday and Sunday of the same weekend."
+            );
+          }
+          var dateStr = selectionData.selections[s];
           var found = false;
           for (var i = 1; i < wData.length; i++) {
             var rowDate = wData[i][wHeaders.indexOf('Date')];
@@ -468,23 +482,36 @@ function submitSelection(participantId, selectionData) {
 
         // Validate adjacent holiday if included
         var holidayUpdate = null;
+        var partialSuccessMessage = null;
         if (selectionData.adjacentHoliday && selectionData.adjacentHoliday.holidayName) {
            var hSheet = ss.getSheetByName('Holiday Coverage');
            var hData = hSheet.getDataRange().getValues();
            var hHeaders = hData[0];
-           var hFound = false;
-           for (var i = 1; i < hData.length; i++) {
-             if (hData[i][hHeaders.indexOf('Holiday Name')] === selectionData.adjacentHoliday.holidayName &&
-                 hData[i][hHeaders.indexOf('Call Position (Call 1 / Call 2)')] === selectionData.adjacentHoliday.position) {
-                 if (hData[i][hHeaders.indexOf('Assigned Participant')]) {
-                    throw new Error("That adjacent holiday was just selected by another participant.");
-                 }
-                 holidayUpdate = {sheet: hSheet, row: i + 1, col: hHeaders.indexOf('Assigned Participant') + 1};
-                 hFound = true;
-                 break;
+
+           if (participantAlreadyHasHoliday_(
+                 participantId,
+                 selectionData.adjacentHoliday.holidayName,
+                 hData,
+                 hHeaders
+               )) {
+             // Do not fail the weekend selection. Just ignore the holiday and return a message.
+             partialSuccessMessage = "Weekend selection successful. However, the adjacent holiday (" + selectionData.adjacentHoliday.holidayName + ") was not added because you already hold a call position for it.";
+           } else {
+             var hFound = false;
+             for (var i = 1; i < hData.length; i++) {
+               if (hData[i][hHeaders.indexOf('Holiday Name')] === selectionData.adjacentHoliday.holidayName &&
+                   hData[i][hHeaders.indexOf('Call Position (Call 1 / Call 2)')] === selectionData.adjacentHoliday.position) {
+                   if (hData[i][hHeaders.indexOf('Assigned Participant')]) {
+                      // Still a hard error if the exact position was taken
+                      throw new Error("That adjacent holiday was just selected by another participant.");
+                   }
+                   holidayUpdate = {sheet: hSheet, row: i + 1, col: hHeaders.indexOf('Assigned Participant') + 1};
+                   hFound = true;
+                   break;
+               }
              }
+             if (!hFound) throw new Error("Adjacent holiday not found.");
            }
-           if (!hFound) throw new Error("Adjacent holiday not found.");
         }
 
         // 2. Perform updates after all validations pass
@@ -508,6 +535,12 @@ function submitSelection(participantId, selectionData) {
         }
 
       } else if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
+        if (!hasOpenHolidayPositions_()) {
+          throw new Error(
+            "Holiday coverage is already complete. No additional holiday selections are available."
+          );
+        }
+
         // selections contains the row index or matching criteria
         var hSheet = ss.getSheetByName('Holiday Coverage');
         var hData = hSheet.getDataRange().getValues();
@@ -515,6 +548,18 @@ function submitSelection(participantId, selectionData) {
 
         var selectedItem = selectionData.selections[0]; // e.g. { name: 'Memorial Day', position: 'CALL_2' }
         var found = false;
+
+        if (participantAlreadyHasHoliday_(
+              participantId,
+              selectedItem.name,
+              hData,
+              hHeaders
+            )) {
+          throw new Error(
+            "You already hold a call position for this holiday. " +
+            "You cannot hold both Call 1 and Call 2 for the same holiday."
+          );
+        }
 
         for (var i = 1; i < hData.length; i++) {
           if (hData[i][hHeaders.indexOf('Holiday Name')] === selectedItem.name &&
@@ -621,6 +666,9 @@ function submitSelection(participantId, selectionData) {
 
       // Advance Queue after successful selection submission
       advanceQueueInternal_();
+      if (partialSuccessMessage) {
+        return { success: true, message: partialSuccessMessage };
+      }
       return { success: true };
     }
 

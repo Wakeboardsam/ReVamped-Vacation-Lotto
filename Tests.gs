@@ -244,7 +244,179 @@ function runRegressionTests() {
 
 
 
-  } finally {
+
+    // --- NARROW FIX REGRESSION TESTS ---
+
+    // 1. Full Holiday Coverage gives zero mandatory ACTIVE participants.
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['Christmas', 'Call 1', 'Alice'],
+      ['Christmas', 'Call 2', 'Bob']
+    ]);
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('HOLIDAY_MANDATORY');
+    var emptyWindows = getQueueWindows_('HOLIDAY_MANDATORY', { phase: 'HOLIDAY_MANDATORY', round: 1, direction: 'ASCENDING', lead: 1 }, {});
+    assert(emptyWindows.activeWindow.length === 0, "Full Holiday Coverage produces no HOLIDAY_MANDATORY active window.");
+
+    // 2. Queue stops after the final holiday position is filled.
+    var advanceRes = advanceQueueInternal_();
+    assert(advanceRes && advanceRes.complete === true, "Queue does not continue cycling after the final holiday position is assigned.");
+
+    var sysConfig = MockSpreadsheetApp._sheets['Admin Options'].getDataRange().getValues();
+    var phaseReadySet = false;
+    for(var i = 1; i < sysConfig.length; i++) {
+        if(sysConfig[i][0] === 'Phase Ready' && sysConfig[i][1] === 'TRANSFER_OFFER_COLLECTION') phaseReadySet = true;
+    }
+    assert(phaseReadySet, "System config Phase Ready is correctly set to Transfer phase.");
+
+    // 3. Stale holiday submission is rejected without advancing.
+    var staleSubmitPassed = false;
+    try {
+      submitSelection('Alice', { action: 'SELECT', selections: [{ name: 'Christmas', position: 'Call 1' }] });
+      staleSubmitPassed = true;
+    } catch (e) {
+      assert(e.message.indexOf('Holiday coverage is already complete') !== -1, "Stale holiday submission rejected appropriately.");
+    }
+    assert(!staleSubmitPassed, "Stale submission should not succeed when holiday coverage is complete.");
+
+    // Weekend Duplicate Ownership Tests
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'First Call Assignee'],
+      ['2025-01-04', 'Alice'], // Saturday
+      ['2025-01-05', ''],      // Sunday
+      ['2025-01-11', 'Bob']    // Next Saturday
+    ]);
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('WEEKEND_SENIORITY');
+
+    // 4. Saturday owner cannot take Sunday of the same weekend.
+    var weekendSubmit1 = false;
+    try {
+      submitSelection('Alice', { action: 'SELECT', selections: ['2025-01-05'] });
+      weekendSubmit1 = true;
+    } catch (e) {
+      assert(e.message.indexOf('already hold the other First Call position for this weekend') !== -1, "Saturday owner rejected for Sunday.");
+    }
+    assert(!weekendSubmit1, "Saturday owner cannot take Sunday of the same weekend.");
+
+    // 5. Sunday owner cannot take Saturday of the same weekend.
+    MockSpreadsheetApp._sheets['Weekend Coverage'].getRange(2, 2).setValue(''); // Sat open
+    MockSpreadsheetApp._sheets['Weekend Coverage'].getRange(3, 2).setValue('Alice'); // Sun taken by Alice
+    var weekendSubmit2 = false;
+    try {
+      submitSelection('Alice', { action: 'SELECT', selections: ['2025-01-04'] });
+      weekendSubmit2 = true;
+    } catch (e) {
+      assert(e.message.indexOf('already hold the other First Call position for this weekend') !== -1, "Sunday owner rejected for Saturday.");
+    }
+    assert(!weekendSubmit2, "Sunday owner cannot take Saturday of the same weekend.");
+
+    // 6. Different weekends remain allowed.
+    var weekendSubmit3 = false;
+    try {
+      // Alice owns Sunday (01-05). Try selecting next Saturday (01-11).
+      // Note: Bob owns 01-11 right now. Let's make it open so Alice can take it.
+      MockSpreadsheetApp._sheets['Weekend Coverage'].getRange(4, 2).setValue('');
+
+      // Mock getQueueState so it doesn't fail on queue verification
+      submitSelection('Alice', { action: 'SELECT', selections: ['2025-01-11'] });
+      weekendSubmit3 = true;
+    } catch (e) {
+      console.log(e.message);
+    }
+    assert(weekendSubmit3, "Participant may still select a Saturday/Sunday belonging to a different weekend.");
+
+    // Holiday Duplicate Ownership Tests
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['Thanksgiving', 'Call 1', 'Alice'],
+      ['Thanksgiving', 'Call 2', ''],
+      ['New Year', 'Call 1', 'Bob'],
+      ['New Year', 'Call 2', '']
+    ]);
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('HOLIDAY_VOLUNTEER');
+
+    // reset sysconfig for these tests
+    MockSpreadsheetApp._sheets['Admin Options'] = undefined;
+    MockSpreadsheetApp.createSheet('Admin Options', [
+      ['Setting Name', 'Setting Value'],
+      ['Phase Ready', '']
+    ]);
+
+    // 7. Holiday Call 1 owner cannot take Call 2 of the same holiday.
+    var holSubmit1 = false;
+    try {
+      submitSelection('Alice', { action: 'SELECT', selections: [{ name: 'Thanksgiving', position: 'Call 2' }] });
+      holSubmit1 = true;
+    } catch (e) {
+      assert(e.message.indexOf('You already hold a call position for this holiday') !== -1, "Call 1 owner rejected for Call 2.");
+    }
+    assert(!holSubmit1, "Participant holding Holiday Call 1 cannot select Call 2 of that holiday.");
+
+    // 8. Holiday Call 2 owner cannot take Call 1 of that holiday.
+    MockSpreadsheetApp._sheets['Holiday Coverage'].getRange(2, 3).setValue('');
+    MockSpreadsheetApp._sheets['Holiday Coverage'].getRange(3, 3).setValue('Alice');
+    var holSubmit2 = false;
+    try {
+      submitSelection('Alice', { action: 'SELECT', selections: [{ name: 'Thanksgiving', position: 'Call 1' }] });
+      holSubmit2 = true;
+    } catch (e) {
+      assert(e.message.indexOf('You already hold a call position for this holiday') !== -1, "Call 2 owner rejected for Call 1.");
+    }
+    assert(!holSubmit2, "Participant holding Holiday Call 2 cannot select Call 1 of that holiday.");
+
+    // 9. Different holidays remain allowed.
+    var holSubmit3 = false;
+    try {
+      // Alice owns Thanksgiving Call 2. Try selecting New Year Call 2.
+      submitSelection('Alice', { action: 'SELECT', selections: [{ name: 'New Year', position: 'Call 2' }] });
+      holSubmit3 = true;
+    } catch (e) {
+      console.log(e.message);
+    }
+    assert(holSubmit3, "Participant may select call positions on different holidays.");
+
+    // 10. Nearby-holiday weekend selection enforces the same holiday duplicate restriction.
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('WEEKEND_SENIORITY');
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'First Call Assignee'],
+      ['2025-11-29', ''], // Saturday after Thanksgiving
+      ['2025-11-30', '']  // Sunday after Thanksgiving
+    ]);
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['Thanksgiving', 'Call 1', 'Alice'],
+      ['Thanksgiving', 'Call 2', '']
+    ]);
+    var weekendHolSubmit = submitSelection('Alice', { action: 'SELECT', selections: ['2025-11-29'], adjacentHoliday: { holidayName: 'Thanksgiving', position: 'Call 2' } });
+    assert(weekendHolSubmit.success === true && weekendHolSubmit.message.indexOf('was not added because you already hold') !== -1, "Nearby-holiday weekend selection enforces duplicate restriction and returns partial success.");
+    assert(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()[1][1] === 'Alice', "Weekend is assigned despite adjacent holiday rejection.");
+
+    // 11. HOLIDAY_VOLUNTEER Pass still works.
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('HOLIDAY_VOLUNTEER');
+    // Ensure "Holiday Volunteer Response" column exists in Participant Config
+    var ptHeaders = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues()[0];
+    if (ptHeaders.indexOf('Holiday Volunteer Response') === -1) { ptHeaders.push('Holiday Volunteer Response'); }
+    var volPassSubmit = false;
+    try {
+      submitSelection('Alice', { action: 'PASS' });
+      volPassSubmit = true;
+    } catch (e) {
+      console.log(e);
+    }
+    assert(volPassSubmit, "HOLIDAY_VOLUNTEER Pass still works.");
+    assert(MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues()[1][MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues()[0].indexOf('Holiday Volunteer Response')] === 'Pass', "Volunteer response correctly updated to Pass.");
+
+    // 12. HOLIDAY_MANDATORY Pass is rejected and does not advance the queue.
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('HOLIDAY_MANDATORY');
+    var mandPassSubmit = false;
+    try {
+      submitSelection('Alice', { action: 'PASS' });
+      mandPassSubmit = true;
+    } catch (e) {
+      assert(e.message.indexOf('Passing is not allowed') !== -1, "Mandatory holiday pass correctly rejected.");
+    }
+    assert(!mandPassSubmit, "HOLIDAY_MANDATORY Pass is rejected and does not advance the queue.");
+
+} finally {
     // Restore globals
     SpreadsheetApp = originalSpreadsheetApp;
     withScriptLock = originalWithScriptLock;

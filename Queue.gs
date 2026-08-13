@@ -71,6 +71,18 @@ function getParticipantAssignments(participantName, phase, cache) {
  * Does not read state internally to ensure consistency.
  */
 function getQueueWindows_(phase, state, cache) {
+  if (
+    (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') &&
+    !hasOpenHolidayPositions_()
+  ) {
+    return {
+      activeWindow: [],
+      upNextWindow: [],
+      windowSize: getActiveWindowSize(phase),
+      participants: getSheetDataAsObjects('Participant Config', cache)
+    };
+  }
+
   var currentRound = state.round;
   var direction = state.direction;
   var lead = state.lead;
@@ -190,6 +202,25 @@ function advanceQueue() {
 function advanceQueueInternal_() {
     var state = getQueueState();
     var phase = state.phase;
+
+    if (
+      phase === 'HOLIDAY_VOLUNTEER' ||
+      phase === 'HOLIDAY_MANDATORY'
+    ) {
+      if (!hasOpenHolidayPositions_()) {
+        // Coverage is complete. Do not expose additional ACTIVE participants.
+        setSystemConfig({
+          'Phase Ready': 'TRANSFER_OFFER_COLLECTION'
+        });
+
+        return {
+          success: true,
+          complete: true,
+          message: 'All holiday call positions are filled.'
+        };
+      }
+    }
+
     var currentRound = state.round;
     var direction = state.direction;
     var lead = state.lead;
