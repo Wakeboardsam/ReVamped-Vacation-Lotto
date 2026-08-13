@@ -617,11 +617,25 @@
       var assignee = h['Assigned Participant'];
       var disabled = assignee ? true : false;
       var cardClass = 'card';
+
+      if (h.nearWorkingWeekend) cardClass += ' card-proximity-positive';
+      if (h.nearVacation) cardClass += ' card-proximity-caution';
       if (disabled) cardClass += ' disabled';
 
       var idStr = h['Holiday Name'] + '|' + h['Call Position (Call 1 / Call 2)'];
       var posLabel = h['Call Position (Call 1 / Call 2)'];
       var badgesHtml = softHolidayBadgesHtml_(h.softHolidayWarnings);
+
+      if (h.nearWorkingWeekend) {
+        var wDate = h.nearWorkingWeekendDate ? formatDateDisplay(h.nearWorkingWeekendDate) : '';
+        var badgeText = wDate ? 'Near Your Working Weekend: ' + wDate : 'Near Your Working Weekend';
+        badgesHtml += '<span class="badge badge-proximity-positive">' + escapeSoftHolidayText_(badgeText) + '</span> ';
+      }
+      if (h.nearVacation) {
+        var vWeek = h.nearVacationWeek ? 'Week ' + h.nearVacationWeek : '';
+        var badgeText = vWeek ? 'Near Your Vacation: ' + vWeek : 'Near Your Vacation';
+        badgesHtml += '<span class="badge badge-proximity-caution">' + escapeSoftHolidayText_(badgeText) + '</span> ';
+      }
 
       html += '<div class="' + cardClass + '" data-id="' + idStr + '" data-name="' + h['Holiday Name'] + '" data-pos="' + posLabel + '" onclick="toggleSelection(this, \'holiday\')">';
       html += '  <div class="card-content">';

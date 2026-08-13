@@ -133,6 +133,87 @@ function getInitialState(participantId, pin) {
   } else if (state.phase === 'HOLIDAY_VOLUNTEER' || state.phase === 'HOLIDAY_MANDATORY') {
     response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
     attachSoftHolidayWarnings_(response.availableChoices.holiday, 'Observed Date', 0);
+
+    var proximityStr = adminOptions['Holiday Proximity Range (days)'];
+    var proximityRange = (proximityStr !== undefined && proximityStr !== '') ? parseInt(proximityStr, 10) : 3;
+
+    var vacs = getSheetDataAsObjects('Vacation Availability');
+    var wks = getSheetDataAsObjects('Weekend Coverage');
+
+    var myVacations = [];
+    for (var i = 0; i < vacs.length; i++) {
+      var assigneesStr = String(vacs[i]['Assigned Participants'] || '');
+      var assignees = assigneesStr ? assigneesStr.split(',').map(function(n) { return n.trim(); }) : [];
+      if (assignees.indexOf(participant['Name']) !== -1) {
+        myVacations.push(vacs[i]);
+      }
+    }
+
+    var myWeekends = [];
+    for (var i = 0; i < wks.length; i++) {
+      if (wks[i]['First Call Assignee'] === participant['Name']) {
+        myWeekends.push(wks[i]);
+      }
+    }
+
+    for (var i = 0; i < response.availableChoices.holiday.length; i++) {
+      var h = response.availableChoices.holiday[i];
+      var rawDate = h['Observed Date'];
+      if (rawDate instanceof Date) rawDate = formatDate(rawDate);
+      var parts = String(rawDate).split('-');
+      if (parts.length !== 3) continue;
+
+      var hLocalDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      var hUtc = Date.UTC(hLocalDate.getFullYear(), hLocalDate.getMonth(), hLocalDate.getDate());
+
+      // Check proximity to working weekends
+      var nearWorkingWeekend = false;
+      var nearWorkingWeekendDate = null;
+      for (var k = 0; k < myWeekends.length; k++) {
+        var wDate = myWeekends[k]['Date'];
+        if (wDate instanceof Date) wDate = formatDate(wDate);
+        var wParts = String(wDate).split('-');
+        if (wParts.length === 3) {
+          var wLocalDate = new Date(parseInt(wParts[0], 10), parseInt(wParts[1], 10) - 1, parseInt(wParts[2], 10));
+          var wUtc = Date.UTC(wLocalDate.getFullYear(), wLocalDate.getMonth(), wLocalDate.getDate());
+          var diffDays = Math.floor(Math.abs(hUtc - wUtc) / (1000 * 60 * 60 * 24));
+          if (diffDays <= proximityRange) {
+            nearWorkingWeekend = true;
+            nearWorkingWeekendDate = wDate;
+            break;
+          }
+        }
+      }
+      h['nearWorkingWeekend'] = nearWorkingWeekend;
+      if (nearWorkingWeekendDate) h['nearWorkingWeekendDate'] = nearWorkingWeekendDate;
+
+      // Check proximity to vacations
+      var nearVacation = false;
+      var nearVacationWeek = null;
+      for (var k = 0; k < myVacations.length; k++) {
+        var vDate = myVacations[k]['Start Date (Monday)'];
+        if (vDate instanceof Date) vDate = formatDate(vDate);
+        var vParts = String(vDate).split('-');
+        if (vParts.length === 3) {
+          var vLocalDate = new Date(parseInt(vParts[0], 10), parseInt(vParts[1], 10) - 1, parseInt(vParts[2], 10));
+
+          var satBefore = new Date(vLocalDate.getFullYear(), vLocalDate.getMonth(), vLocalDate.getDate() - 2);
+          var sunAfter = new Date(vLocalDate.getFullYear(), vLocalDate.getMonth(), vLocalDate.getDate() + 6);
+
+          var satBeforeUtc = Date.UTC(satBefore.getFullYear(), satBefore.getMonth(), satBefore.getDate());
+          var sunAfterUtc = Date.UTC(sunAfter.getFullYear(), sunAfter.getMonth(), sunAfter.getDate());
+
+          if (hUtc >= satBeforeUtc && hUtc <= sunAfterUtc) {
+            nearVacation = true;
+            nearVacationWeek = myVacations[k]['Week ID'];
+            break;
+          }
+        }
+      }
+      h['nearVacation'] = nearVacation;
+      if (nearVacationWeek) h['nearVacationWeek'] = nearVacationWeek;
+    }
+
   } else if (state.phase === 'TRANSFER_OFFER_COLLECTION') {
     // Stage A: Givers
     var myAssignments = [];
