@@ -11,10 +11,15 @@ function checkWahaHealth() {
   var startTime = new Date().getTime();
 
   var result = {
-    reachable: false,
+    success: false,
+    tunnelOnline: false,
+    apiReachable: false,
+    authenticated: false,
+    sessionStatus: 'UNKNOWN',
+    latencyMs: 0,
     statusCode: null,
-    status: 'UNKNOWN',
-    latencyMs: 0
+    failureType: null,
+    checkedAt: new Date().toISOString()
   };
 
   try {
@@ -30,38 +35,55 @@ function checkWahaHealth() {
     var response = UrlFetchApp.fetch(endpoint, options);
     result.latencyMs = new Date().getTime() - startTime;
     result.statusCode = response.getResponseCode();
-    result.reachable = true;
 
     var body = response.getContentText();
 
-    if (result.statusCode === 200) {
-      if (body.toLowerCase().indexOf('<html') !== -1) {
-        result.status = 'TUNNEL_OFFLINE';
+    if (result.statusCode === 502 || result.statusCode === 504 || body.toLowerCase().indexOf('<html') !== -1) {
+      result.tunnelOnline = false;
+      result.apiReachable = false;
+      result.failureType = 'TUNNEL_OFFLINE';
+    } else {
+      result.tunnelOnline = true;
+      result.apiReachable = true;
+
+      if (result.statusCode === 401 || result.statusCode === 403) {
+        result.authenticated = false;
+        result.failureType = 'AUTH_ERROR';
       } else {
-        try {
-          var data = JSON.parse(body);
-          if (data && data.status) {
-            result.status = String(data.status).toUpperCase();
-          } else {
-            result.status = 'UNKNOWN_JSON_FORMAT';
+        result.authenticated = true;
+
+        if (result.statusCode === 200 || result.statusCode === 201) {
+          try {
+            var data = JSON.parse(body);
+            if (data && data.status) {
+              result.sessionStatus = String(data.status).toUpperCase();
+            } else {
+              result.sessionStatus = 'UNKNOWN_JSON_FORMAT';
+            }
+          } catch (e) {
+            result.sessionStatus = 'INVALID_JSON';
+            result.failureType = 'PARSE_ERROR';
           }
-        } catch (e) {
-          result.status = 'INVALID_JSON';
+
+          if (result.sessionStatus === 'WORKING') {
+            result.success = true;
+          } else {
+            result.failureType = 'SESSION_OFFLINE';
+          }
+        } else if (result.statusCode === 404) {
+          result.sessionStatus = 'SESSION_NOT_FOUND';
+          result.failureType = 'SESSION_OFFLINE';
+        } else {
+          result.sessionStatus = 'ERROR_' + result.statusCode;
+          result.failureType = 'WAHA_ERROR';
         }
       }
-    } else if (result.statusCode === 401 || result.statusCode === 403) {
-      result.status = 'AUTH_ERROR';
-    } else if (result.statusCode === 404) {
-      result.status = 'SESSION_NOT_FOUND';
-    } else if (result.statusCode === 502 || result.statusCode === 504) {
-      result.status = 'TUNNEL_OFFLINE';
-    } else {
-      result.status = 'ERROR_' + result.statusCode;
     }
   } catch (err) {
     result.latencyMs = new Date().getTime() - startTime;
-    result.reachable = false;
-    result.status = 'NETWORK_ERROR';
+    result.tunnelOnline = false;
+    result.apiReachable = false;
+    result.failureType = 'NETWORK_ERROR';
   }
 
   return result;

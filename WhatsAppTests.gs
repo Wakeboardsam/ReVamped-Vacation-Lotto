@@ -253,5 +253,36 @@ function runWahaUnitTests() {
     if (originalSendWhatsAppMessage) { sendWhatsAppMessage = originalSendWhatsAppMessage; }
   }
 
+  // 6. Preflight config fail
+  var origOutage = typeof handleSystemOutage !== 'undefined' ? handleSystemOutage : null;
+  try {
+    var outageCalled = false;
+    handleSystemOutage = function(type, ctx) {
+      if (type === 'CONFIG_ERROR') outageCalled = true;
+    };
+    PropertiesService = { getScriptProperties: function() { return { getProperty: function() { return null; } }; } };
+    getAdminOptions = function() { return { 'Enable SMS Notifications': true }; };
+
+    notifyActiveParticipants();
+    assert(outageCalled, "Calls outage handler on preflight config failure");
+
+  } catch(e) {
+    failed++;
+    console.error("Test group failed (Preflight config): " + e);
+  } finally {
+    if (origOutage) handleSystemOutage = origOutage;
+    PropertiesService = originalPropertiesService;
+    if (originalGetAdminOptions) { getAdminOptions = originalGetAdminOptions; }
+  }
+
+  // 7. Check batch count format
+  try {
+    var bRes = sendWhatsAppBatch([]);
+    assert(bRes.total === 0 && bRes.attempted === 0, "Batch empty handles nicely");
+  } catch(e) {
+    failed++;
+    console.error("Test group failed (Batch counting): " + e);
+  }
+
   console.log("WAHA Unit Tests completed. Passed: " + passed + " / Failed: " + failed);
 }

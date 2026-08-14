@@ -15,7 +15,8 @@ function sendNotification_(phone, text) {
   var options = getAdminOptions();
   var isEnabled = options['Enable SMS Notifications'];
 
-  if (isEnabled === false || String(isEnabled).toUpperCase() === 'FALSE') {
+  // Send ONLY when explicitly TRUE
+  if (isEnabled !== true && String(isEnabled).toUpperCase() !== 'TRUE') {
     return {
       success: false,
       systemic: false,

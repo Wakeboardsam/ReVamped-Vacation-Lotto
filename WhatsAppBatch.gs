@@ -10,25 +10,31 @@
  */
 function sendWhatsAppBatch(items) {
   var report = {
-    total: items ? items.length : 0,
+    total: 0,
+    attempted: 0,
     sent: 0,
     failed: 0,
     success: false,
-    aborted: false,
-    results: []
+    aborted: 0,
+    abortedBecause: null,
+    errors: []
   };
 
-  if (!items || items.length === 0) {
+  if (!items || !Array.isArray(items) || items.length === 0) {
     report.success = true;
     return report;
   }
+
+  report.total = items.length;
 
   var config;
   try {
     config = getWhatsAppConfig_();
   } catch (e) {
-    report.aborted = true;
+    report.aborted = report.total;
     report.failed = report.total;
+    report.abortedBecause = 'CONFIG_ERROR';
+    report.errors.push({ index: null, error: e.message });
     return report;
   }
 
@@ -36,27 +42,30 @@ function sendWhatsAppBatch(items) {
 
   for (var i = 0; i < items.length; i++) {
     var item = items[i];
+    report.attempted++;
     var sendResult = sendWhatsAppMessage(item.phone, item.text);
-
-    report.results.push({
-      index: i,
-      result: sendResult
-    });
 
     if (sendResult.success) {
       report.sent++;
+    } else {
+      report.failed++;
+      report.errors.push({
+        index: i,
+        error: sendResult.failureType + (sendResult.providerCode ? ': ' + sendResult.providerCode : '')
+      });
     }
 
     if (sendResult.systemic) {
-      report.aborted = true;
+      report.abortedBecause = sendResult.failureType;
       break;
     }
 
-    if (i < items.length - 1) {
+    if (i < items.length - 1 && !sendResult.systemic) {
       Utilities.sleep(delayMs);
     }
   }
 
+  report.aborted = report.total - report.attempted;
   report.failed = report.total - report.sent;
   report.success = (report.sent === report.total);
 

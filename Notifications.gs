@@ -22,10 +22,18 @@ function notifyActiveParticipants() {
     }
 
     var adminOptions = getAdminOptions();
+
+    var config = null;
+    try {
+      config = getWhatsAppConfig_();
+    } catch(e) {
+      handleSystemOutage('CONFIG_ERROR', { providerCode: 'Invalid WAHA configuration' });
+      return;
+    }
+
     var reminderDelayMins = parseInt(adminOptions['Reminder Delay (mins)']) || 360;
     var adminAlertDelayMins = parseInt(adminOptions['Admin Alert Delay (mins)']) || 720;
-    var adminPhone = PropertiesService.getScriptProperties().getProperty('ADMIN_PHONE') || '';
-    adminPhone = adminPhone.trim();
+    var adminPhone = config.adminPhone;
 
     var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
     var pData = pSheet.getDataRange().getValues();
@@ -37,15 +45,7 @@ function notifyActiveParticipants() {
     var phoneCol = pHeaders.indexOf('Phone Number');
 
     var now = new Date();
-
-    var config = null;
-    try {
-      config = getWhatsAppConfig_();
-    } catch(e) {
-      // Configuration errors are systemic but since we're in the trigger, we can't do much if config is completely broken.
-      // We will allow the loop to start so that we don't block basic evaluation, but notifications will fail early.
-    }
-    var delayMs = config ? (config.messageDelayMs || 1500) : 1500;
+    var delayMs = config.messageDelayMs || 1500;
     var attemptsMade = 0;
 
     for (var i = 0; i < activeParticipants.length; i++) {

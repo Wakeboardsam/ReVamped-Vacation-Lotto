@@ -551,7 +551,7 @@ function submitSelection(participantId, selectionData) {
                }
              }
            } catch (err) {
-             console.error("Failed to send adjacent holiday confirmation SMS: " + err.message);
+             console.warn("[WARN] Failed to process adjacent holiday confirmation notification. Selection remains committed.");
            }
         }
 

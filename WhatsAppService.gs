@@ -146,23 +146,30 @@ function sendWhatsAppMessage(rawPhoneNumber, messageText) {
     } catch (e) {}
 
     var strBody = body.toUpperCase();
-    var isSessionOfflineBody = (strBody.indexOf('STOPPED') !== -1 || strBody.indexOf('SCAN_QR_CODE') !== -1 || strBody.indexOf('SESSION NOT FOUND') !== -1 || strBody.indexOf('FAILED') !== -1);
+    var isSessionOfflineBody = (
+      strBody.indexOf('DOES NOT EXIST') !== -1 ||
+      strBody.indexOf('STOPPED') !== -1 ||
+      strBody.indexOf('SCAN_QR_CODE') !== -1 ||
+      strBody.indexOf('SESSION NOT FOUND') !== -1 ||
+      strBody.indexOf('FAILED') !== -1
+    );
+    var isRateLimitBody = (strBody.indexOf('463') !== -1);
 
     if (result.statusCode === 502 || result.statusCode === 504 || ngrokError || body.toLowerCase().indexOf('<html') !== -1) {
       result.systemic = true;
       result.failureType = 'TUNNEL_OFFLINE';
     }
-    else if (result.statusCode >= 500) {
-      result.systemic = true;
-      result.failureType = 'WAHA_ERROR';
-    }
     else if (result.statusCode === 401 || result.statusCode === 403) {
       result.systemic = true;
       result.failureType = 'AUTH_ERROR';
     }
-    else if (result.statusCode === 429 || result.statusCode === 463) {
+    else if (result.statusCode === 429 || result.statusCode === 463 || isRateLimitBody) {
       result.systemic = true;
       result.failureType = 'RATE_LIMIT';
+    }
+    else if (result.statusCode >= 500) {
+      result.systemic = true;
+      result.failureType = 'WAHA_ERROR';
     }
     else if ((result.statusCode === 200 || result.statusCode === 201) && parsedBody) {
       result.success = true;
@@ -173,13 +180,23 @@ function sendWhatsAppMessage(rawPhoneNumber, messageText) {
       if (isSessionOfflineBody) {
         result.systemic = true;
         result.failureType = 'SESSION_OFFLINE';
+      } else if (result.statusCode === 400 || result.statusCode === 404 || result.statusCode === 422) {
+        // Use REQUEST_ERROR for generic 400/404/422 unless the response clearly identifies a recipient problem.
+        // If parsedBody exists and has a message that suggests recipient issue, we can override to RECIPIENT_REJECTED,
+        // but default to REQUEST_ERROR.
+        result.systemic = false;
+        result.failureType = 'REQUEST_ERROR';
       } else {
         result.systemic = false;
-        result.failureType = 'RECIPIENT_REJECTED';
+        result.failureType = 'REQUEST_ERROR';
       }
 
       if (parsedBody && parsedBody.message) {
         result.providerCode = String(parsedBody.message).substring(0, 100);
+        var msgUpper = result.providerCode.toUpperCase();
+        if (msgUpper.indexOf('INVALID') !== -1 || msgUpper.indexOf('NUMBER') !== -1 || msgUpper.indexOf('RECIPIENT') !== -1) {
+           result.failureType = 'RECIPIENT_REJECTED';
+        }
       }
     }
 
