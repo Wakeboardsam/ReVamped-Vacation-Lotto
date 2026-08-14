@@ -346,6 +346,11 @@ function submitSelection(participantId, selectionData) {
         pSheet.getRange(pRowIdx, pHeaders.indexOf('Holiday Volunteer Response') + 1).setValue('Pass');
       } else if (phase === 'TRANSFER_RECEIVER') {
         pSheet.getRange(pRowIdx, pHeaders.indexOf('Transfer Receiver') + 1).setValue(false);
+      } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
+        pSheet.getRange(pRowIdx, pHeaders.indexOf('Transfer Offers Submitted') + 1).setValue(true);
+        // Do not advance queue for TRANSFER_OFFER_COLLECTION
+        checkTransferOfferCollectionComplete_();
+        return { success: true };
       }
       // advance queue
       advanceQueueInternal_();
@@ -575,13 +580,18 @@ function submitSelection(participantId, selectionData) {
         if (!found) throw new Error("Holiday position not found.");
 
       } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
-        // Stage A Givers: Provide an item to the pool
+        // Stage A Givers: Provide items to the pool
         var tSheet = ss.getSheetByName('Transfer Offers');
-        var offerId = 'OFFER-' + new Date().getTime() + '-' + Math.floor(Math.random()*1000);
-        var item = selectionData.selections[0]; // { type: 'VACATION', datePos: 'Week 12' }
-        var tData = [offerId, participantId, item.type, item.datePos, 'Active', new Date()];
-        tSheet.appendRow(tData);
-        // Note: We do NOT remove from original schedule yet!
+        for (var i = 0; i < selectionData.selections.length; i++) {
+          var item = selectionData.selections[i];
+          var offerId = 'OFFER-' + new Date().getTime() + '-' + Math.floor(Math.random()*1000) + '-' + i;
+          var tData = [offerId, participantId, item.type, item.datePos, 'Active', new Date()];
+          tSheet.appendRow(tData);
+        }
+        pSheet.getRange(pRowIdx, pHeaders.indexOf('Transfer Offers Submitted') + 1).setValue(true);
+        // Do not advance queue directly, check completion
+        checkTransferOfferCollectionComplete_();
+        return { success: true };
       } else if (phase === 'TRANSFER_RECEIVER') {
         // Stage B Receivers: Claim an offer
         var tSheet = ss.getSheetByName('Transfer Offers');
@@ -716,4 +726,21 @@ function getRulesAndTips() {
   }
 
   return combinedRules.join('\n\n');
+}
+
+
+/**
+ * Checks if all givers have submitted their offers during TRANSFER_OFFER_COLLECTION.
+ * If so, updates Phase Ready.
+ */
+function checkTransferOfferCollectionComplete_() {
+  var state = getQueueState();
+  if (state.phase !== 'TRANSFER_OFFER_COLLECTION') return;
+
+  var activeWindow = getActiveParticipants('TRANSFER_OFFER_COLLECTION');
+  if (activeWindow.length === 0) {
+    setSystemConfig({
+      'Phase Ready': 'TRANSFER_RECEIVER'
+    });
+  }
 }

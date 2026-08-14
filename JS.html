@@ -769,6 +769,8 @@
           showToast("You can only select up to 2 Non-Prime weeks.");
           return;
         }
+      } else if (type === 'transferOffer') {
+        // Allow multiple selections for transferOffer
       } else {
         // All other phases allow only 1 selection
         appState.selections = [];
@@ -798,12 +800,18 @@
 
     if (appState.phase === 'HOLIDAY_VOLUNTEER' || appState.phase === 'TRANSFER_RECEIVER' || appState.phase === 'TRANSFER_OFFER_COLLECTION') {
       passBtn.style.display = 'block';
-      passBtn.innerText = appState.phase === 'TRANSFER_RECEIVER' ? "None" : (appState.phase === 'TRANSFER_OFFER_COLLECTION' ? "Done Offering" : "Pass");
+      passBtn.innerText = appState.phase === 'TRANSFER_RECEIVER' ? "None" : (appState.phase === 'TRANSFER_OFFER_COLLECTION' ? "Submit — No Giveaways" : "Pass");
     }
 
     if (appState.selections.length > 0) {
       btn.disabled = false;
       summary.innerText = appState.selections.length + " Selected";
+      if (appState.phase === 'TRANSFER_OFFER_COLLECTION') {
+        btn.innerText = "Submit Offers";
+        passBtn.style.display = 'none'; // hide the "No Giveaways" button if they made selections
+      } else {
+        btn.innerText = "Submit Selection";
+      }
 
       if (appState.phase === 'VACATION_SENIORITY' || appState.phase === 'VACATION_RANDOM') {
         var nonPrimeCount = 0;
@@ -817,6 +825,11 @@
     } else {
       btn.disabled = true;
       summary.innerText = "No selection";
+      btn.innerText = "Submit Selection";
+      if (appState.phase === 'TRANSFER_OFFER_COLLECTION') {
+        // We have the passBtn as "Submit - No Giveaways"
+        passBtn.style.display = 'block';
+      }
     }
   }
 
@@ -856,8 +869,10 @@
         var parts = idStr.split('|');
         data.selections = [{ name: parts[0], position: parts[1] }];
       } else if (appState.phase === 'TRANSFER_OFFER_COLLECTION') {
-        var obj = JSON.parse(appState.selections[0].replace(/&quot;/g, '"'));
-        data.selections = [obj];
+        data.selections = [];
+        for (var i = 0; i < appState.selections.length; i++) {
+          data.selections.push(JSON.parse(appState.selections[i].replace(/&quot;/g, '"')));
+        }
       } else if (appState.phase === 'TRANSFER_RECEIVER') {
         data.selections = appState.selections;
       }
