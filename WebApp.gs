@@ -323,6 +323,13 @@ function submitSelection(participantId, selectionData) {
       throw new Error("It is not currently your turn.");
     }
 
+    if (selectionData.phase && selectionData.phase !== phase) {
+      if ((selectionData.phase === 'HOLIDAY_VOLUNTEER' || selectionData.phase === 'HOLIDAY_MANDATORY') && phase === 'TRANSFER_OFFER_COLLECTION') {
+        throw new Error("Holiday selection is no longer available because holiday coverage is complete. Please refresh.");
+      }
+      throw new Error("The lottery phase has changed. Please refresh the page.");
+    }
+
     var ss = SpreadsheetApp.getActiveSpreadsheet();
 
     // Helper to find participant row
@@ -584,6 +591,7 @@ function submitSelection(participantId, selectionData) {
         var tSheet = ss.getSheetByName('Transfer Offers');
         for (var i = 0; i < selectionData.selections.length; i++) {
           var item = selectionData.selections[i];
+          if (!item || !item.type) throw new Error("Invalid transfer offer data provided.");
           var offerId = 'OFFER-' + new Date().getTime() + '-' + Math.floor(Math.random()*1000) + '-' + i;
           var tData = [offerId, participantId, item.type, item.datePos, 'Active', new Date()];
           tSheet.appendRow(tData);

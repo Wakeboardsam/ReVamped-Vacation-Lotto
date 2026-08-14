@@ -272,15 +272,33 @@ function runRegressionTests() {
     var staleSubmitPassed = false;
     var origGetActiveParticipants = getActiveParticipants;
     getActiveParticipants = function(p) { return [{ Name: 'Alice' }]; };
+    // Prepare initial state
+    var preTestOffersCount = MockSpreadsheetApp._sheets['Transfer Offers'] ? MockSpreadsheetApp._sheets['Transfer Offers'].getDataRange().getValues().length : 0;
+    var hDataPre = getSheetDataAsObjects('Holiday Coverage', {});
+
     try {
       // Simulate state changing while Alice was selecting
       setQueueState({ phase: 'TRANSFER_OFFER_COLLECTION' });
-      submitSelection('Alice', { action: 'SUBMIT', selections: [{ name: 'Christmas', position: 'Call 1' }] });
+      submitSelection('Alice', { phase: 'HOLIDAY_VOLUNTEER', action: 'SUBMIT', selections: [{ name: 'Christmas', position: 'Call 1' }] });
       staleSubmitPassed = true;
     } catch (e) {
-      assert(e.message.indexOf('type is undefined') !== -1 || e.message.indexOf('Cannot read properties of undefined (reading \'type\')') !== -1 || e.message.indexOf('Holiday') === -1, "Submission for holiday fails because phase has moved on.");
+      assert(e.message.indexOf('Holiday selection is no longer available because holiday coverage is complete') !== -1, "Stale holiday submission rejected appropriately with clean message.");
     }
-    // Just verify we don't crash inappropriately, or remove the strict message check because the behavior has changed fundamentally.
+    assert(!staleSubmitPassed, "Stale submission should not succeed when holiday coverage is complete.");
+
+    // Verify no Transfer Offer row was created
+    var postTestOffersCount = MockSpreadsheetApp._sheets['Transfer Offers'] ? MockSpreadsheetApp._sheets['Transfer Offers'].getDataRange().getValues().length : 0;
+    assert(postTestOffersCount === preTestOffersCount, "No Transfer Offer row should be created during rejected stale holiday submission.");
+
+    // Verify Holiday assignment was not changed
+    var hDataPost = getSheetDataAsObjects('Holiday Coverage', {});
+    assert(JSON.stringify(hDataPre) === JSON.stringify(hDataPost), "Holiday coverage should remain unchanged after rejected stale submission.");
+
+    // Verify Queue state didn't change
+    var currentState = getQueueState();
+    assert(currentState.phase === 'TRANSFER_OFFER_COLLECTION', "Queue phase should remain TRANSFER_OFFER_COLLECTION after rejected stale submission.");
+
+    getActiveParticipants = origGetActiveParticipants;
 
     // Weekend Duplicate Ownership Tests
     MockSpreadsheetApp.createSheet('Weekend Coverage', [
