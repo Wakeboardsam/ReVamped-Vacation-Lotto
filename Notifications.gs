@@ -24,7 +24,8 @@ function notifyActiveParticipants() {
     var adminOptions = getAdminOptions();
     var reminderDelayMins = parseInt(adminOptions['Reminder Delay (mins)']) || 360;
     var adminAlertDelayMins = parseInt(adminOptions['Admin Alert Delay (mins)']) || 720;
-    var adminPhone = adminOptions['Admin Phone Number'];
+    var adminPhone = PropertiesService.getScriptProperties().getProperty('ADMIN_PHONE') || '';
+    adminPhone = adminPhone.trim();
 
     var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
     var pData = pSheet.getDataRange().getValues();

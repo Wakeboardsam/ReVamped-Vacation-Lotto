@@ -10,13 +10,24 @@
  */
 function handleSystemOutage(failureType, safeContext) {
   try {
-    var config = getWhatsAppConfig_();
-    var adminEmail = config.adminEmail;
-    var cooldownSec = config.outageAlertCooldownSeconds;
-    var sessionName = config.session;
+    var props = PropertiesService.getScriptProperties();
+    var adminEmail = props.getProperty('ADMIN_EMAIL') || '';
+    adminEmail = adminEmail.trim();
 
-    if (!adminEmail) {
+    if (!adminEmail || adminEmail.indexOf('@') === -1) {
       return;
+    }
+
+    var sessionName = props.getProperty('WAHA_SESSION') || 'default';
+    sessionName = sessionName.trim() || 'default';
+
+    var cooldownStr = props.getProperty('OUTAGE_ALERT_COOLDOWN_SECONDS');
+    var cooldownSec = 1800;
+    if (cooldownStr !== null && cooldownStr.trim() !== '') {
+      var parsedCooldown = parseInt(cooldownStr, 10);
+      if (!isNaN(parsedCooldown) && parsedCooldown >= 0 && parsedCooldown <= 21600) {
+        cooldownSec = parsedCooldown;
+      }
     }
 
     var lock = LockService.getScriptLock();

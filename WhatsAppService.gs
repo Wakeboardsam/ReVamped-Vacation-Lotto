@@ -70,6 +70,7 @@ function sendWhatsAppMessage(rawPhoneNumber, messageText) {
 
   var config, phoneObj, textStr;
 
+  // 1. Input Validation
   try {
     if (messageText === null || messageText === undefined) {
       throw new Error("Message text is required");
@@ -81,16 +82,30 @@ function sendWhatsAppMessage(rawPhoneNumber, messageText) {
     }
 
     phoneObj = normalizeWhatsAppPhone_(rawPhoneNumber);
-    config = getWhatsAppConfig_();
   } catch (err) {
     result.latencyMs = new Date().getTime() - startTime;
     result.systemic = false;
     result.failureType = 'VALIDATION_ERROR';
+    // Do not leak raw exceptions or full phone numbers in providerCode if not needed, but safe validation errors are ok.
     result.providerCode = err.message;
     console.warn("[WARN] WhatsApp validation failed: " + err.message);
     return result;
   }
 
+  // 2. Config Validation
+  try {
+    config = getWhatsAppConfig_();
+  } catch (err) {
+    result.latencyMs = new Date().getTime() - startTime;
+    result.systemic = true;
+    result.failureType = 'CONFIG_ERROR';
+    result.providerCode = err.message;
+    console.error("[ERROR] WhatsApp configuration error: " + err.message);
+    handleSystemOutage(result.failureType, { providerCode: err.message });
+    return result;
+  }
+
+  // 3. Network Request
   try {
     var payload = {
       chatId: phoneObj.chatId,
@@ -125,37 +140,37 @@ function sendWhatsAppMessage(rawPhoneNumber, messageText) {
     }
 
     var body = response.getContentText();
+    var parsedBody = null;
+    try {
+      parsedBody = JSON.parse(body);
+    } catch (e) {}
+
+    var strBody = body.toUpperCase();
+    var isSessionOfflineBody = (strBody.indexOf('STOPPED') !== -1 || strBody.indexOf('SCAN_QR_CODE') !== -1 || strBody.indexOf('SESSION NOT FOUND') !== -1 || strBody.indexOf('FAILED') !== -1);
 
     if (result.statusCode === 502 || result.statusCode === 504 || ngrokError || body.toLowerCase().indexOf('<html') !== -1) {
       result.systemic = true;
       result.failureType = 'TUNNEL_OFFLINE';
     }
+    else if (result.statusCode >= 500) {
+      result.systemic = true;
+      result.failureType = 'WAHA_ERROR';
+    }
     else if (result.statusCode === 401 || result.statusCode === 403) {
       result.systemic = true;
       result.failureType = 'AUTH_ERROR';
     }
-    else if (result.statusCode === 429) {
+    else if (result.statusCode === 429 || result.statusCode === 463) {
       result.systemic = true;
       result.failureType = 'RATE_LIMIT';
     }
-    else if (result.statusCode >= 200 && result.statusCode < 300) {
+    else if ((result.statusCode === 200 || result.statusCode === 201) && parsedBody) {
       result.success = true;
       console.log("[INFO] WhatsApp send accepted: recipient=*******" + phoneObj.digits.slice(-4) + " statusCode=" + result.statusCode);
       return result;
     }
     else {
-      var parsedBody = null;
-      try {
-        parsedBody = JSON.parse(body);
-      } catch (e) {}
-
-      var isSessionOffline = false;
-      var strBody = body.toUpperCase();
-      if (strBody.indexOf('STOPPED') !== -1 || strBody.indexOf('SCAN_QR_CODE') !== -1 || strBody.indexOf('SESSION NOT FOUND') !== -1) {
-        isSessionOffline = true;
-      }
-
-      if (isSessionOffline) {
+      if (isSessionOfflineBody) {
         result.systemic = true;
         result.failureType = 'SESSION_OFFLINE';
       } else {
@@ -183,10 +198,10 @@ function sendWhatsAppMessage(rawPhoneNumber, messageText) {
   } catch (err) {
     result.latencyMs = new Date().getTime() - startTime;
     result.systemic = true;
-    result.failureType = 'TUNNEL_OFFLINE';
-    result.providerCode = err.message;
-    console.error("[ERROR] WAHA systemic network error: type=" + result.failureType + " error=" + err.message);
-    handleSystemOutage(result.failureType, { providerCode: err.message });
+    result.failureType = 'NETWORK_ERROR';
+    // Do not log raw exception message fully as it might leak the endpoint url or other sensitive details
+    console.error("[ERROR] WAHA systemic network error: type=" + result.failureType);
+    handleSystemOutage(result.failureType, { providerCode: 'UrlFetchApp error' });
     return result;
   }
 }
