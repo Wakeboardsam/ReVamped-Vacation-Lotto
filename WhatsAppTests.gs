@@ -276,7 +276,10 @@ function runWahaUnitTests() {
     if (originalGetAdminOptions) { getAdminOptions = originalGetAdminOptions; }
   }
 
-  // 7. Check batch count format and non-array failures
+  // 7. Check batch count format, non-array failures, and precedence
+  var origSendWhatsAppMessage10 = typeof sendWhatsAppMessage !== 'undefined' ? sendWhatsAppMessage : null;
+  var origGetWhatsAppConfig10 = typeof getWhatsAppConfig_ !== 'undefined' ? getWhatsAppConfig_ : null;
+  var origSleep10 = typeof Utilities !== 'undefined' ? Utilities.sleep : null;
   try {
     var bResEmpty = sendWhatsAppBatch([]);
     assert(bResEmpty.total === 0 && bResEmpty.attempted === 0 && bResEmpty.success === true, "Batch empty array succeeds nicely");
@@ -286,12 +289,156 @@ function runWahaUnitTests() {
 
     var bResObj = sendWhatsAppBatch({ phone: '123' });
     assert(bResObj.success === false && bResObj.abortedBecause === 'VALIDATION_ERROR', "Batch object rejects cleanly");
+
+    var messagesSent = [];
+    sendWhatsAppMessage = function(phone, text) {
+      messagesSent.push(text);
+      return { success: true };
+    };
+    getWhatsAppConfig_ = function() { return { messageDelayMs: 0 }; };
+    Utilities = { sleep: function() {} };
+
+    var batchRes = sendWhatsAppBatch([
+      { phone: '5551234567', message: 'MainMessage', text: 'FallbackText' },
+      { phone: '5551234567', text: 'OnlyFallbackText' }
+    ]);
+
+    assert(messagesSent[0] === 'MainMessage', "sendWhatsAppBatch prefers 'message' field");
+    assert(messagesSent[1] === 'OnlyFallbackText', "sendWhatsAppBatch falls back to 'text' field");
+    assert(batchRes.success === true && batchRes.sent === 2, "sendWhatsAppBatch counts correctly");
+
   } catch(e) {
     failed++;
-    console.error("Test group failed (Batch counting): " + e);
+    console.error("Test group failed (Batch format and precedence): " + e);
+  } finally {
+    if (origSendWhatsAppMessage10) sendWhatsAppMessage = origSendWhatsAppMessage10;
+    if (origGetWhatsAppConfig10) getWhatsAppConfig_ = origGetWhatsAppConfig10;
+    Utilities.sleep = origSleep10;
   }
 
-  // 8. Test health status translation logic (unit only, requires checkWahaHealth logic mock if needed, but we can't easily mock UrlFetch without global override, so skipping direct URL fetch in tests here unless we mock UrlFetchApp)
+  // 8. Test caller-owned lock handling in handleSystemOutage
+  var origLockService2 = typeof LockService !== 'undefined' ? LockService : null;
+  var origMailApp2 = typeof MailApp !== 'undefined' ? MailApp : null;
+  try {
+    var tryLockCalled = false;
+    var releaseLockCalled = false;
+
+    LockService = {
+      getScriptLock: function() {
+        return {
+          hasLock: function() { return true; },
+          tryLock: function(ms) { tryLockCalled = true; return true; },
+          releaseLock: function() { releaseLockCalled = true; }
+        };
+      }
+    };
+
+    MailApp = {
+      sendEmail: function() {} // mock to avoid sending
+    };
+
+    var mockProps2 = {
+      'WAHA_BASE_URL': 'https://mock.ngrok.io',
+      'WAHA_API_KEY': 'secret',
+      'ADMIN_PHONE': '5551234567',
+      'ADMIN_EMAIL': 'admin@example.com'
+    };
+    PropertiesService = {
+      getScriptProperties: function() {
+        return { getProperty: function(key) { return mockProps2[key] || null; } };
+      }
+    };
+
+    handleSystemOutage('TEST_LOCK', {});
+    assert(tryLockCalled === false, "handleSystemOutage does not call tryLock if lock already held");
+    assert(releaseLockCalled === false, "handleSystemOutage does not call releaseLock if lock already held");
+  } catch(e) {
+    failed++;
+    console.error("Test group failed (Caller Lock): " + e);
+  } finally {
+    LockService = origLockService2;
+    MailApp = origMailApp2;
+    PropertiesService = originalPropertiesService;
+  }
+
+  // 9. notifyActiveParticipants with disabled notifications
+  var origGetAdminOptions9 = typeof getAdminOptions !== 'undefined' ? getAdminOptions : null;
+  var origGetQueueState9 = typeof getQueueState !== 'undefined' ? getQueueState : null;
+  var origGetActiveParticipants9 = typeof getActiveParticipants !== 'undefined' ? getActiveParticipants : null;
+  var origWithScriptLock9 = typeof withScriptLock !== 'undefined' ? withScriptLock : null;
+
+  var origGetWhatsAppConfig = typeof getWhatsAppConfig_ !== 'undefined' ? getWhatsAppConfig_ : null;
+  var origSendNotification = typeof sendNotification_ !== 'undefined' ? sendNotification_ : null;
+
+  try {
+    var getWhatsAppConfigCalled = 0;
+    var handleSystemOutageCalled = 0;
+    var sendNotificationCalled = 0;
+    var sendWhatsAppMessageCalled = 0;
+
+    getAdminOptions = function() { return { 'Enable SMS Notifications': false }; };
+    getQueueState = function() { return { phase: 'VACATION_RANDOM' }; };
+    getActiveParticipants = function() { return [{ 'Phone Number': '5551234567' }]; };
+    withScriptLock = function(cb) { return cb(); };
+
+    getWhatsAppConfig_ = function() { getWhatsAppConfigCalled++; return {}; };
+    handleSystemOutage = function() { handleSystemOutageCalled++; };
+    sendNotification_ = function() { sendNotificationCalled++; };
+    sendWhatsAppMessage = function() { sendWhatsAppMessageCalled++; };
+
+    notifyActiveParticipants();
+
+    assert(getWhatsAppConfigCalled === 0, "notifyActiveParticipants skips getWhatsAppConfig_ when disabled");
+    assert(handleSystemOutageCalled === 0, "notifyActiveParticipants skips handleSystemOutage when disabled");
+    assert(sendNotificationCalled === 0, "notifyActiveParticipants skips sendNotification_ when disabled");
+    assert(sendWhatsAppMessageCalled === 0, "notifyActiveParticipants skips sendWhatsAppMessage when disabled");
+  } catch(e) {
+    failed++;
+    console.error("Test group failed (Disabled Notifications): " + e);
+  } finally {
+    if (origGetAdminOptions9) getAdminOptions = origGetAdminOptions9;
+    if (origGetQueueState9) getQueueState = origGetQueueState9;
+    if (origGetActiveParticipants9) getActiveParticipants = origGetActiveParticipants9;
+    if (origWithScriptLock9) withScriptLock = origWithScriptLock9;
+
+    if (origGetWhatsAppConfig) getWhatsAppConfig_ = origGetWhatsAppConfig;
+    if (origOutage) handleSystemOutage = origOutage;
+    if (origSendNotification) sendNotification_ = origSendNotification;
+    if (originalSendWhatsAppMessage) sendWhatsAppMessage = originalSendWhatsAppMessage;
+  }
+
+  // 10. runWhatsAppDiagnostics check health skips sending when not WORKING
+  var origCheckWahaHealth = typeof checkWahaHealth !== 'undefined' ? checkWahaHealth : null;
+  var origSendWhatsAppMessage11 = typeof sendWhatsAppMessage !== 'undefined' ? sendWhatsAppMessage : null;
+  var origGetWhatsAppConfig11 = typeof getWhatsAppConfig_ !== 'undefined' ? getWhatsAppConfig_ : null;
+
+  try {
+    var diagSendCalled = false;
+
+    getWhatsAppConfig_ = function() {
+      return { session: 'test', adminPhone: '5551234567' };
+    };
+    checkWahaHealth = function() {
+      return { sessionStatus: 'STOPPED' };
+    };
+    sendWhatsAppMessage = function() {
+      diagSendCalled = true;
+      return { success: true };
+    };
+
+    var diagRes = runWhatsAppDiagnostics();
+    assert(diagSendCalled === false, "runWhatsAppDiagnostics skips sending when sessionStatus is not WORKING");
+    assert(diagRes.health.sessionStatus === 'STOPPED', "runWhatsAppDiagnostics reads health sessionStatus properly");
+    assert(diagRes.testSendAttempted === false, "runWhatsAppDiagnostics records testSendAttempted false");
+
+  } catch(e) {
+    failed++;
+    console.error("Test group failed (Diagnostics): " + e);
+  } finally {
+    if (origCheckWahaHealth) checkWahaHealth = origCheckWahaHealth;
+    if (origSendWhatsAppMessage11) sendWhatsAppMessage = origSendWhatsAppMessage11;
+    if (origGetWhatsAppConfig11) getWhatsAppConfig_ = origGetWhatsAppConfig11;
+  }
 
   console.log("WAHA Unit Tests completed. Passed: " + passed + " / Failed: " + failed);
 }

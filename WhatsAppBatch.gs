@@ -5,7 +5,7 @@
 /**
  * Sends a batch of WAHA messages sequentially, sleeping between attempts, and aborting on systemic failure.
  *
- * @param {Array<Object>} items Array of items with { phone: string, text: string }
+ * @param {Array<Object>} items Array of items with { phone: string, message: string } (optional text compatibility field)
  * @returns {Object} Batch result report
  */
 function sendWhatsAppBatch(items) {
