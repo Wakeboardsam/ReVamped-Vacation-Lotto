@@ -67,8 +67,20 @@ function handleSystemOutage(failureType, safeContext) {
         }
       }
 
-      body += "\nPlease check the WAHA container, network tunnel, and configuration.\n\n" +
-              "This alert is rate-limited and will not be repeated for this failure type for " + (cooldownSec / 60) + " minutes.";
+      body += "\nAdministrator Instructions:\n";
+      if (failureType === 'SESSION_OFFLINE') {
+        body += "Please start session '" + sessionName + "' and rescan the WhatsApp QR code if required.\n\n";
+      } else if (failureType === 'TUNNEL_OFFLINE') {
+        body += "Please verify Home Assistant, the WAHA container, and ngrok.\n\n";
+      } else if (failureType === 'AUTH_ERROR' || failureType === 'CONFIG_ERROR') {
+        body += "Please verify the relevant Script Properties.\n\n";
+      } else if (failureType === 'RATE_LIMIT') {
+        body += "Sending was paused because the WAHA/ngrok limit was reached.\n\n";
+      } else {
+        body += "Please check the WAHA container, network tunnel, and configuration.\n\n";
+      }
+
+      body += "This alert is rate-limited and will not be repeated for this failure type for " + (cooldownSec / 60) + " minutes.";
 
       MailApp.sendEmail({
         to: adminEmail,
