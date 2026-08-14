@@ -37,6 +37,16 @@ function notifyActiveParticipants() {
 
     var now = new Date();
 
+    var config = null;
+    try {
+      config = getWhatsAppConfig_();
+    } catch(e) {
+      // Configuration errors are systemic but since we're in the trigger, we can't do much if config is completely broken.
+      // We will allow the loop to start so that we don't block basic evaluation, but notifications will fail early.
+    }
+    var delayMs = config ? (config.messageDelayMs || 1500) : 1500;
+    var attemptsMade = 0;
+
     for (var i = 0; i < activeParticipants.length; i++) {
       var participant = activeParticipants[i];
       var rowIndex = participant._rowIndex;
@@ -54,36 +64,58 @@ function notifyActiveParticipants() {
         continue;
       }
 
-      // 1. Immediate Entry SMS
+      var notificationPhone = null;
+      var notificationText = null;
+
+      // 1. Immediate Entry Notification
       if (!entryTimeRaw) {
         var promptText = adminOptions['Prompt Text - ' + (phase.indexOf('VACATION') > -1 ? 'Vacation' : 'Weekend')] || 'It is your turn to pick.';
+        notificationPhone = participantPhone;
+        notificationText = "Vacation Lottery: " + promptText + " Log in to make your selection.";
 
-        sendSms(participantPhone, "Vacation Lottery: " + promptText + " Log in to make your selection.");
-
-        // Update state
+        // Update state BEFORE sending
         pSheet.getRange(rowIndex, entryTimeCol).setValue(now);
-        // Ensure flags are reset (e.g. if previous round wasn't cleared)
         pSheet.getRange(rowIndex, reminderCol).setValue(false);
         pSheet.getRange(rowIndex, alertCol).setValue(false);
-        continue;
-      }
 
-      var entryTime = new Date(entryTimeRaw);
-      var elapsedMins = (now.getTime() - entryTime.getTime()) / (1000 * 60);
+      } else {
+        var entryTime = new Date(entryTimeRaw);
+        var elapsedMins = (now.getTime() - entryTime.getTime()) / (1000 * 60);
 
-      // 2. Admin Escalation Alert SMS
-      if (elapsedMins > adminAlertDelayMins) {
-        if (adminPhone) {
-          sendSms(adminPhone, "Vacation Lottery Alert: " + participantName + " has been unresponsive for over " + adminAlertDelayMins + " minutes in phase " + phase + ".");
+        // 2. Admin Escalation Alert Notification
+        if (elapsedMins > adminAlertDelayMins) {
+          if (adminPhone) {
+            notificationPhone = adminPhone;
+            notificationText = "Vacation Lottery Alert: " + participantName + " has been unresponsive for over " + adminAlertDelayMins + " minutes in phase " + phase + ".";
+          }
+          // Update state BEFORE sending
+          pSheet.getRange(rowIndex, alertCol).setValue(true);
         }
-        pSheet.getRange(rowIndex, alertCol).setValue(true);
-        continue;
+        // 3. Participant Reminder Notification
+        else if (elapsedMins > reminderDelayMins && !reminderSent) {
+          notificationPhone = participantPhone;
+          notificationText = "Vacation Lottery Reminder: It is still your turn to make a selection. Please log in as soon as possible.";
+          // Update state BEFORE sending
+          pSheet.getRange(rowIndex, reminderCol).setValue(true);
+        }
       }
 
-      // 3. Participant Reminder SMS
-      if (elapsedMins > reminderDelayMins && !reminderSent) {
-        sendSms(participantPhone, "Vacation Lottery Reminder: It is still your turn to make a selection. Please log in as soon as possible.");
-        pSheet.getRange(rowIndex, reminderCol).setValue(true);
+      // If we have a notification to send in this iteration
+      if (notificationPhone && notificationText) {
+        SpreadsheetApp.flush(); // Persist the sheet changes before the HTTP call
+
+        if (attemptsMade > 0) {
+          Utilities.sleep(delayMs);
+        }
+        attemptsMade++;
+
+        var result = sendNotification_(notificationPhone, notificationText);
+
+        if (result && result.systemic === true) {
+          // Abort further processing in this trigger run on systemic failure
+          console.warn("[WARN] Aborting notification loop due to systemic failure.");
+          break;
+        }
       }
     }
 

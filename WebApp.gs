@@ -539,7 +539,10 @@ function submitSelection(participantId, selectionData) {
              if (phone) {
                var holName = selectionData.adjacentHoliday.holidayName;
                var pos = selectionData.adjacentHoliday.position;
-               sendSms(phone, "Vacation Lottery Confirmation: You have successfully reserved " + holName + " (" + pos + ").");
+               var notifResult = sendNotification_(phone, "Vacation Lottery Confirmation: You have successfully reserved " + holName + " (" + pos + ").");
+               if (notifResult && !notifResult.success) {
+                 console.warn("[WARN] Failed to send adjacent-holiday confirmation to " + phone + ". Selection remains committed.");
+               }
              }
            } catch (err) {
              console.error("Failed to send adjacent holiday confirmation SMS: " + err.message);
