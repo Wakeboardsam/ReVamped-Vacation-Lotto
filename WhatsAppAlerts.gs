@@ -31,10 +31,16 @@ function handleSystemOutage(failureType, safeContext) {
     }
 
     var lock = LockService.getScriptLock();
-    // Wait up to 10 seconds for the lock
-    if (!lock.tryLock(10000)) {
-      console.warn("[WARN] Could not acquire lock for handleSystemOutage");
-      return;
+    var weAcquiredLock = false;
+
+    // Only lock if not already held by the caller
+    if (!lock.hasLock()) {
+      // Wait up to 10 seconds for the lock
+      if (!lock.tryLock(10000)) {
+        console.warn("[WARN] Could not acquire lock for handleSystemOutage");
+        return;
+      }
+      weAcquiredLock = true;
     }
 
     try {
@@ -77,7 +83,9 @@ function handleSystemOutage(failureType, safeContext) {
         cache.put(cacheKey, new Date().getTime().toString(), cooldownSec);
       }
     } finally {
-      lock.releaseLock();
+      if (weAcquiredLock) {
+        lock.releaseLock();
+      }
     }
   } catch (err) {
     // Never throw from the outage handler back to the caller

@@ -20,7 +20,14 @@ function sendWhatsAppBatch(items) {
     errors: []
   };
 
-  if (!items || !Array.isArray(items) || items.length === 0) {
+  if (!items || !Array.isArray(items)) {
+    report.success = false;
+    report.abortedBecause = 'VALIDATION_ERROR';
+    report.errors.push({ index: null, error: 'Input must be an array' });
+    return report;
+  }
+
+  if (items.length === 0) {
     report.success = true;
     return report;
   }
@@ -43,7 +50,8 @@ function sendWhatsAppBatch(items) {
   for (var i = 0; i < items.length; i++) {
     var item = items[i];
     report.attempted++;
-    var sendResult = sendWhatsAppMessage(item.phone, item.text);
+    var textObj = item.message || item.text;
+    var sendResult = sendWhatsAppMessage(item.phone, textObj);
 
     if (sendResult.success) {
       report.sent++;

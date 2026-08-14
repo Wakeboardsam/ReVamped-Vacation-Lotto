@@ -125,6 +125,7 @@ function runWahaUnitTests() {
     LockService = {
       getScriptLock: function() {
         return {
+          hasLock: function() { return false; },
           tryLock: function() { return true; },
           releaseLock: function() {}
         };
@@ -275,14 +276,22 @@ function runWahaUnitTests() {
     if (originalGetAdminOptions) { getAdminOptions = originalGetAdminOptions; }
   }
 
-  // 7. Check batch count format
+  // 7. Check batch count format and non-array failures
   try {
-    var bRes = sendWhatsAppBatch([]);
-    assert(bRes.total === 0 && bRes.attempted === 0, "Batch empty handles nicely");
+    var bResEmpty = sendWhatsAppBatch([]);
+    assert(bResEmpty.total === 0 && bResEmpty.attempted === 0 && bResEmpty.success === true, "Batch empty array succeeds nicely");
+
+    var bResNull = sendWhatsAppBatch(null);
+    assert(bResNull.success === false && bResNull.abortedBecause === 'VALIDATION_ERROR', "Batch null rejects cleanly");
+
+    var bResObj = sendWhatsAppBatch({ phone: '123' });
+    assert(bResObj.success === false && bResObj.abortedBecause === 'VALIDATION_ERROR', "Batch object rejects cleanly");
   } catch(e) {
     failed++;
     console.error("Test group failed (Batch counting): " + e);
   }
+
+  // 8. Test health status translation logic (unit only, requires checkWahaHealth logic mock if needed, but we can't easily mock UrlFetch without global override, so skipping direct URL fetch in tests here unless we mock UrlFetchApp)
 
   console.log("WAHA Unit Tests completed. Passed: " + passed + " / Failed: " + failed);
 }

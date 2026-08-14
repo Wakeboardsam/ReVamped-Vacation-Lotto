@@ -111,10 +111,10 @@ function runWhatsAppDiagnostics() {
 
     var health = checkWahaHealth();
     report.health = health;
-    console.log("[INFO] WAHA health check completed: session=" + config.session + " status=" + health.status + " latencyMs=" + health.latencyMs);
+    console.log("[INFO] WAHA health check completed: session=" + config.session + " sessionStatus=" + health.sessionStatus + " latencyMs=" + health.latencyMs);
 
-    if (health.status !== 'WORKING') {
-      console.warn("[WARN] Diagnostic test skipping send because session status is not WORKING. Current status: " + health.status);
+    if (health.sessionStatus !== 'WORKING') {
+      console.warn("[WARN] Diagnostic test skipping send because sessionStatus is not WORKING. Current sessionStatus: " + health.sessionStatus);
       report.completedAt = new Date().toISOString();
       return report;
     }

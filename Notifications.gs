@@ -23,6 +23,12 @@ function notifyActiveParticipants() {
 
     var adminOptions = getAdminOptions();
 
+    var isEnabled = adminOptions['Enable SMS Notifications'];
+    // Fast exit if globally disabled or not explicitly TRUE
+    if (isEnabled !== true && String(isEnabled).toUpperCase() !== 'TRUE') {
+      return;
+    }
+
     var config = null;
     try {
       config = getWhatsAppConfig_();
