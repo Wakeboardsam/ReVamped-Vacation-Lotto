@@ -44,7 +44,7 @@ function setupDatabaseSchema() {
         'Weekend Phase Enabled', 'Weekend Assignment Maximum', 'Holiday Volunteer Response',
         'Mandatory Holiday Eligible', 'Transfer Giver', 'Transfer Receiver',
         'Had Spring Break Last Year', 'Had Christmas Week Last Year',
-        'Worked Any Official Holiday Last Year', 'Rules Acknowledged Year',
+        'Worked Any Official Holiday Last Year', 'Rules Acknowledged Year', 'Transfer Offers Submitted',
         'Skipped Turns Remaining', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent',
         'Resend SMS'
       ]
@@ -170,6 +170,7 @@ function sanitizeParticipantConfigSheet() {
     { name: 'Mandatory Holiday Eligible', defaultVal: true },
     { name: 'Transfer Giver', defaultVal: true },
     { name: 'Transfer Receiver', defaultVal: true },
+    { name: 'Transfer Offers Submitted', defaultVal: false },
     { name: 'Had Spring Break Last Year', defaultVal: false },
     { name: 'Had Christmas Week Last Year', defaultVal: false },
     { name: 'Worked Any Official Holiday Last Year', defaultVal: false },

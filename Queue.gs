@@ -88,6 +88,26 @@ function getQueueWindows_(phase, state, cache) {
   var lead = state.lead;
 
   var participants = getSheetDataAsObjects('Participant Config', cache);
+
+  if (phase === 'TRANSFER_OFFER_COLLECTION') {
+    var activeWindow = [];
+    for (var i = 0; i < participants.length; i++) {
+      var p = participants[i];
+      if (p['Active for Year'] !== true && p['Active for Year'] !== 'TRUE') continue;
+      var isGiver = p['Transfer Giver'] === true || p['Transfer Giver'] === 'TRUE';
+      var isSubmitted = p['Transfer Offers Submitted'] === true || p['Transfer Offers Submitted'] === 'TRUE';
+      if (isGiver && !isSubmitted) {
+        activeWindow.push(p);
+      }
+    }
+    return {
+      activeWindow: activeWindow,
+      upNextWindow: [],
+      windowSize: activeWindow.length,
+      participants: participants
+    };
+  }
+
   var eligiblePool = [];
   var defaultVacationCap = getSystemTarget('Vacation Week Target Default', 9);
 
@@ -203,14 +223,21 @@ function advanceQueueInternal_() {
     var state = getQueueState();
     var phase = state.phase;
 
+    if (phase === 'TRANSFER_OFFER_COLLECTION') {
+      return { success: true, message: 'Transfer offer collection does not advance like a queue.' };
+    }
+
     if (
       phase === 'HOLIDAY_VOLUNTEER' ||
       phase === 'HOLIDAY_MANDATORY'
     ) {
       if (!hasOpenHolidayPositions_()) {
         // Coverage is complete. Do not expose additional ACTIVE participants.
-        setSystemConfig({
-          'Phase Ready': 'TRANSFER_OFFER_COLLECTION'
+        setQueueState({
+          phase: 'TRANSFER_OFFER_COLLECTION',
+          round: 1,
+          direction: 'ASCENDING',
+          lead: 1
         });
 
         return {
@@ -310,6 +337,18 @@ function advanceQueueInternal_() {
           } else {
             return { error: 'No eligible participants remain for Mandatory Holiday, but holiday positions are still unfilled.' };
           }
+        } else {
+          setQueueState({
+            phase: 'TRANSFER_OFFER_COLLECTION',
+            round: 1,
+            direction: 'ASCENDING',
+            lead: 1
+          });
+          return {
+            success: true,
+            complete: true,
+            message: 'All holiday call positions are filled.'
+          };
         }
       }
       return; // Queue does not advance
@@ -485,6 +524,18 @@ function advanceQueueInternal_() {
             } else {
               return { error: 'No eligible participants remain for Mandatory Holiday, but holiday positions are still unfilled.' };
             }
+          } else {
+            setQueueState({
+              phase: 'TRANSFER_OFFER_COLLECTION',
+              round: 1,
+              direction: 'ASCENDING',
+              lead: 1
+            });
+            return {
+              success: true,
+              complete: true,
+              message: 'All holiday call positions are filled.'
+            };
           }
         }
 

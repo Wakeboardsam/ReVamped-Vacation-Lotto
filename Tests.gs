@@ -262,22 +262,43 @@ function runRegressionTests() {
     assert(advanceRes && advanceRes.complete === true, "Queue does not continue cycling after the final holiday position is assigned.");
 
     var sysConfig = MockSpreadsheetApp._sheets['Config'].getDataRange().getValues();
-    var phaseReadySet = false;
+    var currentPhaseSet = false;
     for(var i = 1; i < sysConfig.length; i++) {
-        if(sysConfig[i][0] === 'Phase Ready' && sysConfig[i][1] === 'TRANSFER_OFFER_COLLECTION') phaseReadySet = true;
+        if(sysConfig[i][0] === 'Current Phase' && sysConfig[i][1] === 'TRANSFER_OFFER_COLLECTION') currentPhaseSet = true;
     }
-    assert(phaseReadySet, "System config Phase Ready is correctly set to Transfer phase.");
+    assert(currentPhaseSet, "System config Current Phase is correctly set to Transfer phase.");
 
     // 3. Stale holiday submission is rejected without advancing.
     var staleSubmitPassed = false;
+    var origGetActiveParticipants = getActiveParticipants;
     getActiveParticipants = function(p) { return [{ Name: 'Alice' }]; };
+    // Prepare initial state
+    var preTestOffersCount = MockSpreadsheetApp._sheets['Transfer Offers'] ? MockSpreadsheetApp._sheets['Transfer Offers'].getDataRange().getValues().length : 0;
+    var hDataPre = getSheetDataAsObjects('Holiday Coverage', {});
+
     try {
-      submitSelection('Alice', { action: 'SUBMIT', selections: [{ name: 'Christmas', position: 'Call 1' }] });
+      // Simulate state changing while Alice was selecting
+      setQueueState({ phase: 'TRANSFER_OFFER_COLLECTION' });
+      submitSelection('Alice', { phase: 'HOLIDAY_VOLUNTEER', action: 'SUBMIT', selections: [{ name: 'Christmas', position: 'Call 1' }] });
       staleSubmitPassed = true;
     } catch (e) {
-      assert(e.message.indexOf('Holiday coverage is already complete') !== -1, "Stale holiday submission rejected appropriately.");
+      assert(e.message.indexOf('Holiday selection is no longer available because holiday coverage is complete') !== -1, "Stale holiday submission rejected appropriately with clean message.");
     }
     assert(!staleSubmitPassed, "Stale submission should not succeed when holiday coverage is complete.");
+
+    // Verify no Transfer Offer row was created
+    var postTestOffersCount = MockSpreadsheetApp._sheets['Transfer Offers'] ? MockSpreadsheetApp._sheets['Transfer Offers'].getDataRange().getValues().length : 0;
+    assert(postTestOffersCount === preTestOffersCount, "No Transfer Offer row should be created during rejected stale holiday submission.");
+
+    // Verify Holiday assignment was not changed
+    var hDataPost = getSheetDataAsObjects('Holiday Coverage', {});
+    assert(JSON.stringify(hDataPre) === JSON.stringify(hDataPost), "Holiday coverage should remain unchanged after rejected stale submission.");
+
+    // Verify Queue state didn't change
+    var currentState = getQueueState();
+    assert(currentState.phase === 'TRANSFER_OFFER_COLLECTION', "Queue phase should remain TRANSFER_OFFER_COLLECTION after rejected stale submission.");
+
+    getActiveParticipants = origGetActiveParticipants;
 
     // Weekend Duplicate Ownership Tests
     MockSpreadsheetApp.createSheet('Weekend Coverage', [
