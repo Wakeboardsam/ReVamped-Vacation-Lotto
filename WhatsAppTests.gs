@@ -279,7 +279,7 @@ function runWahaUnitTests() {
   // 7. Check batch count format, non-array failures, and precedence
   var origSendWhatsAppMessage10 = typeof sendWhatsAppMessage !== 'undefined' ? sendWhatsAppMessage : null;
   var origGetWhatsAppConfig10 = typeof getWhatsAppConfig_ !== 'undefined' ? getWhatsAppConfig_ : null;
-  var origSleep10 = typeof Utilities !== 'undefined' ? Utilities.sleep : null;
+  var origUtilities10 = typeof Utilities !== 'undefined' ? Utilities : null;
   try {
     var bResEmpty = sendWhatsAppBatch([]);
     assert(bResEmpty.total === 0 && bResEmpty.attempted === 0 && bResEmpty.success === true, "Batch empty array succeeds nicely");
@@ -313,7 +313,7 @@ function runWahaUnitTests() {
   } finally {
     if (origSendWhatsAppMessage10) sendWhatsAppMessage = origSendWhatsAppMessage10;
     if (origGetWhatsAppConfig10) getWhatsAppConfig_ = origGetWhatsAppConfig10;
-    Utilities.sleep = origSleep10;
+    if (origUtilities10) Utilities = origUtilities10;
   }
 
   // 8. Test caller-owned lock handling in handleSystemOutage
@@ -368,7 +368,9 @@ function runWahaUnitTests() {
   var origWithScriptLock9 = typeof withScriptLock !== 'undefined' ? withScriptLock : null;
 
   var origGetWhatsAppConfig = typeof getWhatsAppConfig_ !== 'undefined' ? getWhatsAppConfig_ : null;
+  var origOutage9 = typeof handleSystemOutage !== 'undefined' ? handleSystemOutage : null;
   var origSendNotification = typeof sendNotification_ !== 'undefined' ? sendNotification_ : null;
+  var origSendWhatsAppMessage9 = typeof sendWhatsAppMessage !== 'undefined' ? sendWhatsAppMessage : null;
 
   try {
     var getWhatsAppConfigCalled = 0;
@@ -402,9 +404,9 @@ function runWahaUnitTests() {
     if (origWithScriptLock9) withScriptLock = origWithScriptLock9;
 
     if (origGetWhatsAppConfig) getWhatsAppConfig_ = origGetWhatsAppConfig;
-    if (origOutage) handleSystemOutage = origOutage;
+    if (origOutage9) handleSystemOutage = origOutage9;
     if (origSendNotification) sendNotification_ = origSendNotification;
-    if (originalSendWhatsAppMessage) sendWhatsAppMessage = originalSendWhatsAppMessage;
+    if (origSendWhatsAppMessage9) sendWhatsAppMessage = origSendWhatsAppMessage9;
   }
 
   // 10. runWhatsAppDiagnostics check health skips sending when not WORKING
