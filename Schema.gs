@@ -77,7 +77,7 @@ function setupDatabaseSchema() {
     {
       name: 'Transfer Offers',
       headers: [
-        'Offer ID', 'Original Assignee (Giver)', 'Assignment Type', 'Date/Position', 'Status', 'Timestamp'
+        'Offer ID', 'Original Assignee (Giver)', 'Assignment Type', 'Date/Position', 'Status', 'Timestamp', 'Group ID'
       ]
     },
     {
