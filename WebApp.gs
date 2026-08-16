@@ -870,12 +870,48 @@ function submitSelection(participantId, selectionData) {
       } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
         // Stage A Givers: Provide items to the pool
         var tSheet = ss.getSheetByName('Transfer Offers');
+        var tHeaders = tSheet.getDataRange().getValues()[0] || [];
+        var hasGroupCol = tHeaders.indexOf('Group ID') !== -1;
+
+        // Validation Phase - run entirely before writing
         for (var i = 0; i < selectionData.selections.length; i++) {
           var item = selectionData.selections[i];
           if (!item || !item.type) throw new Error("Invalid transfer offer data provided.");
-          var offerId = 'OFFER-' + new Date().getTime() + '-' + Math.floor(Math.random()*1000) + '-' + i;
-          var tData = [offerId, participantId, item.type, item.datePos, 'Active', new Date()];
-          tSheet.appendRow(tData);
+          if (item.type === 'VACATION') {
+            throw new Error("Vacation assignments cannot be transferred.");
+          }
+          if (item.type === 'GROUPED') {
+            if (item.details.weekend && item.details.weekend.type === 'VACATION') throw new Error("Vacation assignments cannot be transferred.");
+            if (item.details.holiday && item.details.holiday.type === 'VACATION') throw new Error("Vacation assignments cannot be transferred.");
+          }
+        }
+
+        for (var i = 0; i < selectionData.selections.length; i++) {
+          var item = selectionData.selections[i];
+
+          if (item.type === 'GROUPED') {
+             var groupId = 'GROUP-' + new Date().getTime() + '-' + Math.floor(Math.random()*1000) + '-' + i;
+
+             // Weekend row
+             var offerIdW = 'OFFER-' + new Date().getTime() + '-' + Math.floor(Math.random()*1000) + '-W' + i;
+             var wDate = item.details.weekend['Date'];
+             if (wDate instanceof Date) wDate = formatDate(wDate);
+             var tDataW = [offerIdW, participantId, 'WEEKEND', wDate, 'Active', new Date()];
+             if (hasGroupCol) tDataW[tHeaders.indexOf('Group ID')] = groupId;
+             tSheet.appendRow(tDataW);
+
+             // Holiday row
+             var offerIdH = 'OFFER-' + new Date().getTime() + '-' + Math.floor(Math.random()*1000) + '-H' + i;
+             var hPos = item.details.holiday['Holiday Name'] + ' - ' + item.details.holiday['Call Position (Call 1 / Call 2)'];
+             var tDataH = [offerIdH, participantId, 'HOLIDAY', hPos, 'Active', new Date()];
+             if (hasGroupCol) tDataH[tHeaders.indexOf('Group ID')] = groupId;
+             tSheet.appendRow(tDataH);
+          } else {
+             var offerId = 'OFFER-' + new Date().getTime() + '-' + Math.floor(Math.random()*1000) + '-' + i;
+             var tData = [offerId, participantId, item.type, item.datePos, 'Active', new Date()];
+             if (hasGroupCol) tData[tHeaders.indexOf('Group ID')] = '';
+             tSheet.appendRow(tData);
+          }
         }
         pSheet.getRange(pRowIdx, pHeaders.indexOf('Transfer Offers Submitted') + 1).setValue(true);
         // Do not advance queue directly, check completion
