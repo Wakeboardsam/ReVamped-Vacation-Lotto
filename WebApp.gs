@@ -218,25 +218,144 @@ function getInitialState(participantId, pin) {
     // Stage A: Givers
     var myAssignments = [];
 
-    var vacs = getSheetDataAsObjects('Vacation Availability');
-    for (var i = 0; i < vacs.length; i++) {
-      if (String(vacs[i]['Assigned Participants']).indexOf(sanitizedId) !== -1) {
-        myAssignments.push({ type: 'VACATION', details: vacs[i] });
-      }
-    }
-
     var wks = getSheetDataAsObjects('Weekend Coverage');
+    var myWks = [];
     for (var i = 0; i < wks.length; i++) {
       if (wks[i]['First Call Assignee'] === sanitizedId) {
-        myAssignments.push({ type: 'WEEKEND', details: wks[i] });
+        myWks.push(wks[i]);
       }
     }
 
     var hols = getSheetDataAsObjects('Holiday Coverage');
+    var myHols = [];
     for (var i = 0; i < hols.length; i++) {
       if (hols[i]['Assigned Participant'] === sanitizedId) {
-        myAssignments.push({ type: 'HOLIDAY', details: hols[i] });
+        myHols.push(hols[i]);
       }
+    }
+
+    // Proximity logic for grouping Weekend + Holiday
+    var proximityStr = adminOptions['Holiday Proximity Range (days)'];
+    var proximityRange = (proximityStr !== undefined && proximityStr !== '') ? parseInt(proximityStr, 10) : 3;
+
+    var groupedIndicesWks = {};
+    var groupedIndicesHols = {};
+
+    for (var i = 0; i < myWks.length; i++) {
+      var wDate = myWks[i]['Date'];
+      if (wDate instanceof Date) wDate = formatDate(wDate);
+      var wParts = String(wDate).split('-');
+      if (wParts.length !== 3) continue;
+
+      var wLocalDate = new Date(parseInt(wParts[0], 10), parseInt(wParts[1], 10) - 1, parseInt(wParts[2], 10));
+      var wUtc = Date.UTC(wLocalDate.getFullYear(), wLocalDate.getMonth(), wLocalDate.getDate());
+
+      var closestHolIndex = -1;
+      var closestDiff = proximityRange + 1;
+
+      for (var j = 0; j < myHols.length; j++) {
+        if (groupedIndicesHols[j]) continue;
+
+        var rawDate = myHols[j]['Observed Date'];
+        if (rawDate instanceof Date) rawDate = formatDate(rawDate);
+        var parts = String(rawDate).split('-');
+        if (parts.length !== 3) continue;
+
+        var hLocalDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        var hUtc = Date.UTC(hLocalDate.getFullYear(), hLocalDate.getMonth(), hLocalDate.getDate());
+
+        var diffDays = Math.floor(Math.abs(hUtc - wUtc) / (1000 * 60 * 60 * 24));
+        if (diffDays <= proximityRange) {
+           if (diffDays < closestDiff) {
+              closestDiff = diffDays;
+              closestHolIndex = j;
+           }
+        }
+      }
+
+      if (closestHolIndex !== -1) {
+         groupedIndicesWks[i] = true;
+         groupedIndicesHols[closestHolIndex] = true;
+         myAssignments.push({
+           type: 'GROUPED',
+           details: {
+             weekend: myWks[i],
+             holiday: myHols[closestHolIndex]
+           }
+         });
+      }
+    }
+
+    for (var i = 0; i < myWks.length; i++) {
+      if (!groupedIndicesWks[i]) {
+        myAssignments.push({ type: 'WEEKEND', details: myWks[i] });
+      }
+    }
+
+    for (var i = 0; i < myHols.length; i++) {
+      if (!groupedIndicesHols[i]) {
+        myAssignments.push({ type: 'HOLIDAY', details: myHols[i] });
+      }
+    }
+
+    // Add proximity to giver's vacations
+    var vacs = getSheetDataAsObjects('Vacation Availability');
+    var myVacs = [];
+    for (var i = 0; i < vacs.length; i++) {
+      var assigneesStr = String(vacs[i]['Assigned Participants'] || '');
+      var assignees = assigneesStr ? assigneesStr.split(',').map(function(n) { return n.trim(); }) : [];
+      if (assignees.indexOf(sanitizedId) !== -1) {
+        myVacs.push(vacs[i]);
+      }
+    }
+
+    for (var i = 0; i < myAssignments.length; i++) {
+       var a = myAssignments[i];
+
+       var datesToCheck = [];
+       if (a.type === 'WEEKEND') datesToCheck.push(a.details['Date']);
+       else if (a.type === 'HOLIDAY') datesToCheck.push(a.details['Observed Date']);
+       else if (a.type === 'GROUPED') {
+          datesToCheck.push(a.details.weekend['Date']);
+          datesToCheck.push(a.details.holiday['Observed Date']);
+       }
+
+       var nearVacation = false;
+       var nearVacationWeek = null;
+
+       for (var d = 0; d < datesToCheck.length; d++) {
+          var rawDate = datesToCheck[d];
+          if (rawDate instanceof Date) rawDate = formatDate(rawDate);
+          var parts = String(rawDate).split('-');
+          if (parts.length !== 3) continue;
+
+          var hLocalDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+          var hUtc = Date.UTC(hLocalDate.getFullYear(), hLocalDate.getMonth(), hLocalDate.getDate());
+
+          for (var k = 0; k < myVacs.length; k++) {
+            var vDate = myVacs[k]['Start Date (Monday)'];
+            if (vDate instanceof Date) vDate = formatDate(vDate);
+            var vParts = String(vDate).split('-');
+            if (vParts.length === 3) {
+              var vLocalDate = new Date(parseInt(vParts[0], 10), parseInt(vParts[1], 10) - 1, parseInt(vParts[2], 10));
+
+              var satBefore = new Date(vLocalDate.getFullYear(), vLocalDate.getMonth(), vLocalDate.getDate() - 2);
+              var sunAfter = new Date(vLocalDate.getFullYear(), vLocalDate.getMonth(), vLocalDate.getDate() + 6);
+
+              var satBeforeUtc = Date.UTC(satBefore.getFullYear(), satBefore.getMonth(), satBefore.getDate());
+              var sunAfterUtc = Date.UTC(sunAfter.getFullYear(), sunAfter.getMonth(), sunAfter.getDate());
+
+              if (hUtc >= satBeforeUtc && hUtc <= sunAfterUtc) {
+                nearVacation = true;
+                nearVacationWeek = myVacs[k]['Week ID'];
+                break;
+              }
+            }
+          }
+          if (nearVacation) break;
+       }
+       a.nearVacation = nearVacation;
+       if (nearVacationWeek) a.nearVacationWeek = nearVacationWeek;
     }
 
     response.availableChoices.myAssignments = myAssignments;
@@ -245,11 +364,164 @@ function getInitialState(participantId, pin) {
     // Stage B: Receivers
     var offers = getSheetDataAsObjects('Transfer Offers');
     var activeOffers = [];
+    var groupedOffersMap = {};
+
     for (var i = 0; i < offers.length; i++) {
-      if (offers[i]['Status'] !== 'Claimed') {
-        activeOffers.push(offers[i]);
+      if (offers[i]['Status'] !== 'Claimed' && offers[i]['Assignment Type'] !== 'VACATION') {
+        var gId = String(offers[i]['Group ID'] || '').trim();
+        if (gId) {
+           if (!groupedOffersMap[gId]) {
+             groupedOffersMap[gId] = {
+                type: 'GROUPED',
+                groupId: gId,
+                originalAssignee: offers[i]['Original Assignee (Giver)'],
+                components: []
+             };
+             activeOffers.push(groupedOffersMap[gId]);
+           }
+           groupedOffersMap[gId].components.push(offers[i]);
+        } else {
+           activeOffers.push(offers[i]);
+        }
       }
     }
+
+    // Evaluate receiver availability and vacation proximity
+    var wksData = getSheetDataAsObjects('Weekend Coverage');
+    var wksHeaders = Object.keys(wksData[0] || {});
+    var wksArray = [wksHeaders];
+    for(var k=0; k<wksData.length; k++) {
+       var row = [];
+       for(var c=0; c<wksHeaders.length; c++) row.push(wksData[k][wksHeaders[c]]);
+       wksArray.push(row);
+    }
+
+    var holsData = getSheetDataAsObjects('Holiday Coverage');
+    var holsHeaders = Object.keys(holsData[0] || {});
+    var holsArray = [holsHeaders];
+    for(var k=0; k<holsData.length; k++) {
+       var row = [];
+       for(var c=0; c<holsHeaders.length; c++) row.push(holsData[k][holsHeaders[c]]);
+       holsArray.push(row);
+    }
+
+    var vacs = getSheetDataAsObjects('Vacation Availability');
+    var myVacs = [];
+    for (var i = 0; i < vacs.length; i++) {
+      var assigneesStr = String(vacs[i]['Assigned Participants'] || '');
+      var assignees = assigneesStr ? assigneesStr.split(',').map(function(n) { return n.trim(); }) : [];
+      if (assignees.indexOf(sanitizedId) !== -1) {
+        myVacs.push(vacs[i]);
+      }
+    }
+
+    for (var i = 0; i < activeOffers.length; i++) {
+       var o = activeOffers[i];
+
+       var datesToCheck = [];
+       var isUnavailable = false;
+       var unavailableReason = '';
+
+       if (o.type === 'GROUPED') {
+          for (var j = 0; j < o.components.length; j++) {
+             var comp = o.components[j];
+             if (comp['Assignment Type'] === 'WEEKEND') {
+                datesToCheck.push(comp['Date/Position']);
+                if (participantAlreadyHasWeekend_(sanitizedId, comp['Date/Position'], wksArray, wksHeaders)) {
+                   isUnavailable = true;
+                   unavailableReason = 'Unavailable \u2014 You already own an assignment this weekend';
+                }
+             } else if (comp['Assignment Type'] === 'HOLIDAY') {
+                var holNamePos = String(comp['Date/Position']);
+                var holName = holNamePos.split(' - ')[0].trim();
+                datesToCheck.push(holNamePos);
+                if (participantAlreadyHasHoliday_(sanitizedId, holName, holsArray, holsHeaders)) {
+                   isUnavailable = true;
+                   if (!unavailableReason) unavailableReason = 'Unavailable \u2014 You already hold a call position for this holiday';
+                }
+             }
+          }
+       } else {
+          if (o['Assignment Type'] === 'WEEKEND') {
+             datesToCheck.push(o['Date/Position']);
+             if (participantAlreadyHasWeekend_(sanitizedId, o['Date/Position'], wksArray, wksHeaders)) {
+                isUnavailable = true;
+                unavailableReason = 'Unavailable \u2014 You already own an assignment this weekend';
+             }
+          } else if (o['Assignment Type'] === 'HOLIDAY') {
+             var holNamePos = String(o['Date/Position']);
+             var holName = holNamePos.split(' - ')[0].trim();
+             datesToCheck.push(holNamePos);
+             if (participantAlreadyHasHoliday_(sanitizedId, holName, holsArray, holsHeaders)) {
+                isUnavailable = true;
+                unavailableReason = 'Unavailable \u2014 You already hold a call position for this holiday';
+             }
+          }
+       }
+
+       o.isUnavailable = isUnavailable;
+       if (isUnavailable) o.unavailableReason = unavailableReason;
+
+       // Note: Holiday 'Date/Position' is currently "Name - Position" in Transfer Offers.
+       // We need to resolve it back to the Observed Date.
+       var resolvedDates = [];
+       for (var d = 0; d < datesToCheck.length; d++) {
+          var dtStr = String(datesToCheck[d]);
+          // It's a date if it looks like YYYY-MM-DD
+          var match = dtStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (match) {
+             resolvedDates.push(match[0]);
+          } else {
+             // Must be a holiday
+             for (var h = 0; h < holsData.length; h++) {
+                var hNamePos = holsData[h]['Holiday Name'] + ' - ' + holsData[h]['Call Position (Call 1 / Call 2)'];
+                if (hNamePos === dtStr) {
+                   var rD = holsData[h]['Observed Date'];
+                   if (rD instanceof Date) rD = formatDate(rD);
+                   resolvedDates.push(rD);
+                   break;
+                }
+             }
+          }
+       }
+
+       var nearVacation = false;
+       var nearVacationWeek = null;
+
+       for (var d = 0; d < resolvedDates.length; d++) {
+          var rawDate = resolvedDates[d];
+          var parts = String(rawDate).split('-');
+          if (parts.length !== 3) continue;
+
+          var hLocalDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+          var hUtc = Date.UTC(hLocalDate.getFullYear(), hLocalDate.getMonth(), hLocalDate.getDate());
+
+          for (var k = 0; k < myVacs.length; k++) {
+            var vDate = myVacs[k]['Start Date (Monday)'];
+            if (vDate instanceof Date) vDate = formatDate(vDate);
+            var vParts = String(vDate).split('-');
+            if (vParts.length === 3) {
+              var vLocalDate = new Date(parseInt(vParts[0], 10), parseInt(vParts[1], 10) - 1, parseInt(vParts[2], 10));
+
+              var satBefore = new Date(vLocalDate.getFullYear(), vLocalDate.getMonth(), vLocalDate.getDate() - 2);
+              var sunAfter = new Date(vLocalDate.getFullYear(), vLocalDate.getMonth(), vLocalDate.getDate() + 6);
+
+              var satBeforeUtc = Date.UTC(satBefore.getFullYear(), satBefore.getMonth(), satBefore.getDate());
+              var sunAfterUtc = Date.UTC(sunAfter.getFullYear(), sunAfter.getMonth(), sunAfter.getDate());
+
+              if (hUtc >= satBeforeUtc && hUtc <= sunAfterUtc) {
+                nearVacation = true;
+                nearVacationWeek = myVacs[k]['Week ID'];
+                break;
+              }
+            }
+          }
+          if (nearVacation) break;
+       }
+       o.nearVacation = nearVacation;
+       if (nearVacationWeek) o.nearVacationWeek = nearVacationWeek;
+    }
+
     response.availableChoices.transferOffers = activeOffers;
   }
 
@@ -598,12 +870,48 @@ function submitSelection(participantId, selectionData) {
       } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
         // Stage A Givers: Provide items to the pool
         var tSheet = ss.getSheetByName('Transfer Offers');
+        var tHeaders = tSheet.getDataRange().getValues()[0] || [];
+        var hasGroupCol = tHeaders.indexOf('Group ID') !== -1;
+
+        // Validation Phase - run entirely before writing
         for (var i = 0; i < selectionData.selections.length; i++) {
           var item = selectionData.selections[i];
           if (!item || !item.type) throw new Error("Invalid transfer offer data provided.");
-          var offerId = 'OFFER-' + new Date().getTime() + '-' + Math.floor(Math.random()*1000) + '-' + i;
-          var tData = [offerId, participantId, item.type, item.datePos, 'Active', new Date()];
-          tSheet.appendRow(tData);
+          if (item.type === 'VACATION') {
+            throw new Error("Vacation assignments cannot be transferred.");
+          }
+          if (item.type === 'GROUPED') {
+            if (item.details.weekend && item.details.weekend.type === 'VACATION') throw new Error("Vacation assignments cannot be transferred.");
+            if (item.details.holiday && item.details.holiday.type === 'VACATION') throw new Error("Vacation assignments cannot be transferred.");
+          }
+        }
+
+        for (var i = 0; i < selectionData.selections.length; i++) {
+          var item = selectionData.selections[i];
+
+          if (item.type === 'GROUPED') {
+             var groupId = 'GROUP-' + new Date().getTime() + '-' + Math.floor(Math.random()*1000) + '-' + i;
+
+             // Weekend row
+             var offerIdW = 'OFFER-' + new Date().getTime() + '-' + Math.floor(Math.random()*1000) + '-W' + i;
+             var wDate = item.details.weekend['Date'];
+             if (wDate instanceof Date) wDate = formatDate(wDate);
+             var tDataW = [offerIdW, participantId, 'WEEKEND', wDate, 'Active', new Date()];
+             if (hasGroupCol) tDataW[tHeaders.indexOf('Group ID')] = groupId;
+             tSheet.appendRow(tDataW);
+
+             // Holiday row
+             var offerIdH = 'OFFER-' + new Date().getTime() + '-' + Math.floor(Math.random()*1000) + '-H' + i;
+             var hPos = item.details.holiday['Holiday Name'] + ' - ' + item.details.holiday['Call Position (Call 1 / Call 2)'];
+             var tDataH = [offerIdH, participantId, 'HOLIDAY', hPos, 'Active', new Date()];
+             if (hasGroupCol) tDataH[tHeaders.indexOf('Group ID')] = groupId;
+             tSheet.appendRow(tDataH);
+          } else {
+             var offerId = 'OFFER-' + new Date().getTime() + '-' + Math.floor(Math.random()*1000) + '-' + i;
+             var tData = [offerId, participantId, item.type, item.datePos, 'Active', new Date()];
+             if (hasGroupCol) tData[tHeaders.indexOf('Group ID')] = '';
+             tSheet.appendRow(tData);
+          }
         }
         pSheet.getRange(pRowIdx, pHeaders.indexOf('Transfer Offers Submitted') + 1).setValue(true);
         // Do not advance queue directly, check completion
@@ -614,80 +922,119 @@ function submitSelection(participantId, selectionData) {
         var tSheet = ss.getSheetByName('Transfer Offers');
         var tData = tSheet.getDataRange().getValues();
         var tHeaders = tData[0];
-        var offerId = selectionData.selections[0];
 
-        var originalAssignee = "";
-        var assignmentType = "";
-        var datePos = "";
+        var selection = selectionData.selections[0];
+        if (!selection) throw new Error("No selection provided.");
 
-        var found = false;
+        var isGrouped = selection.type === 'GROUPED';
+        var claimId = isGrouped ? selection.groupId : selection.offerId;
+
+        var componentsToClaim = [];
+
+        // Find all rows matching the offer/group
         for (var i = 1; i < tData.length; i++) {
-          if (tData[i][tHeaders.indexOf('Offer ID')] === offerId) {
-            if (tData[i][tHeaders.indexOf('Status')] === 'Claimed') {
-              throw new Error("That offer was just claimed by another participant.");
-            }
-            originalAssignee = tData[i][tHeaders.indexOf('Original Assignee (Giver)')];
-            assignmentType = tData[i][tHeaders.indexOf('Assignment Type')];
-            datePos = tData[i][tHeaders.indexOf('Date/Position')];
+          var rowOfferId = tData[i][tHeaders.indexOf('Offer ID')];
+          var rowGroupId = tHeaders.indexOf('Group ID') !== -1 ? tData[i][tHeaders.indexOf('Group ID')] : null;
+          var rowStatus = tData[i][tHeaders.indexOf('Status')];
 
-            // Mark claimed
-            tSheet.getRange(i + 1, tHeaders.indexOf('Status') + 1).setValue('Claimed');
-            found = true;
-            break;
+          if ((isGrouped && rowGroupId === claimId) || (!isGrouped && rowOfferId === claimId)) {
+             if (rowStatus !== 'Active') {
+                throw new Error("That offer (or part of it) is no longer active.");
+             }
+             if (tData[i][tHeaders.indexOf('Assignment Type')] === 'VACATION') {
+                throw new Error("Vacation assignments cannot be claimed/transferred.");
+             }
+             componentsToClaim.push({
+                rowIndex: i + 1,
+                originalAssignee: tData[i][tHeaders.indexOf('Original Assignee (Giver)')],
+                assignmentType: tData[i][tHeaders.indexOf('Assignment Type')],
+                datePos: tData[i][tHeaders.indexOf('Date/Position')]
+             });
           }
         }
-        if (!found) throw new Error("Offer not found.");
 
-        // Update History
+        if (componentsToClaim.length === 0) throw new Error("Offer not found.");
+
+        // 1. Validation phase (must pass for all components)
+        var wSheet = ss.getSheetByName('Weekend Coverage');
+        var wDataAll = wSheet ? wSheet.getDataRange().getValues() : null;
+        var wH = wDataAll ? wDataAll[0] : null;
+
+        var hSheet = ss.getSheetByName('Holiday Coverage');
+        var hDataAll = hSheet ? hSheet.getDataRange().getValues() : null;
+        var hH = hDataAll ? hDataAll[0] : null;
+
+        // Pre-validate that original assignee still owns the item and receiver is eligible
+        var targetRows = [];
+        for (var c = 0; c < componentsToClaim.length; c++) {
+           var comp = componentsToClaim[c];
+           var matchedTargetRow = -1;
+
+           if (comp.assignmentType === 'WEEKEND') {
+              if (participantAlreadyHasWeekend_(participantId, comp.datePos, wDataAll, wH)) {
+                 throw new Error("You already hold the other First Call position for this weekend. You cannot select both Saturday and Sunday of the same weekend.");
+              }
+              for (var k = 1; k < wDataAll.length; k++) {
+                 var rowD = wDataAll[k][wH.indexOf('Date')];
+                 if (rowD instanceof Date) rowD = formatDate(rowD);
+                 if (String(rowD) === String(comp.datePos)) {
+                    if (wDataAll[k][wH.indexOf('First Call Assignee')] !== comp.originalAssignee) {
+                       throw new Error("The original assignee no longer holds this Weekend position.");
+                    }
+                    matchedTargetRow = k + 1;
+                    break;
+                 }
+              }
+              if (matchedTargetRow === -1) throw new Error("Could not locate the underlying Weekend schedule row for this offer.");
+
+           } else if (comp.assignmentType === 'HOLIDAY') {
+              var holNamePos = String(comp.datePos);
+              var holParts = holNamePos.split(' - ');
+              var holName = holParts[0].trim();
+
+              if (participantAlreadyHasHoliday_(participantId, holName, hDataAll, hH)) {
+                 throw new Error("You already hold a call position for holiday '" + holName + "'. You cannot hold both Call 1 and Call 2 for the same holiday.");
+              }
+              for (var k = 1; k < hDataAll.length; k++) {
+                 var hnp = hDataAll[k][hH.indexOf('Holiday Name')] + ' - ' + hDataAll[k][hH.indexOf('Call Position (Call 1 / Call 2)')];
+                 if (hnp === String(comp.datePos)) {
+                    if (hDataAll[k][hH.indexOf('Assigned Participant')] !== comp.originalAssignee) {
+                       throw new Error("The original assignee no longer holds this Holiday position.");
+                    }
+                    matchedTargetRow = k + 1;
+                    break;
+                 }
+              }
+              if (matchedTargetRow === -1) throw new Error("Could not locate the underlying Holiday schedule row for this offer.");
+           }
+
+           targetRows.push({
+             type: comp.assignmentType,
+             sheet: comp.assignmentType === 'WEEKEND' ? wSheet : hSheet,
+             row: matchedTargetRow,
+             col: comp.assignmentType === 'WEEKEND' ? wH.indexOf('First Call Assignee') + 1 : hH.indexOf('Assigned Participant') + 1,
+             comp: comp
+           });
+        }
+
+        // 2. Perform Writes ONLY if all checks passed
         var histSheet = ss.getSheetByName('Transfer History');
         var activeYear = getAdminOptions()['Active Year'] || new Date().getFullYear();
-        histSheet.appendRow([new Date(), assignmentType, datePos, '', originalAssignee, participantId, activeYear]);
 
-        // Swap Assignee in main schedule
-        if (assignmentType === 'VACATION') {
-           var vSheet = ss.getSheetByName('Vacation Availability');
-           var vDataAll = vSheet.getDataRange().getValues();
-           var vH = vDataAll[0];
-           for (var k = 1; k < vDataAll.length; k++) {
-              if (String(vDataAll[k][vH.indexOf('Week ID')]) === String(datePos) || String(vDataAll[k][vH.indexOf('Start Date (Monday)')]) === String(datePos)) {
-                 var assigneesStr = String(vDataAll[k][vH.indexOf('Assigned Participants')] || '');
-                 var assignees = assigneesStr ? assigneesStr.split(',').map(function(x){return x.trim();}) : [];
-                 var idx = assignees.indexOf(originalAssignee);
-                 if (idx !== -1) {
-                    assignees[idx] = participantId;
-                    vSheet.getRange(k + 1, vH.indexOf('Assigned Participants') + 1).setValue(assignees.join(', '));
-                 }
-                 break;
-              }
-           }
-        } else if (assignmentType === 'WEEKEND') {
-           var wSheet = ss.getSheetByName('Weekend Coverage');
-           var wDataAll = wSheet.getDataRange().getValues();
-           var wH = wDataAll[0];
-           for (var k = 1; k < wDataAll.length; k++) {
-              var rowD = wDataAll[k][wH.indexOf('Date')];
-              if (rowD instanceof Date) rowD = formatDate(rowD);
-              if (String(rowD) === String(datePos)) {
-                 if (wDataAll[k][wH.indexOf('First Call Assignee')] === originalAssignee) {
-                    wSheet.getRange(k + 1, wH.indexOf('First Call Assignee') + 1).setValue(participantId);
-                 }
-                 break;
-              }
-           }
-        } else if (assignmentType === 'HOLIDAY') {
-           // datePos could be "Holiday Name - Position"
-           var hSheet = ss.getSheetByName('Holiday Coverage');
-           var hDataAll = hSheet.getDataRange().getValues();
-           var hH = hDataAll[0];
-           for (var k = 1; k < hDataAll.length; k++) {
-              var holNamePos = hDataAll[k][hH.indexOf('Holiday Name')] + ' - ' + hDataAll[k][hH.indexOf('Call Position (Call 1 / Call 2)')];
-              if (holNamePos === String(datePos)) {
-                 if (hDataAll[k][hH.indexOf('Assigned Participant')] === originalAssignee) {
-                    hSheet.getRange(k + 1, hH.indexOf('Assigned Participant') + 1).setValue(participantId);
-                 }
-                 break;
-              }
-           }
+        // A) Update all Weekend/Holiday ownership rows
+        for (var i = 0; i < targetRows.length; i++) {
+           targetRows[i].sheet.getRange(targetRows[i].row, targetRows[i].col).setValue(participantId);
+        }
+
+        // B) Mark corresponding offers Claimed
+        for (var c = 0; c < componentsToClaim.length; c++) {
+           tSheet.getRange(componentsToClaim[c].rowIndex, tHeaders.indexOf('Status') + 1).setValue('Claimed');
+        }
+
+        // C) Append Transfer History rows
+        for (var c = 0; c < componentsToClaim.length; c++) {
+           var comp = componentsToClaim[c];
+           histSheet.appendRow([new Date(), comp.assignmentType, comp.datePos, '', comp.originalAssignee, participantId, activeYear]);
         }
       }
 
@@ -756,8 +1103,12 @@ function checkTransferOfferCollectionComplete_() {
 
   var activeWindow = getActiveParticipants('TRANSFER_OFFER_COLLECTION');
   if (activeWindow.length === 0) {
-    setSystemConfig({
-      'Phase Ready': 'TRANSFER_RECEIVER'
+    setQueueState({
+      phase: 'TRANSFER_RECEIVER',
+      round: 1,
+      direction: 'ASCENDING',
+      lead: 1
     });
+    advanceQueueInternal_();
   }
 }

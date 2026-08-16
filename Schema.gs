@@ -77,7 +77,7 @@ function setupDatabaseSchema() {
     {
       name: 'Transfer Offers',
       headers: [
-        'Offer ID', 'Original Assignee (Giver)', 'Assignment Type', 'Date/Position', 'Status', 'Timestamp'
+        'Offer ID', 'Original Assignee (Giver)', 'Assignment Type', 'Date/Position', 'Status', 'Timestamp', 'Group ID'
       ]
     },
     {
@@ -120,6 +120,21 @@ function setupDatabaseSchema() {
       // Populate default data if provided
       if (schema.defaultData && schema.defaultData.length > 0) {
         sheet.getRange(2, 1, schema.defaultData.length, schema.defaultData[0].length).setValues(schema.defaultData);
+      }
+    } else {
+      // Migrate missing columns for existing sheets
+      var needsUpdate = false;
+      for (var c = 0; c < schema.headers.length; c++) {
+         if (currentHeaders.indexOf(schema.headers[c]) === -1) {
+            sheet.getRange(1, currentHeaders.length + 1).setValue(schema.headers[c]);
+            currentHeaders.push(schema.headers[c]);
+            needsUpdate = true;
+         }
+      }
+      if (needsUpdate) {
+         var newHeaderRange = sheet.getRange(1, 1, 1, currentHeaders.length);
+         newHeaderRange.setFontWeight('bold');
+         newHeaderRange.setBackground('#f3f3f3');
       }
     }
 

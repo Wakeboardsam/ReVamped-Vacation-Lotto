@@ -430,7 +430,7 @@
     updateActionBar();
   }
 
-  function escapeSoftHolidayText_(value) {
+  function escapeSoftHolidayText(value) {
     return String(value || '').replace(/[&<>"']/g, function(character) {
       return {
         '&': '&amp;',
@@ -449,7 +449,7 @@
     for (var i = 0; i < warnings.length; i++) {
       html +=
         '<span class="badge badge-info">' +
-        escapeSoftHolidayText_(warnings[i]) +
+        escapeSoftHolidayText(warnings[i]) +
         '</span>';
     }
 
@@ -629,12 +629,12 @@
       if (h.nearWorkingWeekend) {
         var wDate = h.nearWorkingWeekendDate ? formatDateDisplay(h.nearWorkingWeekendDate) : '';
         var badgeText = wDate ? 'Near Your Working Weekend: ' + wDate : 'Near Your Working Weekend';
-        badgesHtml += '<span class="badge badge-proximity-positive">' + escapeSoftHolidayText_(badgeText) + '</span> ';
+        badgesHtml += '<span class="badge badge-proximity-positive">' + escapeSoftHolidayText(badgeText) + '</span> ';
       }
       if (h.nearVacation) {
         var vWeek = h.nearVacationWeek ? 'Week ' + h.nearVacationWeek : '';
         var badgeText = vWeek ? 'Near Your Vacation: ' + vWeek : 'Near Your Vacation';
-        badgesHtml += '<span class="badge badge-proximity-caution">' + escapeSoftHolidayText_(badgeText) + '</span> ';
+        badgesHtml += '<span class="badge badge-proximity-caution">' + escapeSoftHolidayText(badgeText) + '</span> ';
       }
 
       html += '<div class="' + cardClass + '" data-id="' + idStr + '" data-name="' + h['Holiday Name'] + '" data-pos="' + posLabel + '" onclick="toggleSelection(this, \'holiday\')">';
@@ -668,9 +668,10 @@
       var a = myAssignments[i];
       var displayStr = '';
       var valStr = '';
+      var objStr = '';
+
       if (a.type === 'VACATION') {
-        displayStr = 'Vacation Week ' + a.details['Week ID'] + ' (' + formatDateDisplay(a.details['Start Date (Monday)']) + ')';
-        valStr = a.details['Week ID'];
+        continue;
       } else if (a.type === 'WEEKEND') {
         var dStr = a.details['Date'];
         if (typeof dStr === 'object' && dStr !== null) dStr = dStr.substring ? dStr.substring(0,10) : dStr;
@@ -682,18 +683,46 @@
         } catch(e){}
         displayStr = a.details['Day of Week'] + ' ' + formatDateDisplay(a.details['Date']);
         valStr = dStr;
+        objStr = JSON.stringify({ type: a.type, datePos: valStr });
       } else if (a.type === 'HOLIDAY') {
         displayStr = a.details['Holiday Name'] + ' - ' + a.details['Call Position (Call 1 / Call 2)'];
         valStr = displayStr;
+        objStr = JSON.stringify({ type: a.type, datePos: valStr });
+      } else if (a.type === 'GROUPED') {
+        var wDateStr = a.details.weekend['Date'];
+        if (typeof wDateStr === 'object' && wDateStr !== null) wDateStr = wDateStr.substring ? wDateStr.substring(0,10) : wDateStr;
+        try {
+           var dt2 = new Date(wDateStr);
+           var mm2 = ''+(dt2.getMonth()+1), dd2=''+dt2.getDate(), yy2=dt2.getFullYear();
+           if(mm2.length<2)mm2='0'+mm2; if(dd2.length<2)dd2='0'+dd2;
+           wDateStr = [yy2,mm2,dd2].join('-');
+        } catch(e){}
+
+        var wDisplay = a.details.weekend['Day of Week'] + ' ' + formatDateDisplay(a.details.weekend['Date']);
+        var hDisplay = a.details.holiday['Holiday Name'] + ' - ' + a.details.holiday['Call Position (Call 1 / Call 2)'];
+
+        displayStr = wDisplay + '<br> + ' + hDisplay;
+
+        // Serialize the entire structure
+        objStr = JSON.stringify(a);
       }
 
-      var objStr = JSON.stringify({ type: a.type, datePos: valStr });
       var encodedObj = objStr.replace(/"/g, '&quot;');
+
+      var badgesHtml = '';
+      if (a.nearVacation) {
+        var vWeek = a.nearVacationWeek ? 'Week ' + a.nearVacationWeek : '';
+        var badgeText = vWeek ? 'Near Your Vacation: ' + vWeek : 'Near Your Vacation';
+        badgesHtml += '<span class="badge badge-proximity-caution">' + escapeSoftHolidayText(badgeText) + '</span> ';
+      }
 
       html += '<div class="card" data-json="' + encodedObj + '" onclick="toggleSelection(this, \'transferOffer\')">';
       html += '  <div class="card-content">';
-      html += '    <h4 class="card-title">' + a.type + '</h4>';
+      html += '    <h4 class="card-title">' + (a.type === 'GROUPED' ? 'WEEKEND + HOLIDAY' : a.type) + '</h4>';
       html += '    <div class="card-subtitle">' + displayStr + '</div>';
+      if (badgesHtml) {
+        html += '    <div style="margin-bottom:8px; margin-top:8px;">' + badgesHtml + '</div>';
+      }
       html += '  </div>';
       html += '</div>';
     }
@@ -713,13 +742,60 @@
 
     for (var i = 0; i < offers.length; i++) {
       var o = offers[i];
-      html += '<div class="card" data-id="' + o['Offer ID'] + '" onclick="toggleSelection(this, \'transferReceiver\')">';
-      html += '  <div class="card-content">';
-      html += '    <h4 class="card-title">' + o['Assignment Type'] + '</h4>';
-      html += '    <div class="card-subtitle">' + o['Date/Position'] + '</div>';
-      html += '    <div class="assignees">Offered by: ' + o['Original Assignee (Giver)'] + '</div>';
-      html += '  </div>';
-      html += '</div>';
+
+      var badgesHtml = '';
+      if (o.nearVacation) {
+        var vWeek = o.nearVacationWeek ? 'Week ' + o.nearVacationWeek : '';
+        var badgeText = vWeek ? 'Near Your Vacation: ' + vWeek : 'Near Your Vacation';
+        badgesHtml += '<span class="badge badge-proximity-caution">' + escapeSoftHolidayText(badgeText) + '</span> ';
+      }
+
+      var cardClass = o.isUnavailable ? 'card disabled' : 'card';
+      var clickHandler = o.isUnavailable ? '' : 'onclick="toggleSelection(this, \'transferReceiver\')"';
+
+      if (o.isUnavailable) {
+        badgesHtml += '<span class="badge badge-proximity-caution">' + escapeSoftHolidayText(o.unavailableReason) + '</span> ';
+      }
+
+      if (o.type === 'GROUPED') {
+         var wDisplay = '';
+         var hDisplay = '';
+         for (var j = 0; j < o.components.length; j++) {
+            if (o.components[j]['Assignment Type'] === 'WEEKEND') {
+               wDisplay = 'WEEKEND: ' + formatDateDisplay(o.components[j]['Date/Position']);
+            } else if (o.components[j]['Assignment Type'] === 'HOLIDAY') {
+               hDisplay = 'HOLIDAY: ' + o.components[j]['Date/Position'];
+            }
+         }
+
+         var objStr = JSON.stringify({ type: 'GROUPED', groupId: o.groupId });
+         var encodedObj = objStr.replace(/"/g, '&quot;');
+
+         html += '<div class="' + cardClass + '" data-json="' + encodedObj + '" ' + clickHandler + '>';
+         html += '  <div class="card-content">';
+         html += '    <h4 class="card-title">WEEKEND + HOLIDAY</h4>';
+         html += '    <div class="card-subtitle">' + wDisplay + '<br>+<br>' + hDisplay + '</div>';
+         if (badgesHtml) {
+           html += '    <div style="margin-bottom:8px; margin-top:8px;">' + badgesHtml + '</div>';
+         }
+         html += '    <div class="assignees">Offered by: ' + o.originalAssignee + '</div>';
+         html += '  </div>';
+         html += '</div>';
+      } else {
+         var objStr = JSON.stringify({ type: 'SINGLE', offerId: o['Offer ID'] });
+         var encodedObj = objStr.replace(/"/g, '&quot;');
+
+         html += '<div class="' + cardClass + '" data-json="' + encodedObj + '" ' + clickHandler + '>';
+         html += '  <div class="card-content">';
+         html += '    <h4 class="card-title">' + o['Assignment Type'] + '</h4>';
+         html += '    <div class="card-subtitle">' + o['Date/Position'] + '</div>';
+         if (badgesHtml) {
+           html += '    <div style="margin-bottom:8px; margin-top:8px;">' + badgesHtml + '</div>';
+         }
+         html += '    <div class="assignees">Offered by: ' + o['Original Assignee (Giver)'] + '</div>';
+         html += '  </div>';
+         html += '</div>';
+      }
     }
 
     container.innerHTML = html;
@@ -874,7 +950,10 @@
           data.selections.push(JSON.parse(appState.selections[i].replace(/&quot;/g, '"')));
         }
       } else if (appState.phase === 'TRANSFER_RECEIVER') {
-        data.selections = appState.selections;
+        data.selections = [];
+        for (var i = 0; i < appState.selections.length; i++) {
+          data.selections.push(JSON.parse(appState.selections[i].replace(/&quot;/g, '"')));
+        }
       }
     }
 
