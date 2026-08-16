@@ -165,7 +165,7 @@
     var errorDiv = document.getElementById('loginError');
 
     if (!name || !pin) {
-      errorDiv.innerText = "Please enter both name and PIN.";
+      errorDiv.innerText = "Please enter both name and Correct PIN.";
       errorDiv.style.display = 'block';
       return;
     }
@@ -182,7 +182,12 @@
         }
         if (res.success !== true) {
           setLoginLoading(false);
-          showToast(res.error || "Login failed");
+          if (res.error === 'Invalid Name or PIN.') {
+            errorDiv.innerText = "Incorrect PIN. Please try again.";
+            errorDiv.style.display = 'block';
+          } else {
+            showToast(res.error || "Login failed");
+          }
         } else if (!res.participantName) {
           setLoginLoading(false);
           showToast("Missing participant name in response.");
@@ -198,10 +203,8 @@
       })
       .withFailureHandler(function(err) {
         setLoginLoading(false);
-        var errMsg = "Connection error. Please try again.";
-        if (err && err.message) errMsg += " (" + err.message + ")";
-        else if (typeof err === 'string') errMsg += " (" + err + ")";
-        alert(errMsg);
+        errorDiv.innerText = "Unable to log in right now. Please try again.";
+        errorDiv.style.display = 'block';
       })
       .authenticateParticipant(name, pin);
   }
