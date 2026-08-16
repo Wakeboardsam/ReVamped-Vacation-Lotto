@@ -368,6 +368,18 @@ function getInitialState(participantId, pin) {
 
     for (var i = 0; i < offers.length; i++) {
       if (offers[i]['Status'] !== 'Claimed' && offers[i]['Assignment Type'] !== 'VACATION') {
+        // Normalize Weekend date keys right as they are loaded
+        if (offers[i]['Assignment Type'] === 'WEEKEND') {
+           var norm = normalizeDateKey_(offers[i]['Date/Position']);
+           if (!norm) {
+              // Invalid date key, flag it so it won't be selectable
+              offers[i].isUnavailable = true;
+              offers[i].unavailableReason = 'Unavailable \u2014 Malformed date key';
+           } else {
+              offers[i]['Date/Position'] = norm;
+           }
+        }
+
         var gId = String(offers[i]['Group ID'] || '').trim();
         if (gId) {
            if (!groupedOffersMap[gId]) {
@@ -873,6 +885,23 @@ function submitSelection(participantId, selectionData) {
         var tHeaders = tSheet.getDataRange().getValues()[0] || [];
         var hasGroupCol = tHeaders.indexOf('Group ID') !== -1;
 
+        var wSheetPool = ss.getSheetByName('Weekend Coverage');
+        var wDataPool = wSheetPool.getDataRange().getValues();
+        var wHeadersPool = wDataPool[0];
+
+        // Helper to verify weekend ownership by giver
+        function verifyGiverOwnsWeekend(giverName, wDateStr, wData, wHeaders) {
+           var dateCol = wHeaders.indexOf('Date');
+           var assigneeCol = wHeaders.indexOf('First Call Assignee');
+           for (var k = 1; k < wData.length; k++) {
+              var rDate = normalizeDateKey_(wData[k][dateCol]);
+              if (rDate === wDateStr && String(wData[k][assigneeCol]).trim() === String(giverName).trim()) {
+                 return true;
+              }
+           }
+           return false;
+        }
+
         // Validation Phase - run entirely before writing
         for (var i = 0; i < selectionData.selections.length; i++) {
           var item = selectionData.selections[i];
@@ -883,6 +912,23 @@ function submitSelection(participantId, selectionData) {
           if (item.type === 'GROUPED') {
             if (item.details.weekend && item.details.weekend.type === 'VACATION') throw new Error("Vacation assignments cannot be transferred.");
             if (item.details.holiday && item.details.holiday.type === 'VACATION') throw new Error("Vacation assignments cannot be transferred.");
+
+            var gwDateRaw = item.details.weekend['Date'];
+            var gwNorm = normalizeDateKey_(gwDateRaw);
+            if (!gwNorm) throw new Error("Grouped offer contains an invalid weekend date.");
+            if (!verifyGiverOwnsWeekend(participantId, gwNorm, wDataPool, wHeadersPool)) {
+               throw new Error("You do not own the weekend assignment for " + gwNorm);
+            }
+            // Overwrite with exact normalized string for writing
+            item.details.weekend['Date'] = gwNorm;
+
+          } else if (item.type === 'WEEKEND') {
+             var wNorm = normalizeDateKey_(item.datePos);
+             if (!wNorm) throw new Error("Offer contains an invalid weekend date.");
+             if (!verifyGiverOwnsWeekend(participantId, wNorm, wDataPool, wHeadersPool)) {
+                throw new Error("You do not own the weekend assignment for " + wNorm);
+             }
+             item.datePos = wNorm;
           }
         }
 
@@ -895,7 +941,6 @@ function submitSelection(participantId, selectionData) {
              // Weekend row
              var offerIdW = 'OFFER-' + new Date().getTime() + '-' + Math.floor(Math.random()*1000) + '-W' + i;
              var wDate = item.details.weekend['Date'];
-             if (wDate instanceof Date) wDate = formatDate(wDate);
              var tDataW = [offerIdW, participantId, 'WEEKEND', wDate, 'Active', new Date()];
              if (hasGroupCol) tDataW[tHeaders.indexOf('Group ID')] = groupId;
              tSheet.appendRow(tDataW);
@@ -971,13 +1016,16 @@ function submitSelection(participantId, selectionData) {
            var matchedTargetRow = -1;
 
            if (comp.assignmentType === 'WEEKEND') {
+              var compNorm = normalizeDateKey_(comp.datePos);
+              if (!compNorm) throw new Error("Offer contains an invalid weekend date.");
+              comp.datePos = compNorm; // update to normalized for history tracking
+
               if (participantAlreadyHasWeekend_(participantId, comp.datePos, wDataAll, wH)) {
                  throw new Error("You already hold the other First Call position for this weekend. You cannot select both Saturday and Sunday of the same weekend.");
               }
               for (var k = 1; k < wDataAll.length; k++) {
-                 var rowD = wDataAll[k][wH.indexOf('Date')];
-                 if (rowD instanceof Date) rowD = formatDate(rowD);
-                 if (String(rowD) === String(comp.datePos)) {
+                 var rowD = normalizeDateKey_(wDataAll[k][wH.indexOf('Date')]);
+                 if (rowD === comp.datePos) {
                     if (wDataAll[k][wH.indexOf('First Call Assignee')] !== comp.originalAssignee) {
                        throw new Error("The original assignee no longer holds this Weekend position.");
                     }

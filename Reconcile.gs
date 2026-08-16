@@ -68,16 +68,12 @@ function reconcileFromSheet() {
       vacationMap[String(weekId).trim()] = assignees;
 
       // Also map by date string for fallback matching
-      var dateStr = '';
-      if (dateRaw instanceof Date) {
-        dateStr = formatDate(dateRaw);
-      } else if (dateRaw) {
-        try {
-          var d = new Date(dateRaw);
-          if (!isNaN(d.getTime())) dateStr = formatDate(d);
-        } catch(e){}
+      var dateStr = normalizeDateKey_(dateRaw);
+      if (dateStr) {
+        vacationMap[dateStr] = assignees;
+      } else {
+        conflicts.push("Invalid Vacation Date: '" + String(dateRaw) + "' cannot be normalized.");
       }
-      if (dateStr) vacationMap[dateStr] = assignees;
 
       processedCount++;
     }
@@ -91,29 +87,17 @@ function reconcileFromSheet() {
       var dateRaw = row['Date'];
       var assignee = String(row['First Call Assignee'] || '').trim();
 
-      var dateStr = '';
-      if (dateRaw instanceof Date) dateStr = formatDate(dateRaw);
-      else if (dateRaw) {
-        try {
-          var d = new Date(dateRaw);
-          if (!isNaN(d.getTime())) dateStr = formatDate(d);
-        } catch(e){}
-      }
-      if (!dateStr) dateStr = String(dateRaw).trim();
-
-      if (assignee) {
+      var dateStr = normalizeDateKey_(dateRaw);
+      if (!dateStr) {
+        conflicts.push("Invalid Weekend Date: '" + String(dateRaw) + "' cannot be normalized.");
+      } else if (assignee) {
         if (validateName(assignee, "Weekend Coverage (" + dateStr + ")")) {
           participantStats[assignee].weekendCount++;
         }
         weekendMap[dateStr] = assignee;
 
-        var dateObj = new Date(dateRaw);
-        if (!isNaN(dateObj.getTime())) {
-          var day = dateObj.getDay();
-          var diff = dateObj.getDate() - day + (day == 0 ? -6 : 1);
-          var monday = new Date(dateObj.setDate(diff));
-          var weekendId = monday.getFullYear() + "-" + (monday.getMonth() + 1) + "-" + monday.getDate();
-
+        var weekendId = getWeekendKey_(dateStr);
+        if (weekendId) {
           if (!weekendTracker[weekendId]) {
             weekendTracker[weekendId] = {};
           }
@@ -188,17 +172,27 @@ function reconcileFromSheet() {
       // If the offer is still active (not Claimed), the Giver must still own the assignment
       if (status !== 'Claimed') {
         var ownsAssignment = false;
+        var displayDatePos = datePos;
+
         if (type === 'VACATION') {
-          var assignees = vacationMap[datePos] || [];
-          ownsAssignment = assignees.indexOf(giver) !== -1;
+          var normV = normalizeDateKey_(datePos);
+          if (normV) {
+             var assignees = vacationMap[normV] || [];
+             ownsAssignment = assignees.indexOf(giver) !== -1;
+             displayDatePos = normV;
+          }
         } else if (type === 'WEEKEND') {
-          ownsAssignment = weekendMap[datePos] === giver;
+          var normW = normalizeDateKey_(datePos);
+          if (normW) {
+             ownsAssignment = weekendMap[normW] === giver;
+             displayDatePos = normW;
+          }
         } else if (type === 'HOLIDAY') {
           ownsAssignment = holidayMap[datePos] === giver;
         }
 
         if (!ownsAssignment) {
-          conflicts.push("Unmatched transfer record: Offer " + offerId + " from '" + giver + "' for " + type + " (" + datePos + ") is active, but they are not currently assigned to it.");
+          conflicts.push("Unmatched transfer record: Offer " + offerId + " from '" + giver + "' for " + type + " (" + displayDatePos + ") is active, but they are not currently assigned to it (or the date is malformed).");
         }
       }
       processedCount++;

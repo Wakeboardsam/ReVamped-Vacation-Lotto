@@ -470,13 +470,30 @@
     }
   }
 
+  /**
+   * Normalizes a date string client-side to strictly 'YYYY-MM-DD'
+   */
+  function normalizeDateKeyClient(value) {
+    if (!value) return '';
+    var match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      var m = parseInt(match[2], 10);
+      var d = parseInt(match[3], 10);
+      if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+        return match[1] + '-' + match[2] + '-' + match[3];
+      }
+    }
+    return '';
+  }
+
   function formatDateDisplay(dateStr) {
-    if (!dateStr) return '';
+    var norm = normalizeDateKeyClient(dateStr);
+    if (!norm) return String(dateStr);
+    var parts = norm.split('-');
     try {
-      var d = new Date(dateStr + 'T00:00:00');
-      if (isNaN(d.getTime())) return dateStr;
+      var d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
       return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-    } catch(e) { return dateStr; }
+    } catch(e) { return norm; }
   }
 
   function renderVacationPhase(container) {
@@ -556,23 +573,13 @@
 
     for (var i = 0; i < weekends.length; i++) {
       var w = weekends[i];
-      var dateStr = w['Date'];
-      // handle date objects returned via API
-      if (typeof dateStr === 'object' && dateStr !== null) {
-          // If GAS sent an ISO string via JSON
-          dateStr = dateStr.substring ? dateStr.substring(0,10) : dateStr;
-      } else if (dateStr) {
-          // Attempt format
-          try {
-             var d = new Date(dateStr + 'T00:00:00');
-             var m = '' + (d.getMonth() + 1);
-             var dDay = '' + d.getDate();
-             var y = d.getFullYear();
-             if(m.length<2) m='0'+m;
-             if(dDay.length<2) dDay='0'+dDay;
-             dateStr = [y,m,dDay].join('-');
-          } catch(e){}
+
+      // Ensure the displayed date and submitted date come from the same normalized key
+      var rawDate = w['Date'];
+      if (typeof rawDate === 'object' && rawDate !== null && rawDate.substring) {
+         rawDate = rawDate.substring(0,10);
       }
+      var dateStr = normalizeDateKeyClient(rawDate) || rawDate;
 
       var dayOfWeek = w['Day of Week'];
       var assignee = w['First Call Assignee'];
@@ -591,7 +598,7 @@
       if (w['Holiday Proximity Warning']) badgesHtml += '<span class="badge badge-info">Near Holiday: ' + w['Holiday Proximity Warning'] + '</span>';
       badgesHtml += softHolidayBadgesHtml_(w.softHolidayWarnings);
 
-      var displayDate = formatDateDisplay(w['Date']);
+      var displayDate = formatDateDisplay(dateStr);
 
       html += '<div class="' + cardClass + '" data-id="' + dateStr + '" data-holwarning="' + (w['Holiday Proximity Warning']||'') + '" onclick="toggleSelection(this, \'weekend\')">';
       html += '  <div class="card-content">';
@@ -678,13 +685,8 @@
       } else if (a.type === 'WEEKEND') {
         var dStr = a.details['Date'];
         if (typeof dStr === 'object' && dStr !== null) dStr = dStr.substring ? dStr.substring(0,10) : dStr;
-        try {
-           var dt = new Date(dStr);
-           var mm = ''+(dt.getMonth()+1), dd=''+dt.getDate(), yy=dt.getFullYear();
-           if(mm.length<2)mm='0'+mm; if(dd.length<2)dd='0'+dd;
-           dStr = [yy,mm,dd].join('-');
-        } catch(e){}
-        displayStr = a.details['Day of Week'] + ' ' + formatDateDisplay(a.details['Date']);
+        dStr = normalizeDateKeyClient(dStr) || dStr;
+        displayStr = a.details['Day of Week'] + ' ' + formatDateDisplay(dStr);
         valStr = dStr;
         objStr = JSON.stringify({ type: a.type, datePos: valStr });
       } else if (a.type === 'HOLIDAY') {
@@ -692,22 +694,18 @@
         valStr = displayStr;
         objStr = JSON.stringify({ type: a.type, datePos: valStr });
       } else if (a.type === 'GROUPED') {
-        var wDateStr = a.details.weekend['Date'];
-        if (typeof wDateStr === 'object' && wDateStr !== null) wDateStr = wDateStr.substring ? wDateStr.substring(0,10) : wDateStr;
-        try {
-           var dt2 = new Date(wDateStr);
-           var mm2 = ''+(dt2.getMonth()+1), dd2=''+dt2.getDate(), yy2=dt2.getFullYear();
-           if(mm2.length<2)mm2='0'+mm2; if(dd2.length<2)dd2='0'+dd2;
-           wDateStr = [yy2,mm2,dd2].join('-');
-        } catch(e){}
-
         var wDisplay = a.details.weekend['Day of Week'] + ' ' + formatDateDisplay(a.details.weekend['Date']);
         var hDisplay = a.details.holiday['Holiday Name'] + ' - ' + a.details.holiday['Call Position (Call 1 / Call 2)'];
 
         displayStr = wDisplay + '<br> + ' + hDisplay;
 
-        // Serialize the entire structure
-        objStr = JSON.stringify(a);
+        // Serialize the entire structure ensuring the weekend date is normalized before stringifying
+        var payloadObj = JSON.parse(JSON.stringify(a));
+        var wDateRaw = payloadObj.details.weekend['Date'];
+        if (typeof wDateRaw === 'object' && wDateRaw !== null) wDateRaw = wDateRaw.substring ? wDateRaw.substring(0,10) : wDateRaw;
+        payloadObj.details.weekend['Date'] = normalizeDateKeyClient(wDateRaw) || wDateRaw;
+
+        objStr = JSON.stringify(payloadObj);
       }
 
       var encodedObj = objStr.replace(/"/g, '&quot;');
@@ -788,10 +786,15 @@
          var objStr = JSON.stringify({ type: 'SINGLE', offerId: o['Offer ID'] });
          var encodedObj = objStr.replace(/"/g, '&quot;');
 
+         var displayVal = o['Date/Position'];
+         if (o['Assignment Type'] === 'WEEKEND') {
+           displayVal = formatDateDisplay(displayVal);
+         }
+
          html += '<div class="' + cardClass + '" data-json="' + encodedObj + '" ' + clickHandler + '>';
          html += '  <div class="card-content">';
          html += '    <h4 class="card-title">' + o['Assignment Type'] + '</h4>';
-         html += '    <div class="card-subtitle">' + o['Date/Position'] + '</div>';
+         html += '    <div class="card-subtitle">' + displayVal + '</div>';
          if (badgesHtml) {
            html += '    <div style="margin-bottom:8px; margin-top:8px;">' + badgesHtml + '</div>';
          }
@@ -810,10 +813,24 @@
     if (element.classList.contains('disabled')) return;
 
     var id;
-    if (type === 'transferOffer') {
+    if (type === 'transferOffer' || type === 'transferReceiver') {
        id = element.getAttribute('data-json');
+       if (!id || id === 'null' || id === 'undefined') {
+          showToast("Unable to select this transfer offer. Please refresh and try again.");
+          return;
+       }
+       try {
+           JSON.parse(id);
+       } catch(e) {
+          showToast("Unable to select this transfer offer. Please refresh and try again.");
+          return;
+       }
     } else {
        id = element.getAttribute('data-id');
+       if (!id) {
+          showToast("Unable to select this item. Please refresh and try again.");
+          return;
+       }
     }
 
     var idx = appState.selections.indexOf(id);
@@ -955,7 +972,17 @@
       } else if (appState.phase === 'TRANSFER_RECEIVER') {
         data.selections = [];
         for (var i = 0; i < appState.selections.length; i++) {
-          data.selections.push(JSON.parse(appState.selections[i].replace(/&quot;/g, '"')));
+          try {
+             var parsed = JSON.parse(appState.selections[i].replace(/&quot;/g, '"'));
+             if (parsed && (parsed.offerId || parsed.groupId)) {
+                 data.selections.push(parsed);
+             } else {
+                 throw new Error("Missing offerId or groupId in payload.");
+             }
+          } catch(e) {
+             showToast("Error processing selection data. Please refresh and try again.", "danger");
+             return;
+          }
         }
       }
     }
@@ -1238,17 +1265,15 @@
   }
 
   function formatPublicDate(val) {
-    if (!val) return '';
-    var str = String(val);
-    var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
-    if (match) {
-      var y = parseInt(match[1], 10);
-      var m = parseInt(match[2], 10);
-      var d = parseInt(match[3], 10);
-      var dateObj = new Date(y, m - 1, d);
+    var norm = normalizeDateKeyClient(val);
+    if (!norm) return String(val);
+    var parts = norm.split('-');
+    try {
+      var dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
       return dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch(e) {
+      return norm;
     }
-    return str;
   }
 
   function createPublicItem(type, obj) {

@@ -471,6 +471,20 @@ function runRegressionTests() {
     }
     assert(!mandPassSubmit, "HOLIDAY_MANDATORY Pass is rejected and does not advance the queue.");
 
+    // 13. Date normalization tests
+    assert(normalizeDateKey_('2027-01-16') === '2027-01-16', "A normalized client date key remains exact same date string.");
+    assert(normalizeDateKey_('2027-12-05') === '2027-12-05', "A normalized client date key remains exact same date string (December).");
+
+    // Reconcile and WebApp checks
+    MockSpreadsheetApp.createSheet('Transfer Offers', [
+      ['Offer ID', 'Original Assignee (Giver)', 'Assignment Type', 'Date/Position', 'Status', 'Group ID'],
+      ['OFFER-123', 'Alice', 'WEEKEND', '2027-01-15T00:00:00.000Z', 'Active', ''], // simulate broken date
+      ['OFFER-456', 'Alice', 'WEEKEND', '2027-01-16', 'Active', ''], // normal date
+    ]);
+
+    // Malformed Date Tests
+    assert(normalizeDateKey_('2027-01-15T00:00:00.000Z') === '2027-01-15', "ISO string parsing correctly extracts date component");
+
 } finally {
     // Restore globals
     SpreadsheetApp = originalSpreadsheetApp;

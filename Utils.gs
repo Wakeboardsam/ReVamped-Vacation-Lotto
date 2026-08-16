@@ -73,16 +73,55 @@ function getEndMondayForYear(year) {
   return getFirstMondayBeforeOrOn(dec31);
 }
 
+/**
+ * Normalizes a sheet Date, YYYY-MM-DD string, or ISO-like string into exactly YYYY-MM-DD.
+ * It will not timezone shift a date-only string by calling new Date('YYYY-MM-DD').
+ */
+function normalizeDateKey_(value) {
+  if (!value) return '';
+
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    var month = '' + (value.getMonth() + 1);
+    var day = '' + value.getDate();
+    var year = value.getFullYear();
+
+    if (month.length < 2) month = '0' + month;
+    if (day.length < 2) day = '0' + day;
+
+    return [year, month, day].join('-');
+  }
+
+  var match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    var y = parseInt(match[1], 10);
+    var m = parseInt(match[2], 10);
+    var d = parseInt(match[3], 10);
+    // basic sanity validation
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return match[1] + '-' + match[2] + '-' + match[3];
+    }
+  }
+
+  return '';
+}
+
 function formatDate(date) {
+  var norm = normalizeDateKey_(date);
+  if (norm) return norm;
+
+  // Fallback for valid non-date timestamp objects/values if needed (though discouraged for date keys)
   var d = new Date(date);
-  var month = '' + (d.getMonth() + 1);
-  var day = '' + d.getDate();
-  var year = d.getFullYear();
+  if (!isNaN(d.getTime())) {
+     var month = '' + (d.getMonth() + 1);
+     var day = '' + d.getDate();
+     var year = d.getFullYear();
 
-  if (month.length < 2) month = '0' + month;
-  if (day.length < 2) day = '0' + day;
+     if (month.length < 2) month = '0' + month;
+     if (day.length < 2) day = '0' + day;
 
-  return [year, month, day].join('-');
+     return [year, month, day].join('-');
+  }
+  return String(date);
 }
 
 /**
@@ -180,17 +219,7 @@ function attachSoftHolidayWarnings_(rows, dateField, spanDays) {
  * Converts a sheet Date or YYYY-MM-DD value to a stable date key.
  */
 function softHolidayDateKey_(value) {
-  if (!value) return '';
-
-  if (value instanceof Date && !isNaN(value.getTime())) {
-    return formatDate(value);
-  }
-
-  var match = String(value).trim().match(
-    /^(\d{4})-(\d{2})-(\d{2})/
-  );
-
-  return match ? match[1] + '-' + match[2] + '-' + match[3] : '';
+  return normalizeDateKey_(value);
 }
 
 /**
@@ -248,24 +277,15 @@ function participantAlreadyHasHoliday_(participantName, holidayName, holidayData
  * Both days of the same weekend produce the same Saturday YYYY-MM-DD key.
  */
 function getWeekendKey_(dateValue) {
-  var d;
+  var norm = normalizeDateKey_(dateValue);
+  if (!norm) return '';
 
-  if (dateValue instanceof Date) {
-    d = new Date(
-      dateValue.getFullYear(),
-      dateValue.getMonth(),
-      dateValue.getDate()
-    );
-  } else {
-    var parts = String(dateValue).split('-');
-    if (parts.length !== 3) return '';
-
-    d = new Date(
-      parseInt(parts[0], 10),
-      parseInt(parts[1], 10) - 1,
-      parseInt(parts[2], 10)
-    );
-  }
+  var parts = norm.split('-');
+  var d = new Date(
+    parseInt(parts[0], 10),
+    parseInt(parts[1], 10) - 1,
+    parseInt(parts[2], 10)
+  );
 
   var day = d.getDay();
 
@@ -276,7 +296,14 @@ function getWeekendKey_(dateValue) {
     return '';
   }
 
-  return formatDate(d);
+  var month = '' + (d.getMonth() + 1);
+  var dayDate = '' + d.getDate();
+  var year = d.getFullYear();
+
+  if (month.length < 2) month = '0' + month;
+  if (dayDate.length < 2) dayDate = '0' + dayDate;
+
+  return [year, month, dayDate].join('-');
 }
 
 /**
