@@ -938,8 +938,8 @@ function submitSelection(participantId, selectionData) {
           var rowStatus = tData[i][tHeaders.indexOf('Status')];
 
           if ((isGrouped && rowGroupId === claimId) || (!isGrouped && rowOfferId === claimId)) {
-             if (rowStatus === 'Claimed') {
-                throw new Error("That offer (or part of it) was just claimed by another participant.");
+             if (rowStatus !== 'Active') {
+                throw new Error("That offer (or part of it) is no longer active.");
              }
              if (tData[i][tHeaders.indexOf('Assignment Type')] === 'VACATION') {
                 throw new Error("Vacation assignments cannot be claimed/transferred.");
@@ -964,13 +964,29 @@ function submitSelection(participantId, selectionData) {
         var hDataAll = hSheet ? hSheet.getDataRange().getValues() : null;
         var hH = hDataAll ? hDataAll[0] : null;
 
+        // Pre-validate that original assignee still owns the item and receiver is eligible
+        var targetRows = [];
         for (var c = 0; c < componentsToClaim.length; c++) {
            var comp = componentsToClaim[c];
+           var matchedTargetRow = -1;
 
            if (comp.assignmentType === 'WEEKEND') {
               if (participantAlreadyHasWeekend_(participantId, comp.datePos, wDataAll, wH)) {
                  throw new Error("You already hold the other First Call position for this weekend. You cannot select both Saturday and Sunday of the same weekend.");
               }
+              for (var k = 1; k < wDataAll.length; k++) {
+                 var rowD = wDataAll[k][wH.indexOf('Date')];
+                 if (rowD instanceof Date) rowD = formatDate(rowD);
+                 if (String(rowD) === String(comp.datePos)) {
+                    if (wDataAll[k][wH.indexOf('First Call Assignee')] !== comp.originalAssignee) {
+                       throw new Error("The original assignee no longer holds this Weekend position.");
+                    }
+                    matchedTargetRow = k + 1;
+                    break;
+                 }
+              }
+              if (matchedTargetRow === -1) throw new Error("Could not locate the underlying Weekend schedule row for this offer.");
+
            } else if (comp.assignmentType === 'HOLIDAY') {
               var holNamePos = String(comp.datePos);
               var holParts = holNamePos.split(' - ');
@@ -979,45 +995,46 @@ function submitSelection(participantId, selectionData) {
               if (participantAlreadyHasHoliday_(participantId, holName, hDataAll, hH)) {
                  throw new Error("You already hold a call position for holiday '" + holName + "'. You cannot hold both Call 1 and Call 2 for the same holiday.");
               }
+              for (var k = 1; k < hDataAll.length; k++) {
+                 var hnp = hDataAll[k][hH.indexOf('Holiday Name')] + ' - ' + hDataAll[k][hH.indexOf('Call Position (Call 1 / Call 2)')];
+                 if (hnp === String(comp.datePos)) {
+                    if (hDataAll[k][hH.indexOf('Assigned Participant')] !== comp.originalAssignee) {
+                       throw new Error("The original assignee no longer holds this Holiday position.");
+                    }
+                    matchedTargetRow = k + 1;
+                    break;
+                 }
+              }
+              if (matchedTargetRow === -1) throw new Error("Could not locate the underlying Holiday schedule row for this offer.");
            }
+
+           targetRows.push({
+             type: comp.assignmentType,
+             sheet: comp.assignmentType === 'WEEKEND' ? wSheet : hSheet,
+             row: matchedTargetRow,
+             col: comp.assignmentType === 'WEEKEND' ? wH.indexOf('First Call Assignee') + 1 : hH.indexOf('Assigned Participant') + 1,
+             comp: comp
+           });
         }
 
-        // Update History & Swap Assignee for each component atomically
+        // 2. Perform Writes ONLY if all checks passed
         var histSheet = ss.getSheetByName('Transfer History');
         var activeYear = getAdminOptions()['Active Year'] || new Date().getFullYear();
 
+        // A) Update all Weekend/Holiday ownership rows
+        for (var i = 0; i < targetRows.length; i++) {
+           targetRows[i].sheet.getRange(targetRows[i].row, targetRows[i].col).setValue(participantId);
+        }
+
+        // B) Mark corresponding offers Claimed
+        for (var c = 0; c < componentsToClaim.length; c++) {
+           tSheet.getRange(componentsToClaim[c].rowIndex, tHeaders.indexOf('Status') + 1).setValue('Claimed');
+        }
+
+        // C) Append Transfer History rows
         for (var c = 0; c < componentsToClaim.length; c++) {
            var comp = componentsToClaim[c];
-
-           // Mark claimed
-           tSheet.getRange(comp.rowIndex, tHeaders.indexOf('Status') + 1).setValue('Claimed');
-
-           // Update History
            histSheet.appendRow([new Date(), comp.assignmentType, comp.datePos, '', comp.originalAssignee, participantId, activeYear]);
-
-           // Swap Assignee in main schedule
-           if (comp.assignmentType === 'WEEKEND') {
-              for (var k = 1; k < wDataAll.length; k++) {
-                 var rowD = wDataAll[k][wH.indexOf('Date')];
-                 if (rowD instanceof Date) rowD = formatDate(rowD);
-                 if (String(rowD) === String(comp.datePos)) {
-                    if (wDataAll[k][wH.indexOf('First Call Assignee')] === comp.originalAssignee) {
-                       wSheet.getRange(k + 1, wH.indexOf('First Call Assignee') + 1).setValue(participantId);
-                    }
-                    break;
-                 }
-              }
-           } else if (comp.assignmentType === 'HOLIDAY') {
-              for (var k = 1; k < hDataAll.length; k++) {
-                 var holNamePos = hDataAll[k][hH.indexOf('Holiday Name')] + ' - ' + hDataAll[k][hH.indexOf('Call Position (Call 1 / Call 2)')];
-                 if (holNamePos === String(comp.datePos)) {
-                    if (hDataAll[k][hH.indexOf('Assigned Participant')] === comp.originalAssignee) {
-                       hSheet.getRange(k + 1, hH.indexOf('Assigned Participant') + 1).setValue(participantId);
-                    }
-                    break;
-                 }
-              }
-           }
         }
       }
 
