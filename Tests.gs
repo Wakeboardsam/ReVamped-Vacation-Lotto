@@ -471,6 +471,43 @@ function runRegressionTests() {
     }
     assert(!mandPassSubmit, "HOLIDAY_MANDATORY Pass is rejected and does not advance the queue.");
 
+    // --- Public Display Snapshot ---
+    log.push("--- Testing Public Display Snapshot ---");
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Week ID', 'Start Date (Monday)', 'Capacity', 'Assigned Participants'],
+      ['1', '2025-01-06', '4', 'Alice, Bob'],    // 2 remaining, Available
+      ['2', '2025-01-13', '1', ''],              // 1 remaining, Nearly Full
+      ['3', '2025-01-20', '2', 'Alice, Charlie'] // 0 remaining, Full
+    ]);
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2025-01-04', 'Saturday', ''],
+      ['2025-01-05', 'Sunday', 'Bob']
+    ]);
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Year', '2025-01-01', 'CALL_1', ''],
+      ['New Year', '2025-01-01', 'CALL_2', 'Charlie']
+    ]);
+
+    // Verify snapshot returns all 3 datasets even during an unrelated phase
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('WEEKEND');
+    var pubSnapshot = getPublicDisplaySnapshot();
+    assert(pubSnapshot.success === true, "getPublicDisplaySnapshot should succeed.");
+    assert(pubSnapshot.calendar.kind === "ALL", "calendar kind should be 'ALL'.");
+    assert(pubSnapshot.calendar.vacationWeeks.length === 3, "Should return 3 vacation weeks.");
+    assert(pubSnapshot.calendar.weekends.length === 2, "Should return 2 weekends.");
+    assert(pubSnapshot.calendar.holidays.length === 2, "Should return 2 holidays.");
+
+    // Verify capacity calculations
+    assert(pubSnapshot.calendar.vacationWeeks[0].remainingCapacity === 2, "Week 1 remaining should be 2.");
+    assert(pubSnapshot.calendar.vacationWeeks[1].remainingCapacity === 1, "Week 2 remaining should be 1.");
+    assert(pubSnapshot.calendar.vacationWeeks[2].remainingCapacity === 0, "Week 3 remaining should be 0.");
+    assert(pubSnapshot.calendar.weekends[0].remainingCapacity === 1, "Unassigned weekend remaining should be 1.");
+    assert(pubSnapshot.calendar.weekends[1].remainingCapacity === 0, "Assigned weekend remaining should be 0.");
+    assert(pubSnapshot.calendar.holidays[0].remainingCapacity === 1, "Unassigned holiday remaining should be 1.");
+    assert(pubSnapshot.calendar.holidays[1].remainingCapacity === 0, "Assigned holiday remaining should be 0.");
+
 } finally {
     // Restore globals
     SpreadsheetApp = originalSpreadsheetApp;

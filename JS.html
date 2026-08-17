@@ -16,14 +16,21 @@
 
   var cachedRulesText = null;
 
-  // Public Display State
+  // Public Display / Schedule State
   var publicDisplayState = {
     snapshot: null,
-    selectedPerson: '',
     loaded: false,
     loading: false,
     refreshPending: false,
     refreshTimerId: null
+  };
+
+  var scheduleFilters = {
+    type: 'ALL',
+    availability: 'ALL',
+    month: 'ALL',
+    person: '',
+    myChoices: false
   };
 
   // Utility to show toasts
@@ -64,13 +71,14 @@
       showMainScreen();
     } else {
       document.getElementById('loginScreen').classList.add('active');
+      document.getElementById('scheduleSection').style.display = 'block';
       loadPublicDisplay();
     }
 
     // Background refresh timer
     if (!publicDisplayState.refreshTimerId) {
       publicDisplayState.refreshTimerId = setInterval(function() {
-        if (document.visibilityState === 'visible' && document.getElementById('loginScreen').classList.contains('active')) {
+        if (document.visibilityState === 'visible' && isScheduleVisible()) {
           if (!publicDisplayState.loading) {
             loadPublicDisplay();
           }
@@ -79,29 +87,75 @@
     }
 
     document.addEventListener('visibilitychange', function() {
-      if (document.visibilityState === 'visible' && document.getElementById('loginScreen').classList.contains('active')) {
+      if (document.visibilityState === 'visible' && isScheduleVisible()) {
         if (!publicDisplayState.loading) {
           loadPublicDisplay();
         }
       }
     });
 
-    var findPersonSelect = document.getElementById('findPersonSelect');
-    if (findPersonSelect) {
-      findPersonSelect.addEventListener('change', function() {
-        publicDisplayState.selectedPerson = this.value;
-        applyFindPersonHighlights();
-      });
-    }
+    // Schedule Filter Listeners
+    document.getElementById('filterType').addEventListener('change', function(e) {
+      scheduleFilters.type = e.target.value;
+      renderPublicCalendar(publicDisplayState.snapshot);
+    });
 
-    var clearPersonBtn = document.getElementById('clearPersonBtn');
-    if (clearPersonBtn) {
-      clearPersonBtn.addEventListener('click', function() {
-        if (findPersonSelect) findPersonSelect.value = '';
-        publicDisplayState.selectedPerson = '';
-        applyFindPersonHighlights();
-      });
-    }
+    document.getElementById('filterAvailability').addEventListener('change', function(e) {
+      scheduleFilters.availability = e.target.value;
+      renderPublicCalendar(publicDisplayState.snapshot);
+    });
+
+    document.getElementById('filterMonth').addEventListener('change', function(e) {
+      scheduleFilters.month = e.target.value;
+      renderPublicCalendar(publicDisplayState.snapshot);
+    });
+
+    document.getElementById('findPersonSelect').addEventListener('change', function(e) {
+      scheduleFilters.person = e.target.value;
+      // Selecting a person disables My Choices if active
+      if (scheduleFilters.myChoices) {
+        scheduleFilters.myChoices = false;
+        document.getElementById('myChoicesBtn').setAttribute('aria-pressed', 'false');
+      }
+      renderPublicCalendar(publicDisplayState.snapshot);
+    });
+
+    document.getElementById('myChoicesBtn').addEventListener('click', function(e) {
+      var btn = e.target;
+      scheduleFilters.myChoices = !scheduleFilters.myChoices;
+      btn.setAttribute('aria-pressed', scheduleFilters.myChoices ? 'true' : 'false');
+
+      if (scheduleFilters.myChoices && appState.name) {
+        scheduleFilters.person = appState.name;
+        document.getElementById('findPersonSelect').value = appState.name;
+      }
+      renderPublicCalendar(publicDisplayState.snapshot);
+    });
+
+    document.getElementById('clearFiltersBtn').addEventListener('click', function() {
+      scheduleFilters.type = 'ALL';
+      scheduleFilters.availability = 'ALL';
+      scheduleFilters.month = 'ALL';
+      scheduleFilters.person = '';
+      scheduleFilters.myChoices = false;
+
+      document.getElementById('filterType').value = 'ALL';
+      document.getElementById('filterAvailability').value = 'ALL';
+      document.getElementById('filterMonth').value = 'ALL';
+      document.getElementById('findPersonSelect').value = '';
+      document.getElementById('myChoicesBtn').setAttribute('aria-pressed', 'false');
+
+      renderPublicCalendar(publicDisplayState.snapshot);
+    });
+
+    document.getElementById('refreshScheduleBtn').addEventListener('click', function() {
+       if (!publicDisplayState.loading) {
+          loadPublicDisplay();
+       }
+    });
+
+    document.getElementById('scheduleToggleBtn').addEventListener('click', toggleScheduleView);
+
 
     // Event Listeners
     document.getElementById('loginBtn').addEventListener('click', handleLogin);
@@ -223,9 +277,43 @@
   }
 
   // Main Screen & Data Loading
+  function isScheduleVisible() {
+    return document.getElementById('scheduleSection').style.display !== 'none';
+  }
+
+  function toggleScheduleView() {
+    var mainScreen = document.getElementById('mainScreen');
+    var scheduleSection = document.getElementById('scheduleSection');
+    var btn = document.getElementById('scheduleToggleBtn');
+
+    if (scheduleSection.style.display === 'none') {
+      // Show Schedule
+      mainScreen.style.display = 'none';
+      scheduleSection.style.display = 'block';
+      btn.textContent = 'Return to Selection';
+      if (!publicDisplayState.loaded && !publicDisplayState.loading) {
+         loadPublicDisplay();
+      }
+    } else {
+      // Show Main Screen
+      scheduleSection.style.display = 'none';
+      mainScreen.style.display = 'block';
+      btn.textContent = 'Schedule';
+    }
+  }
+
   function showMainScreen() {
     document.getElementById('loginScreen').classList.remove('active');
+    document.getElementById('scheduleSection').style.display = 'none';
     document.getElementById('mainScreen').style.display = 'block';
+
+    var toggleBtn = document.getElementById('scheduleToggleBtn');
+    toggleBtn.style.display = 'inline-block';
+    toggleBtn.textContent = 'Schedule';
+
+    var myChoicesBtn = document.getElementById('myChoicesBtn');
+    myChoicesBtn.style.display = 'inline-block';
+
     fetchInitialState(appState.participantId);
   }
 
@@ -1156,9 +1244,9 @@
 
     renderPublicPhaseHeading(snapshot);
     populateFindPerson(snapshot.participantNames);
+    populateMonthFilter(snapshot);
     renderPublicQueue(snapshot);
     renderPublicCalendar(snapshot);
-    applyFindPersonHighlights(); // reapply highlights after rendering new calendar
 
     checkPendingRefresh();
   }
@@ -1285,14 +1373,44 @@
     // Store assigned names for highlighting
     item.setAttribute('data-assignees', (obj.assignedNames || []).map(function(n) { return n.trim().toLowerCase(); }).join('|'));
 
+    // Store type and availability for filtering later
+    item.setAttribute('data-type', type);
+    item.setAttribute('data-remaining', obj.remainingCapacity);
+    item.setAttribute('data-capacity', obj.capacity);
+
     var header = document.createElement('h4');
     header.className = 'public-calendar-heading';
 
-    var remStr = obj.assignedCount + ' of ' + obj.capacity + ' assigned · ' + obj.remainingCapacity + ' remaining';
-    if (obj.remainingCapacity === 0) remStr += ' · Full';
-
     var subContent = document.createElement('div');
     subContent.className = 'badge-container';
+
+    var availStatusClass = '';
+    var availStr = '';
+
+    if (type === 'VACATION') {
+      if (obj.remainingCapacity >= 2) {
+        availStatusClass = 'schedule-status-available';
+        availStr = 'Available \u2014 ' + obj.remainingCapacity + ' remaining';
+      } else if (obj.remainingCapacity === 1) {
+        availStatusClass = 'schedule-status-nearly-full';
+        availStr = 'Nearly Full \u2014 1 remaining';
+      } else {
+        availStatusClass = 'schedule-status-full';
+        availStr = 'Full \u2014 0 remaining';
+      }
+    } else {
+      // WEEKEND or HOLIDAY
+      if (obj.remainingCapacity > 0) {
+        availStatusClass = 'schedule-status-available';
+        availStr = 'Available';
+      } else {
+        availStatusClass = 'schedule-status-full';
+        var assignedName = obj.assignedNames && obj.assignedNames.length > 0 ? obj.assignedNames[0] : 'Assigned';
+        availStr = 'Full \u2014 Assigned to ' + assignedName;
+      }
+    }
+
+    item.classList.add(availStatusClass);
 
     if (type === 'VACATION') {
       header.textContent = 'Week ' + obj.weekId + ' · ' + formatPublicDate(obj.startDate);
@@ -1335,7 +1453,7 @@
 
     var avail = document.createElement('div');
     avail.className = 'public-availability card-subtitle';
-    avail.textContent = remStr;
+    avail.textContent = availStr;
 
     var assigned = document.createElement('div');
     assigned.className = 'public-assigned-names assignees';
@@ -1365,60 +1483,188 @@
     return item;
   }
 
+  function populateMonthFilter(snapshot) {
+     var monthSelect = document.getElementById('filterMonth');
+     var currentVal = monthSelect.value;
+
+     monthSelect.innerHTML = '<option value="ALL">All Months</option>';
+
+     var cal = snapshot.calendar;
+     if (!cal) return;
+
+     var monthsMap = {};
+
+     function addMonth(dateStr) {
+        if (!dateStr) return;
+        var norm = normalizeDateKeyClient(dateStr);
+        if (!norm) return;
+        var parts = norm.split('-');
+        if (parts.length === 3) {
+           var y = parseInt(parts[0], 10);
+           var m = parseInt(parts[1], 10) - 1; // 0-indexed
+           var dateObj = new Date(y, m, 1);
+           var label = dateObj.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+           var key = y + '-' + String(m + 1).padStart(2, '0');
+           monthsMap[key] = label;
+        }
+     }
+
+     if (cal.vacationWeeks) {
+        for (var i = 0; i < cal.vacationWeeks.length; i++) {
+           addMonth(cal.vacationWeeks[i].startDate);
+        }
+     }
+     if (cal.weekends) {
+        for (var i = 0; i < cal.weekends.length; i++) {
+           addMonth(cal.weekends[i].date);
+        }
+     }
+     if (cal.holidays) {
+        for (var i = 0; i < cal.holidays.length; i++) {
+           addMonth(cal.holidays[i].observedDate);
+        }
+     }
+
+     var keys = Object.keys(monthsMap).sort();
+     for (var i = 0; i < keys.length; i++) {
+        var opt = document.createElement('option');
+        opt.value = keys[i];
+        opt.textContent = monthsMap[keys[i]];
+        monthSelect.appendChild(opt);
+     }
+
+     // Restore selection if it still exists
+     if (currentVal && currentVal !== 'ALL' && monthsMap[currentVal]) {
+        monthSelect.value = currentVal;
+     } else {
+        scheduleFilters.month = 'ALL';
+     }
+  }
+
   function renderPublicCalendar(snapshot) {
     var container = document.getElementById('publicCalendarContent');
     container.innerHTML = '';
+
+    // Update timestamp
+    var timestampEl = document.getElementById('scheduleLastUpdated');
+    if (snapshot.generatedAt) {
+       var d = new Date(snapshot.generatedAt);
+       timestampEl.textContent = "Updated: " + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }
 
     var cal = snapshot.calendar;
     if (cal.supported === false) {
       var msg = document.createElement('p');
       msg.textContent = cal.unsupportedReason || "A calendar display is not available for the current phase.";
       container.appendChild(msg);
+      applyFindPersonHighlights();
       return;
     }
 
-    var grid = document.createElement('div');
-    grid.className = 'public-calendar-grid';
+    var showVacation = scheduleFilters.type === 'ALL' || scheduleFilters.type === 'VACATION';
+    var showWeekends = scheduleFilters.type === 'ALL' || scheduleFilters.type === 'WEEKEND';
+    var showHolidays = scheduleFilters.type === 'ALL' || scheduleFilters.type === 'HOLIDAY';
 
-    if (cal.kind === 'VACATION') {
-       var weeks = cal.vacationWeeks || [];
-       for (var i = 0; i < weeks.length; i++) {
-         grid.appendChild(createPublicItem('VACATION', weeks[i]));
+    // Helper to filter individual items
+    function shouldShowItem(item, type) {
+       // Availability
+       var isAvail = item.remainingCapacity > 0;
+       var isFull = item.remainingCapacity === 0;
+       var isNearlyFull = type === 'VACATION' && item.remainingCapacity === 1;
+
+       if (scheduleFilters.availability === 'AVAILABLE' && !isAvail) return false;
+       if (scheduleFilters.availability === 'FULL' && !isFull) return false;
+       if (scheduleFilters.availability === 'NEARLY_FULL' && !isNearlyFull) return false;
+
+       // Month
+       if (scheduleFilters.month !== 'ALL') {
+          var dateStr = type === 'VACATION' ? item.startDate : (type === 'WEEKEND' ? item.date : item.observedDate);
+          var norm = normalizeDateKeyClient(dateStr);
+          if (norm) {
+             var parts = norm.split('-');
+             var monthKey = parts[0] + '-' + parts[1];
+             if (monthKey !== scheduleFilters.month) return false;
+          }
+       }
+
+       // Person
+       if (scheduleFilters.person) {
+          var searchVal = scheduleFilters.person.trim().toLowerCase();
+          var assignees = (item.assignedNames || []).map(function(n) { return n.trim().toLowerCase(); });
+          if (assignees.indexOf(searchVal) === -1) return false;
+       }
+
+       return true;
+    }
+
+    // Helper to render a section
+    function renderSection(title, type, itemsRaw) {
+       // Sort chronologically
+       var items = itemsRaw.slice();
+       items.sort(function(a, b) {
+          var da = type === 'VACATION' ? a.startDate : (type === 'WEEKEND' ? a.date : a.observedDate);
+          var db = type === 'VACATION' ? b.startDate : (type === 'WEEKEND' ? b.date : b.observedDate);
+
+          var na = normalizeDateKeyClient(da) || da;
+          var nb = normalizeDateKeyClient(db) || db;
+
+          if (na < nb) return -1;
+          if (na > nb) return 1;
+          return 0;
+       });
+
+       var filteredItems = items.filter(function(i) { return shouldShowItem(i, type); });
+
+       if (filteredItems.length === 0) return 0;
+
+       if (scheduleFilters.type === 'ALL') {
+          var head = document.createElement('h3');
+          head.textContent = title;
+          container.appendChild(head);
+       }
+
+       var grid = document.createElement('div');
+       grid.className = 'public-calendar-grid';
+       for (var i = 0; i < filteredItems.length; i++) {
+          var el = createPublicItem(type, filteredItems[i]);
+
+          // Apply person match outline if person filter active
+          if (scheduleFilters.person) {
+             el.classList.add('schedule-person-match');
+          }
+          grid.appendChild(el);
        }
        container.appendChild(grid);
-    } else if (cal.kind === 'WEEKEND') {
-       var headW = document.createElement('h3');
-       headW.textContent = 'Weekend Coverage';
-       container.appendChild(headW);
 
-       var wGrid = document.createElement('div');
-       wGrid.className = 'public-calendar-grid';
-       var weekends = cal.weekends || [];
-       for (var i = 0; i < weekends.length; i++) {
-         wGrid.appendChild(createPublicItem('WEEKEND', weekends[i]));
-       }
-       container.appendChild(wGrid);
-
-       var headH = document.createElement('h3');
-       headH.textContent = 'Holiday Coverage';
-       container.appendChild(headH);
-
-       var hGrid = document.createElement('div');
-       hGrid.className = 'public-calendar-grid';
-       var holidays = cal.holidays || [];
-       for (var i = 0; i < holidays.length; i++) {
-         hGrid.appendChild(createPublicItem('HOLIDAY', holidays[i]));
-       }
-       container.appendChild(hGrid);
-    } else if (cal.kind === 'HOLIDAY') {
-       var hGrid = document.createElement('div');
-       hGrid.className = 'public-calendar-grid';
-       var holidays = cal.holidays || [];
-       for (var i = 0; i < holidays.length; i++) {
-         hGrid.appendChild(createPublicItem('HOLIDAY', holidays[i]));
-       }
-       container.appendChild(hGrid);
+       return filteredItems.length;
     }
+
+    var totalShown = 0;
+
+    if (showVacation) {
+       totalShown += renderSection('Vacation Availability', 'VACATION', cal.vacationWeeks || []);
+    }
+
+    if (showWeekends) {
+       totalShown += renderSection('Weekend Coverage', 'WEEKEND', cal.weekends || []);
+    }
+
+    if (showHolidays) {
+       totalShown += renderSection('Holiday Coverage', 'HOLIDAY', cal.holidays || []);
+    }
+
+    if (totalShown === 0) {
+       var emptyMsg = document.createElement('div');
+       emptyMsg.className = 'text-muted';
+       emptyMsg.style.padding = '24px';
+       emptyMsg.style.textAlign = 'center';
+       emptyMsg.style.border = '1px dashed var(--border)';
+       emptyMsg.style.borderRadius = '8px';
+       emptyMsg.textContent = "No schedule items match the current filters.";
+       container.appendChild(emptyMsg);
+    }
+
+    applyFindPersonHighlights();
   }
 
   function populateFindPerson(names) {
@@ -1448,31 +1694,24 @@
   }
 
   function applyFindPersonHighlights() {
-    var searchVal = (publicDisplayState.selectedPerson || '').trim().toLowerCase();
-    var items = document.querySelectorAll('.public-calendar-item');
-    var resultEl = document.getElementById('findPersonResult');
+    // applyFindPersonHighlights is now mostly handled during render via `schedule-person-match`.
+    // We only update the resultEl here based on what was rendered.
+    var resultEl = document.getElementById('scheduleFilterResult');
+    var searchVal = (scheduleFilters.person || '').trim();
 
     if (!searchVal) {
-       items.forEach(function(item) {
-          item.classList.remove('person-highlight');
-       });
-       resultEl.textContent = '';
-       return;
+      var visibleItems = document.querySelectorAll('.public-calendar-item');
+      resultEl.textContent = visibleItems.length + " items showing.";
+      return;
     }
 
-    var matchCount = 0;
-    items.forEach(function(item) {
-       var assignees = item.getAttribute('data-assignees');
-       var assigneeList = assignees ? assignees.split('|') : [];
-       var isMatch = assigneeList.indexOf(searchVal) !== -1;
-       item.classList.toggle('person-highlight', isMatch);
-       if (isMatch) matchCount++;
-    });
+    var matchCount = document.querySelectorAll('.schedule-person-match').length;
+    var visibleCount = document.querySelectorAll('.public-calendar-item').length;
 
     if (matchCount === 0) {
-       resultEl.textContent = "No assignments found for " + publicDisplayState.selectedPerson + " in the current calendar.";
+       resultEl.textContent = "0 assignments found for " + searchVal + " in the current view.";
     } else {
-       resultEl.textContent = matchCount + " assignment" + (matchCount === 1 ? "" : "s") + " highlighted for " + publicDisplayState.selectedPerson + ".";
+       resultEl.textContent = matchCount + " assignment" + (matchCount === 1 ? "" : "s") + " found for " + searchVal + " (" + visibleCount + " total items showing).";
     }
   }
 
