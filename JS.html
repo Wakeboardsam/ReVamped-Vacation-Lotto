@@ -487,6 +487,7 @@
   }
 
   function formatDateDisplay(dateStr) {
+    if (dateStr === null || dateStr === undefined || dateStr === '' || dateStr === 'null' || dateStr === 'undefined') return '';
     var norm = normalizeDateKeyClient(dateStr);
     if (!norm) return String(dateStr);
     var parts = norm.split('-');
@@ -980,7 +981,7 @@
                  throw new Error("Missing offerId or groupId in payload.");
              }
           } catch(e) {
-             showToast("Error processing selection data. Please refresh and try again.", "danger");
+             showToast("Error processing selection data. Please refresh and try again.", "error");
              return;
           }
         }
@@ -1265,6 +1266,7 @@
   }
 
   function formatPublicDate(val) {
+    if (val === null || val === undefined || val === '' || val === 'null' || val === 'undefined') return '';
     var norm = normalizeDateKeyClient(val);
     if (!norm) return String(val);
     var parts = norm.split('-');
