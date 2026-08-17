@@ -106,22 +106,7 @@ function normalizeDateKey_(value) {
 }
 
 function formatDate(date) {
-  var norm = normalizeDateKey_(date);
-  if (norm) return norm;
-
-  // Fallback for valid non-date timestamp objects/values if needed (though discouraged for date keys)
-  var d = new Date(date);
-  if (!isNaN(d.getTime())) {
-     var month = '' + (d.getMonth() + 1);
-     var day = '' + d.getDate();
-     var year = d.getFullYear();
-
-     if (month.length < 2) month = '0' + month;
-     if (day.length < 2) day = '0' + day;
-
-     return [year, month, day].join('-');
-  }
-  return String(date);
+  return normalizeDateKey_(date) || '';
 }
 
 /**
