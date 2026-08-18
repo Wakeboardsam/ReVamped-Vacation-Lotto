@@ -253,9 +253,7 @@
           appState.participantId = res.participantName;
           appState.name = res.participantName;
           appState.pin = pin; // Securely store pin in memory for privacy context fetches
-          document.getElementById('loginScreen').classList.remove('active');
-          document.getElementById('mainScreen').style.display = 'block';
-          fetchInitialState(res.participantName);
+          showMainScreen();
         }
       })
       .withFailureHandler(function(err) {
@@ -266,36 +264,55 @@
       .authenticateParticipant(name, pin);
   }
 
-  function handleLogout() {
+  function resetToGuestState(errorMessage) {
     localStorage.removeItem('lotto_user');
+
+    // Completely reset all schedule filters back to defaults
+    scheduleFilters.type = 'ALL';
+    scheduleFilters.availability = 'ALL';
+    scheduleFilters.month = 'ALL';
+    scheduleFilters.person = '';
+    scheduleFilters.myChoices = false;
+
+    document.getElementById('filterType').value = 'ALL';
+    document.getElementById('filterAvailability').value = 'ALL';
+    document.getElementById('filterMonth').value = 'ALL';
+    var fp = document.getElementById('findPersonSelect');
+    if (fp) fp.value = '';
+
+    // Clear participant state securely
     appState.participantId = null;
     appState.name = null;
     appState.pin = null;
     appState.isActive = false;
-    document.getElementById('mainScreen').style.display = 'none';
 
-    // Hide Schedule toggle and My Choices buttons
+    // Hide all internal elements
+    document.getElementById('mainScreen').style.display = 'none';
     document.getElementById('scheduleToggleBtn').style.display = 'none';
     document.getElementById('scheduleToggleBtn').textContent = 'Schedule';
     document.getElementById('myChoicesBtn').style.display = 'none';
     document.getElementById('myChoicesBtn').setAttribute('aria-pressed', 'false');
 
-    // Reset My Choices related filter state
-    scheduleFilters.myChoices = false;
-    if (scheduleFilters.person === appState.name) {
-       scheduleFilters.person = '';
-       var fp = document.getElementById('findPersonSelect');
-       if (fp) fp.value = '';
-    }
-
-    // Show both login and schedule sections
+    // Restore Guest View components
     document.getElementById('loginScreen').classList.add('active');
     document.getElementById('scheduleSection').style.display = 'block';
 
     document.getElementById('loginName').value = '';
     document.getElementById('loginPin').value = '';
     setLoginLoading(false);
-    loadPublicDisplay(true); // Forced refresh on logout
+
+    if (errorMessage) {
+      showToast(errorMessage);
+    }
+
+    // Render the freshly reset filters visually without necessarily making a new fetch unless required.
+    // However, logout generally requires re-fetching to guarantee guest context.
+    document.getElementById('loadingIndicator').style.display = 'none';
+    loadPublicDisplay(true); // Forced refresh ensures sanitized guest context
+  }
+
+  function handleLogout() {
+    resetToGuestState();
   }
 
   // Main Screen & Data Loading
@@ -340,29 +357,7 @@
   }
 
   function handleInvalidSession(errorMessage) {
-      localStorage.removeItem('lotto_user');
-      setLoginLoading(false);
-      document.getElementById('mainScreen').style.display = 'none';
-
-      // Hide Schedule toggle and My Choices buttons
-      document.getElementById('scheduleToggleBtn').style.display = 'none';
-      document.getElementById('scheduleToggleBtn').textContent = 'Schedule';
-      document.getElementById('myChoicesBtn').style.display = 'none';
-      document.getElementById('myChoicesBtn').setAttribute('aria-pressed', 'false');
-
-      // Reset My Choices related filter state
-      scheduleFilters.myChoices = false;
-      if (scheduleFilters.person === appState.name) {
-         scheduleFilters.person = '';
-         var fp = document.getElementById('findPersonSelect');
-         if (fp) fp.value = '';
-      }
-
-      document.getElementById('loginScreen').classList.add('active');
-      document.getElementById('scheduleSection').style.display = 'block';
-      showToast(errorMessage);
-      document.getElementById('loadingIndicator').style.display = 'none';
-      loadPublicDisplay();
+      resetToGuestState(errorMessage);
   }
 
   function onStateLoaded(state) {

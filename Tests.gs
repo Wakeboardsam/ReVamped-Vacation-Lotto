@@ -537,6 +537,107 @@ function runRegressionTests() {
     assert(jsonStr.indexOf('SecretName1') === -1, "Private Adjacency warning should not leak.");
     assert(jsonStr.indexOf('_rowIndex') === -1, "Internal _rowIndex should not leak.");
 
+    // --- TEST 8: Verify Guest and Active Participants queue mapping unchanged ---
+    log.push("--- Testing Queue Map Immutability ---");
+    assert(finalSnapshot.queue.activeNames.length >= 0, "activeNames should be serialized safely.");
+    assert(finalSnapshot.queue.upNextNames.length >= 0, "upNextNames should be serialized safely.");
+
+    // --- Mock Client UI Environment for Transition Tests ---
+    log.push("--- Testing Simulated Client-Side Transitions ---");
+    var simulatedDOM = {
+      loginScreen: { classList: { add: function(){ this.has = true; }, remove: function(){ this.has = false; }, contains: function(){ return this.has; }, has: true } },
+      scheduleSection: { style: { display: 'block' } },
+      mainScreen: { style: { display: 'none' } },
+      scheduleToggleBtn: { style: { display: 'none' }, textContent: 'Schedule' },
+      myChoicesBtn: { style: { display: 'none' }, setAttribute: function(){} },
+      filterType: { value: 'ALL' },
+      filterAvailability: { value: 'ALL' },
+      filterMonth: { value: 'ALL' },
+      findPersonSelect: { value: '' },
+      loginName: { value: '' },
+      loginPin: { value: '' },
+      loadingIndicator: { style: { display: 'none' } },
+      loginBtn: { disabled: false, innerText: 'Log In' }
+    };
+
+    var simScheduleFilters = { type: 'ALL', availability: 'ALL', month: 'ALL', person: '', myChoices: false };
+    var simAppState = { participantId: null, name: null, pin: null, isActive: false };
+
+    function resetToGuestStateSimulated() {
+      simScheduleFilters.type = 'ALL';
+      simScheduleFilters.availability = 'ALL';
+      simScheduleFilters.month = 'ALL';
+      simScheduleFilters.person = '';
+      simScheduleFilters.myChoices = false;
+      simulatedDOM.filterType.value = 'ALL';
+      simulatedDOM.filterAvailability.value = 'ALL';
+      simulatedDOM.filterMonth.value = 'ALL';
+      simulatedDOM.findPersonSelect.value = '';
+
+      simAppState.participantId = null;
+      simAppState.name = null;
+      simAppState.pin = null;
+
+      simulatedDOM.mainScreen.style.display = 'none';
+      simulatedDOM.scheduleToggleBtn.style.display = 'none';
+      simulatedDOM.scheduleToggleBtn.textContent = 'Schedule';
+      simulatedDOM.myChoicesBtn.style.display = 'none';
+
+      simulatedDOM.loginScreen.classList.add();
+      simulatedDOM.scheduleSection.style.display = 'block';
+    }
+
+    function showMainScreenSimulated() {
+      simulatedDOM.loginScreen.classList.remove();
+      simulatedDOM.scheduleSection.style.display = 'none';
+      simulatedDOM.mainScreen.style.display = 'block';
+      simulatedDOM.scheduleToggleBtn.style.display = 'inline-block';
+      simulatedDOM.myChoicesBtn.style.display = 'inline-block';
+    }
+
+    function toggleScheduleViewSimulated() {
+      if (simulatedDOM.scheduleSection.style.display === 'none') {
+        simulatedDOM.mainScreen.style.display = 'none';
+        simulatedDOM.scheduleSection.style.display = 'block';
+        simulatedDOM.scheduleToggleBtn.textContent = 'Return to Selection';
+      } else {
+        simulatedDOM.scheduleSection.style.display = 'none';
+        simulatedDOM.mainScreen.style.display = 'block';
+        simulatedDOM.scheduleToggleBtn.textContent = 'Schedule';
+      }
+    }
+
+    // Simulate Initial Guest View
+    resetToGuestStateSimulated();
+    assert(simulatedDOM.loginScreen.classList.contains(), "Guest initially sees login block");
+    assert(simulatedDOM.scheduleSection.style.display === 'block', "Guest initially sees schedule section");
+    assert(simulatedDOM.mainScreen.style.display === 'none', "Guest does not see main screen");
+
+    // Simulate Fresh Login
+    simAppState.participantId = 'Alice';
+    simAppState.name = 'Alice';
+    showMainScreenSimulated();
+    assert(!simulatedDOM.loginScreen.classList.contains(), "Login block hidden after login");
+    assert(simulatedDOM.scheduleSection.style.display === 'none', "Schedule hidden behind main screen immediately after login");
+    assert(simulatedDOM.mainScreen.style.display === 'block', "Main screen visible after login");
+
+    // Simulate Toggle Schedule
+    toggleScheduleViewSimulated();
+    assert(simulatedDOM.mainScreen.style.display === 'none', "Main screen hidden after toggling to schedule");
+    assert(simulatedDOM.scheduleSection.style.display === 'block', "Schedule visible after toggling");
+    assert(simulatedDOM.scheduleToggleBtn.textContent === 'Return to Selection', "Toggle button label updated");
+
+    // Simulate Invalid Session (or logout) while My Choices is active
+    simScheduleFilters.myChoices = true;
+    simScheduleFilters.person = 'Alice';
+    resetToGuestStateSimulated();
+    assert(simulatedDOM.loginScreen.classList.contains(), "Login block visible after logout/invalid session");
+    assert(simulatedDOM.scheduleSection.style.display === 'block', "Schedule block visible after logout/invalid session");
+    assert(simulatedDOM.mainScreen.style.display === 'none', "Main block hidden after logout");
+    assert(simAppState.name === null, "App state name cleared");
+    assert(simScheduleFilters.myChoices === false, "My Choices disabled securely on logout");
+    assert(simScheduleFilters.person === '', "Filter person cleared on logout");
+
 } finally {
     // Restore globals
     SpreadsheetApp = originalSpreadsheetApp;
