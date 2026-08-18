@@ -557,11 +557,14 @@ function runRegressionTests() {
       loginName: { value: '' },
       loginPin: { value: '' },
       loadingIndicator: { style: { display: 'none' } },
-      loginBtn: { disabled: false, innerText: 'Log In' }
+      loginBtn: { disabled: false, innerText: 'Log In' },
+      userNameLabel: { style: { display: 'none' }, textContent: '' },
+      logoutBtn: { style: { display: 'none' } },
+      statusBadge: { className: '', textContent: '' }
     };
 
     var simScheduleFilters = { type: 'ALL', availability: 'ALL', month: 'ALL', person: '', myChoices: false };
-    var simAppState = { participantId: null, name: null, pin: null, isActive: false };
+    var simAppState = { participantId: null, name: null, pin: null, isActive: false, participant: null, availableChoices: null, selections: [], adjacentHolidayPending: null };
 
     function resetToGuestStateSimulated() {
       simScheduleFilters.type = 'ALL';
@@ -577,8 +580,18 @@ function runRegressionTests() {
       simAppState.participantId = null;
       simAppState.name = null;
       simAppState.pin = null;
+      simAppState.participant = null;
+      simAppState.availableChoices = null;
+      simAppState.selections = [];
+      simAppState.adjacentHolidayPending = null;
 
       simulatedDOM.mainScreen.style.display = 'none';
+      simulatedDOM.userNameLabel.style.display = 'none';
+      simulatedDOM.userNameLabel.textContent = '';
+      simulatedDOM.logoutBtn.style.display = 'none';
+      simulatedDOM.statusBadge.className = 'status-pill status-guest';
+      simulatedDOM.statusBadge.textContent = 'GUEST / LOG IN';
+
       simulatedDOM.scheduleToggleBtn.style.display = 'none';
       simulatedDOM.scheduleToggleBtn.textContent = 'Schedule';
       simulatedDOM.myChoicesBtn.style.display = 'none';
@@ -637,6 +650,10 @@ function runRegressionTests() {
     assert(simAppState.name === null, "App state name cleared");
     assert(simScheduleFilters.myChoices === false, "My Choices disabled securely on logout");
     assert(simScheduleFilters.person === '', "Filter person cleared on logout");
+    assert(simulatedDOM.userNameLabel.style.display === 'none', "userNameLabel hidden after logout");
+    assert(simulatedDOM.userNameLabel.textContent === '', "userNameLabel text cleared after logout");
+    assert(simulatedDOM.logoutBtn.style.display === 'none', "logoutBtn hidden after logout");
+    assert(simulatedDOM.statusBadge.textContent === 'GUEST / LOG IN', "statusBadge reset to GUEST / LOG IN after logout");
 
 } finally {
     // Restore globals

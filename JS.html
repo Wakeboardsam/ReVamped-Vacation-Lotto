@@ -285,9 +285,22 @@
     appState.name = null;
     appState.pin = null;
     appState.isActive = false;
+    appState.participant = null;
+    appState.availableChoices = null;
+    appState.selections = [];
+    appState.adjacentHolidayPending = null;
 
-    // Hide all internal elements
+    // Hide all internal elements and restore Guest header
     document.getElementById('mainScreen').style.display = 'none';
+    document.getElementById('userNameLabel').style.display = 'none';
+    document.getElementById('userNameLabel').textContent = '';
+    document.getElementById('logoutBtn').style.display = 'none';
+
+    var statusBadge = document.getElementById('statusBadge');
+    if (statusBadge) {
+      statusBadge.className = 'status-pill status-guest';
+      statusBadge.textContent = 'GUEST / LOG IN';
+    }
     document.getElementById('scheduleToggleBtn').style.display = 'none';
     document.getElementById('scheduleToggleBtn').textContent = 'Schedule';
     document.getElementById('myChoicesBtn').style.display = 'none';
@@ -375,13 +388,7 @@
 
     // 3. Ensure required data structure exists before accessing deeply
     if (!state.participant || !state.availableChoices) {
-      localStorage.removeItem('lotto_user');
-      setLoginLoading(false);
-      document.getElementById('mainScreen').style.display = 'none';
-      document.getElementById('loginScreen').classList.add('active');
-      showToast("Malformed state response from server.");
-      document.getElementById('loadingIndicator').style.display = 'none';
-      loadPublicDisplay(); // ensure public display is loaded
+      handleInvalidSession("Malformed state response from server.");
       return;
     }
 
