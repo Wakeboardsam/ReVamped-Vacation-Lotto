@@ -60,6 +60,17 @@
     }
   }
 
+  // Utility to dismiss mobile keyboard
+  function dismissKeyboard() {
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+      document.activeElement.blur();
+    }
+    var pinInput = document.getElementById('loginPin');
+    if (pinInput) {
+      pinInput.blur();
+    }
+  }
+
   // Initialization
   document.addEventListener("DOMContentLoaded", function() {
     // Check local storage for session
@@ -227,6 +238,7 @@
       return;
     }
 
+    dismissKeyboard();
     setLoginLoading(true);
     errorDiv.style.display = 'none';
 
@@ -253,6 +265,7 @@
           appState.participantId = res.participantName;
           appState.name = res.participantName;
           appState.pin = pin; // Securely store pin in memory for privacy context fetches
+          dismissKeyboard();
           showMainScreen();
         }
       })
