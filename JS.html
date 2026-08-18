@@ -128,6 +128,9 @@
       if (scheduleFilters.myChoices && appState.name) {
         scheduleFilters.person = appState.name;
         document.getElementById('findPersonSelect').value = appState.name;
+      } else if (!scheduleFilters.myChoices && scheduleFilters.person === appState.name) {
+        scheduleFilters.person = '';
+        document.getElementById('findPersonSelect').value = '';
       }
       renderPublicCalendar(publicDisplayState.snapshot);
     });
@@ -266,10 +269,29 @@
   function handleLogout() {
     localStorage.removeItem('lotto_user');
     appState.participantId = null;
+    appState.name = null;
     appState.pin = null;
     appState.isActive = false;
     document.getElementById('mainScreen').style.display = 'none';
+
+    // Hide Schedule toggle and My Choices buttons
+    document.getElementById('scheduleToggleBtn').style.display = 'none';
+    document.getElementById('scheduleToggleBtn').textContent = 'Schedule';
+    document.getElementById('myChoicesBtn').style.display = 'none';
+    document.getElementById('myChoicesBtn').setAttribute('aria-pressed', 'false');
+
+    // Reset My Choices related filter state
+    scheduleFilters.myChoices = false;
+    if (scheduleFilters.person === appState.name) {
+       scheduleFilters.person = '';
+       var fp = document.getElementById('findPersonSelect');
+       if (fp) fp.value = '';
+    }
+
+    // Show both login and schedule sections
     document.getElementById('loginScreen').classList.add('active');
+    document.getElementById('scheduleSection').style.display = 'block';
+
     document.getElementById('loginName').value = '';
     document.getElementById('loginPin').value = '';
     setLoginLoading(false);
@@ -317,28 +339,42 @@
     fetchInitialState(appState.participantId);
   }
 
-  function onStateLoaded(state) {
-    // 1. Defend against null, undefined, string, or non-object payload
-    if (!state || typeof state !== 'object') {
+  function handleInvalidSession(errorMessage) {
       localStorage.removeItem('lotto_user');
       setLoginLoading(false);
       document.getElementById('mainScreen').style.display = 'none';
+
+      // Hide Schedule toggle and My Choices buttons
+      document.getElementById('scheduleToggleBtn').style.display = 'none';
+      document.getElementById('scheduleToggleBtn').textContent = 'Schedule';
+      document.getElementById('myChoicesBtn').style.display = 'none';
+      document.getElementById('myChoicesBtn').setAttribute('aria-pressed', 'false');
+
+      // Reset My Choices related filter state
+      scheduleFilters.myChoices = false;
+      if (scheduleFilters.person === appState.name) {
+         scheduleFilters.person = '';
+         var fp = document.getElementById('findPersonSelect');
+         if (fp) fp.value = '';
+      }
+
       document.getElementById('loginScreen').classList.add('active');
-      showToast("Received invalid response from server.");
+      document.getElementById('scheduleSection').style.display = 'block';
+      showToast(errorMessage);
       document.getElementById('loadingIndicator').style.display = 'none';
-      loadPublicDisplay(); // ensure public display is loaded
+      loadPublicDisplay();
+  }
+
+  function onStateLoaded(state) {
+    // 1. Defend against null, undefined, string, or non-object payload
+    if (!state || typeof state !== 'object') {
+      handleInvalidSession("Received invalid response from server.");
       return;
     }
 
     // 2. Check explicitly for server-reported failure
     if (state.success !== true) {
-      localStorage.removeItem('lotto_user');
-      setLoginLoading(false);
-      document.getElementById('mainScreen').style.display = 'none';
-      document.getElementById('loginScreen').classList.add('active');
-      showToast(state.error || "Session invalid");
-      document.getElementById('loadingIndicator').style.display = 'none';
-      loadPublicDisplay(); // ensure public display is loaded
+      handleInvalidSession(state.error || "Session invalid");
       return;
     }
 
@@ -1321,10 +1357,7 @@
 
   function renderPublicPhaseHeading(snapshot) {
     // We now render this info into the persistent top header instead of the main content area
-    var headingEl = document.getElementById('publicPhaseHeading');
-    if (headingEl) {
-        headingEl.style.display = 'none'; // Ensure it stays hidden
-    }
+    // The publicPhaseHeading is kept visibly hidden via CSS (.visually-hidden) for screen readers.
 
     if (!appState.participantId) {
         // Only update if guest; if logged in, main state syncs it
@@ -1568,7 +1601,7 @@
     // Helper to filter individual items
     function shouldShowItem(item, type) {
        // Availability
-       var isAvail = item.remainingCapacity > 0;
+       var isAvail = type === 'VACATION' ? item.remainingCapacity >= 2 : item.remainingCapacity > 0;
        var isFull = item.remainingCapacity === 0;
        var isNearlyFull = type === 'VACATION' && item.remainingCapacity === 1;
 

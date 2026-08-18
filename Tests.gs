@@ -475,38 +475,67 @@ function runRegressionTests() {
     log.push("--- Testing Public Display Snapshot ---");
     MockSpreadsheetApp.createSheet('Vacation Availability', [
       ['Week ID', 'Start Date (Monday)', 'Capacity', 'Assigned Participants'],
-      ['1', '2025-01-06', '4', 'Alice, Bob'],    // 2 remaining, Available
-      ['2', '2025-01-13', '1', ''],              // 1 remaining, Nearly Full
-      ['3', '2025-01-20', '2', 'Alice, Charlie'] // 0 remaining, Full
+      ['1', '2025-01-06T00:00:00Z', '4', 'Alice, Bob'],    // 2 remaining, Available
+      ['2', '2025-01-13T00:00:00Z', '1', ''],              // 1 remaining, Nearly Full
+      ['3', '2025-01-20T00:00:00Z', '2', 'Alice, Charlie'] // 0 remaining, Full
     ]);
     MockSpreadsheetApp.createSheet('Weekend Coverage', [
-      ['Date', 'Day of Week', 'First Call Assignee'],
-      ['2025-01-04', 'Saturday', ''],
-      ['2025-01-05', 'Sunday', 'Bob']
+      ['Date', 'Day of Week', 'First Call Assignee', 'Vacation Adjacency Warning', 'Holiday Proximity Warning'],
+      ['2025-01-04T00:00:00Z', 'Saturday', '', 'SecretName1', 'SomeWarning'],
+      ['2025-01-05T00:00:00Z', 'Sunday', 'Bob', '', '']
     ]);
     MockSpreadsheetApp.createSheet('Holiday Coverage', [
       ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
-      ['New Year', '2025-01-01', 'CALL_1', ''],
-      ['New Year', '2025-01-01', 'CALL_2', 'Charlie']
+      ['New Year', '2025-01-01T00:00:00Z', 'CALL_1', ''],
+      ['New Year', '2025-01-01T00:00:00Z', 'CALL_2', 'Charlie']
+    ]);
+
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Currently Active', 'Weekend Phase Enabled', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Active for Year', 'Lottery Position', 'Weekend Assignment Maximum', 'PIN', 'Phone Number'],
+      ['Alice', true, true, 'time', true, true, true, 1, '2', '1234', '555-1111'],
+      ['Bob', false, true, '', false, false, true, 2, '2', '5678', '555-2222'],
+      ['InactiveDan', false, false, '', false, false, false, 3, '0', '0000', '555-0000']
     ]);
 
     // Verify snapshot returns all 3 datasets even during an unrelated phase
-    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('WEEKEND');
-    var pubSnapshot = getPublicDisplaySnapshot();
-    assert(pubSnapshot.success === true, "getPublicDisplaySnapshot should succeed.");
-    assert(pubSnapshot.calendar.kind === "ALL", "calendar kind should be 'ALL'.");
-    assert(pubSnapshot.calendar.vacationWeeks.length === 3, "Should return 3 vacation weeks.");
-    assert(pubSnapshot.calendar.weekends.length === 2, "Should return 2 weekends.");
-    assert(pubSnapshot.calendar.holidays.length === 2, "Should return 2 holidays.");
+    var phasesToTest = ['VACATION_SENIORITY', 'WEEKEND', 'HOLIDAY_VOLUNTEER', 'TRANSFER_OFFER_COLLECTION', 'COMPLETE', 'SETUP'];
+    for (var i = 0; i < phasesToTest.length; i++) {
+        MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue(phasesToTest[i]);
+        var pubSnapshot = getPublicDisplaySnapshot();
+        assert(pubSnapshot.success === true, "getPublicDisplaySnapshot should succeed for phase " + phasesToTest[i]);
+        assert(pubSnapshot.calendar.kind === "ALL", "calendar kind should be 'ALL' for phase " + phasesToTest[i]);
+        assert(pubSnapshot.calendar.vacationWeeks.length === 3, "Should return 3 vacation weeks for phase " + phasesToTest[i]);
+        assert(pubSnapshot.calendar.weekends.length === 2, "Should return 2 weekends for phase " + phasesToTest[i]);
+        assert(pubSnapshot.calendar.holidays.length === 2, "Should return 2 holidays for phase " + phasesToTest[i]);
+    }
+
+    var finalSnapshot = getPublicDisplaySnapshot();
 
     // Verify capacity calculations
-    assert(pubSnapshot.calendar.vacationWeeks[0].remainingCapacity === 2, "Week 1 remaining should be 2.");
-    assert(pubSnapshot.calendar.vacationWeeks[1].remainingCapacity === 1, "Week 2 remaining should be 1.");
-    assert(pubSnapshot.calendar.vacationWeeks[2].remainingCapacity === 0, "Week 3 remaining should be 0.");
-    assert(pubSnapshot.calendar.weekends[0].remainingCapacity === 1, "Unassigned weekend remaining should be 1.");
-    assert(pubSnapshot.calendar.weekends[1].remainingCapacity === 0, "Assigned weekend remaining should be 0.");
-    assert(pubSnapshot.calendar.holidays[0].remainingCapacity === 1, "Unassigned holiday remaining should be 1.");
-    assert(pubSnapshot.calendar.holidays[1].remainingCapacity === 0, "Assigned holiday remaining should be 0.");
+    assert(finalSnapshot.calendar.vacationWeeks[0].remainingCapacity === 2, "Week 1 remaining should be 2.");
+    assert(finalSnapshot.calendar.vacationWeeks[1].remainingCapacity === 1, "Week 2 remaining should be 1.");
+    assert(finalSnapshot.calendar.vacationWeeks[2].remainingCapacity === 0, "Week 3 remaining should be 0.");
+    assert(finalSnapshot.calendar.weekends[0].remainingCapacity === 1, "Unassigned weekend remaining should be 1.");
+    assert(finalSnapshot.calendar.weekends[1].remainingCapacity === 0, "Assigned weekend remaining should be 0.");
+    assert(finalSnapshot.calendar.holidays[0].remainingCapacity === 1, "Unassigned holiday remaining should be 1.");
+    assert(finalSnapshot.calendar.holidays[1].remainingCapacity === 0, "Assigned holiday remaining should be 0.");
+
+    // Verify Active-for-Year filters
+    assert(finalSnapshot.participantNames.indexOf('Alice') !== -1, "Active participant Alice should be in names.");
+    assert(finalSnapshot.participantNames.indexOf('Bob') !== -1, "Active participant Bob should be in names.");
+    assert(finalSnapshot.participantNames.indexOf('InactiveDan') === -1, "Inactive participant InactiveDan should NOT be in names.");
+
+    // Verify Date Normalization
+    assert(finalSnapshot.calendar.vacationWeeks[0].startDate === '2025-01-06', "Vacation date should be normalized.");
+    assert(finalSnapshot.calendar.weekends[0].date === '2025-01-04', "Weekend date should be normalized.");
+    assert(finalSnapshot.calendar.holidays[0].observedDate === '2025-01-01', "Holiday date should be normalized.");
+
+    // Verify No Secrets (PIN, Phone, Adjacency Name, Row Index)
+    var jsonStr = JSON.stringify(finalSnapshot);
+    assert(jsonStr.indexOf('1234') === -1, "PIN should not leak.");
+    assert(jsonStr.indexOf('555-1111') === -1, "Phone should not leak.");
+    assert(jsonStr.indexOf('SecretName1') === -1, "Private Adjacency warning should not leak.");
+    assert(jsonStr.indexOf('_rowIndex') === -1, "Internal _rowIndex should not leak.");
 
 } finally {
     // Restore globals

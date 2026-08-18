@@ -24,6 +24,9 @@ function getPublicDisplaySnapshot() {
       var rawName = participants[i]['Name'];
       if (!rawName) continue;
 
+      var isActiveForYear = participants[i]['Active for Year'];
+      if (isActiveForYear !== true && isActiveForYear !== 'TRUE') continue;
+
       var trimmed = String(rawName).trim();
       if (!trimmed) continue;
 
@@ -56,7 +59,7 @@ function getPublicDisplaySnapshot() {
     for (var i = 0; i < vacationData.length; i++) {
       var row = vacationData[i];
       var weekId = String(row['Week ID'] || '');
-      var startDate = row['Start Date (Monday)'];
+      var startDate = normalizeDateKey_(row['Start Date (Monday)']) || String(row['Start Date (Monday)']);
 
       var capacity = parseInt(row['Capacity']) || 4;
 
@@ -98,7 +101,7 @@ function getPublicDisplaySnapshot() {
       var remainingCapacity = Math.max(0, capacity - assignedCount);
 
       calendar.weekends.push({
-        date: row['Date'],
+        date: normalizeDateKey_(row['Date']) || String(row['Date']),
         dayOfWeek: String(row['Day of Week'] || ''),
         capacity: capacity,
         assignedCount: assignedCount,
@@ -123,7 +126,7 @@ function getPublicDisplaySnapshot() {
 
       calendar.holidays.push({
         holidayName: String(row['Holiday Name'] || ''),
-        observedDate: row['Observed Date'],
+        observedDate: normalizeDateKey_(row['Observed Date']) || String(row['Observed Date']),
         callPosition: String(row['Call Position (Call 1 / Call 2)'] || ''),
         capacity: capacity,
         assignedCount: assignedCount,
