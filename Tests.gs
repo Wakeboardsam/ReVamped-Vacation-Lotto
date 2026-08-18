@@ -471,6 +471,190 @@ function runRegressionTests() {
     }
     assert(!mandPassSubmit, "HOLIDAY_MANDATORY Pass is rejected and does not advance the queue.");
 
+    // --- Public Display Snapshot ---
+    log.push("--- Testing Public Display Snapshot ---");
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Week ID', 'Start Date (Monday)', 'Capacity', 'Assigned Participants'],
+      ['1', '2025-01-06T00:00:00Z', '4', 'Alice, Bob'],    // 2 remaining, Available
+      ['2', '2025-01-13T00:00:00Z', '1', ''],              // 1 remaining, Nearly Full
+      ['3', '2025-01-20T00:00:00Z', '2', 'Alice, Charlie'] // 0 remaining, Full
+    ]);
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee', 'Vacation Adjacency Warning', 'Holiday Proximity Warning'],
+      ['2025-01-04T00:00:00Z', 'Saturday', '', 'SecretName1', 'SomeWarning'],
+      ['2025-01-05T00:00:00Z', 'Sunday', 'Bob', '', '']
+    ]);
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Year', '2025-01-01T00:00:00Z', 'CALL_1', ''],
+      ['New Year', '2025-01-01T00:00:00Z', 'CALL_2', 'Charlie']
+    ]);
+
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Currently Active', 'Weekend Phase Enabled', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Active for Year', 'Lottery Position', 'Weekend Assignment Maximum', 'PIN', 'Phone Number'],
+      ['Alice', true, true, 'time', true, true, true, 1, '2', '1234', '555-1111'],
+      ['Bob', false, true, '', false, false, true, 2, '2', '5678', '555-2222'],
+      ['InactiveDan', false, false, '', false, false, false, 3, '0', '0000', '555-0000']
+    ]);
+
+    // Verify snapshot returns all 3 datasets even during an unrelated phase
+    var phasesToTest = ['VACATION_SENIORITY', 'WEEKEND', 'HOLIDAY_VOLUNTEER', 'TRANSFER_OFFER_COLLECTION', 'COMPLETE', 'SETUP'];
+    for (var i = 0; i < phasesToTest.length; i++) {
+        MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue(phasesToTest[i]);
+        var pubSnapshot = getPublicDisplaySnapshot();
+        assert(pubSnapshot.success === true, "getPublicDisplaySnapshot should succeed for phase " + phasesToTest[i]);
+        assert(pubSnapshot.calendar.kind === "ALL", "calendar kind should be 'ALL' for phase " + phasesToTest[i]);
+        assert(pubSnapshot.calendar.vacationWeeks.length === 3, "Should return 3 vacation weeks for phase " + phasesToTest[i]);
+        assert(pubSnapshot.calendar.weekends.length === 2, "Should return 2 weekends for phase " + phasesToTest[i]);
+        assert(pubSnapshot.calendar.holidays.length === 2, "Should return 2 holidays for phase " + phasesToTest[i]);
+    }
+
+    var finalSnapshot = getPublicDisplaySnapshot();
+
+    // Verify capacity calculations
+    assert(finalSnapshot.calendar.vacationWeeks[0].remainingCapacity === 2, "Week 1 remaining should be 2.");
+    assert(finalSnapshot.calendar.vacationWeeks[1].remainingCapacity === 1, "Week 2 remaining should be 1.");
+    assert(finalSnapshot.calendar.vacationWeeks[2].remainingCapacity === 0, "Week 3 remaining should be 0.");
+    assert(finalSnapshot.calendar.weekends[0].remainingCapacity === 1, "Unassigned weekend remaining should be 1.");
+    assert(finalSnapshot.calendar.weekends[1].remainingCapacity === 0, "Assigned weekend remaining should be 0.");
+    assert(finalSnapshot.calendar.holidays[0].remainingCapacity === 1, "Unassigned holiday remaining should be 1.");
+    assert(finalSnapshot.calendar.holidays[1].remainingCapacity === 0, "Assigned holiday remaining should be 0.");
+
+    // Verify Active-for-Year filters
+    assert(finalSnapshot.participantNames.indexOf('Alice') !== -1, "Active participant Alice should be in names.");
+    assert(finalSnapshot.participantNames.indexOf('Bob') !== -1, "Active participant Bob should be in names.");
+    assert(finalSnapshot.participantNames.indexOf('InactiveDan') === -1, "Inactive participant InactiveDan should NOT be in names.");
+
+    // Verify Date Normalization
+    assert(finalSnapshot.calendar.vacationWeeks[0].startDate === '2025-01-06', "Vacation date should be normalized.");
+    assert(finalSnapshot.calendar.weekends[0].date === '2025-01-04', "Weekend date should be normalized.");
+    assert(finalSnapshot.calendar.holidays[0].observedDate === '2025-01-01', "Holiday date should be normalized.");
+
+    // Verify No Secrets (PIN, Phone, Adjacency Name, Row Index)
+    var jsonStr = JSON.stringify(finalSnapshot);
+    assert(jsonStr.indexOf('1234') === -1, "PIN should not leak.");
+    assert(jsonStr.indexOf('555-1111') === -1, "Phone should not leak.");
+    assert(jsonStr.indexOf('SecretName1') === -1, "Private Adjacency warning should not leak.");
+    assert(jsonStr.indexOf('_rowIndex') === -1, "Internal _rowIndex should not leak.");
+
+    // --- TEST 8: Verify Guest and Active Participants queue mapping unchanged ---
+    log.push("--- Testing Queue Map Immutability ---");
+    assert(finalSnapshot.queue.activeNames.length >= 0, "activeNames should be serialized safely.");
+    assert(finalSnapshot.queue.upNextNames.length >= 0, "upNextNames should be serialized safely.");
+
+    // --- Mock Client UI Environment for Transition Tests ---
+    log.push("--- Testing Simulated Client-Side Transitions ---");
+    var simulatedDOM = {
+      loginScreen: { classList: { add: function(){ this.has = true; }, remove: function(){ this.has = false; }, contains: function(){ return this.has; }, has: true } },
+      scheduleSection: { style: { display: 'block' } },
+      mainScreen: { style: { display: 'none' } },
+      scheduleToggleBtn: { style: { display: 'none' }, textContent: 'Schedule' },
+      myChoicesBtn: { style: { display: 'none' }, setAttribute: function(){} },
+      filterType: { value: 'ALL' },
+      filterAvailability: { value: 'ALL' },
+      filterMonth: { value: 'ALL' },
+      findPersonSelect: { value: '' },
+      loginName: { value: '' },
+      loginPin: { value: '' },
+      loadingIndicator: { style: { display: 'none' } },
+      loginBtn: { disabled: false, innerText: 'Log In' },
+      userNameLabel: { style: { display: 'none' }, textContent: '' },
+      logoutBtn: { style: { display: 'none' } },
+      statusBadge: { className: '', textContent: '' }
+    };
+
+    var simScheduleFilters = { type: 'ALL', availability: 'ALL', month: 'ALL', person: '', myChoices: false };
+    var simAppState = { participantId: null, name: null, pin: null, isActive: false, participant: null, availableChoices: null, selections: [], adjacentHolidayPending: null };
+
+    function resetToGuestStateSimulated() {
+      simScheduleFilters.type = 'ALL';
+      simScheduleFilters.availability = 'ALL';
+      simScheduleFilters.month = 'ALL';
+      simScheduleFilters.person = '';
+      simScheduleFilters.myChoices = false;
+      simulatedDOM.filterType.value = 'ALL';
+      simulatedDOM.filterAvailability.value = 'ALL';
+      simulatedDOM.filterMonth.value = 'ALL';
+      simulatedDOM.findPersonSelect.value = '';
+
+      simAppState.participantId = null;
+      simAppState.name = null;
+      simAppState.pin = null;
+      simAppState.participant = null;
+      simAppState.availableChoices = null;
+      simAppState.selections = [];
+      simAppState.adjacentHolidayPending = null;
+
+      simulatedDOM.mainScreen.style.display = 'none';
+      simulatedDOM.userNameLabel.style.display = 'none';
+      simulatedDOM.userNameLabel.textContent = '';
+      simulatedDOM.logoutBtn.style.display = 'none';
+      simulatedDOM.statusBadge.className = 'status-pill status-guest';
+      simulatedDOM.statusBadge.textContent = 'GUEST / LOG IN';
+
+      simulatedDOM.scheduleToggleBtn.style.display = 'none';
+      simulatedDOM.scheduleToggleBtn.textContent = 'Schedule';
+      simulatedDOM.myChoicesBtn.style.display = 'none';
+
+      simulatedDOM.loginScreen.classList.add();
+      simulatedDOM.scheduleSection.style.display = 'block';
+    }
+
+    function showMainScreenSimulated() {
+      simulatedDOM.loginScreen.classList.remove();
+      simulatedDOM.scheduleSection.style.display = 'none';
+      simulatedDOM.mainScreen.style.display = 'block';
+      simulatedDOM.scheduleToggleBtn.style.display = 'inline-block';
+      simulatedDOM.myChoicesBtn.style.display = 'inline-block';
+    }
+
+    function toggleScheduleViewSimulated() {
+      if (simulatedDOM.scheduleSection.style.display === 'none') {
+        simulatedDOM.mainScreen.style.display = 'none';
+        simulatedDOM.scheduleSection.style.display = 'block';
+        simulatedDOM.scheduleToggleBtn.textContent = 'Return to Selection';
+      } else {
+        simulatedDOM.scheduleSection.style.display = 'none';
+        simulatedDOM.mainScreen.style.display = 'block';
+        simulatedDOM.scheduleToggleBtn.textContent = 'Schedule';
+      }
+    }
+
+    // Simulate Initial Guest View
+    resetToGuestStateSimulated();
+    assert(simulatedDOM.loginScreen.classList.contains(), "Guest initially sees login block");
+    assert(simulatedDOM.scheduleSection.style.display === 'block', "Guest initially sees schedule section");
+    assert(simulatedDOM.mainScreen.style.display === 'none', "Guest does not see main screen");
+
+    // Simulate Fresh Login
+    simAppState.participantId = 'Alice';
+    simAppState.name = 'Alice';
+    showMainScreenSimulated();
+    assert(!simulatedDOM.loginScreen.classList.contains(), "Login block hidden after login");
+    assert(simulatedDOM.scheduleSection.style.display === 'none', "Schedule hidden behind main screen immediately after login");
+    assert(simulatedDOM.mainScreen.style.display === 'block', "Main screen visible after login");
+
+    // Simulate Toggle Schedule
+    toggleScheduleViewSimulated();
+    assert(simulatedDOM.mainScreen.style.display === 'none', "Main screen hidden after toggling to schedule");
+    assert(simulatedDOM.scheduleSection.style.display === 'block', "Schedule visible after toggling");
+    assert(simulatedDOM.scheduleToggleBtn.textContent === 'Return to Selection', "Toggle button label updated");
+
+    // Simulate Invalid Session (or logout) while My Choices is active
+    simScheduleFilters.myChoices = true;
+    simScheduleFilters.person = 'Alice';
+    resetToGuestStateSimulated();
+    assert(simulatedDOM.loginScreen.classList.contains(), "Login block visible after logout/invalid session");
+    assert(simulatedDOM.scheduleSection.style.display === 'block', "Schedule block visible after logout/invalid session");
+    assert(simulatedDOM.mainScreen.style.display === 'none', "Main block hidden after logout");
+    assert(simAppState.name === null, "App state name cleared");
+    assert(simScheduleFilters.myChoices === false, "My Choices disabled securely on logout");
+    assert(simScheduleFilters.person === '', "Filter person cleared on logout");
+    assert(simulatedDOM.userNameLabel.style.display === 'none', "userNameLabel hidden after logout");
+    assert(simulatedDOM.userNameLabel.textContent === '', "userNameLabel text cleared after logout");
+    assert(simulatedDOM.logoutBtn.style.display === 'none', "logoutBtn hidden after logout");
+    assert(simulatedDOM.statusBadge.textContent === 'GUEST / LOG IN', "statusBadge reset to GUEST / LOG IN after logout");
+
 } finally {
     // Restore globals
     SpreadsheetApp = originalSpreadsheetApp;

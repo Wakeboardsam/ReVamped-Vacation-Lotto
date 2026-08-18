@@ -3,7 +3,7 @@
   <head>
     <base target="_top">
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vacation Lottery</title>
     <?!= HtmlService.createHtmlOutputFromFile('CSS').getContent(); ?>
   </head>
@@ -18,6 +18,7 @@
         </div>
         <div class="header-actions">
           <span id="userNameLabel" class="user-label" style="display:none; color: var(--header-text); font-weight: 500;"></span>
+          <button id="scheduleToggleBtn" class="btn btn-small btn-primary" style="display:none;">Schedule</button>
           <button id="rulesBtn" class="btn btn-small btn-secondary" style="display:inline-block;">Rules & Tips</button>
           <button id="logoutBtn" class="btn btn-small btn-danger" style="display:none;">Logout</button>
         </div>
@@ -47,46 +48,87 @@
         <button id="loginBtn" class="btn btn-primary">Login</button>
         <div id="loginError" class="error-text" style="display:none;"></div>
       </div>
+    </div>
 
-      <!-- Public Display Section -->
-      <section id="publicDisplaySection" class="public-display" aria-labelledby="publicPhaseHeading">
-        <div id="publicDisplayLoading" class="loading">Loading current schedule...</div>
-        <div id="publicDisplayError" class="error-text" role="status" style="display:none;"></div>
+    <!-- Shared Schedule / Public Display Section -->
+    <section id="scheduleSection" class="public-display" aria-labelledby="publicPhaseHeading" style="display:none;">
+      <div id="publicDisplayLoading" class="loading">Loading current schedule...</div>
+      <div id="publicDisplayError" class="error-text" role="status" style="display:none;"></div>
 
-        <div id="publicDisplayContent" style="display:none;">
-          <h2 id="publicPhaseHeading" style="display:none;"></h2> <!-- Hidden since info is in top header now -->
+      <div id="publicDisplayContent" style="display:none;">
+        <h2 id="publicPhaseHeading" class="visually-hidden">Schedule</h2>
 
-          <section id="publicQueueSection" class="public-queue" aria-labelledby="publicQueueHeading">
-            <h3 id="publicQueueHeading">Current Selection Queue</h3>
+        <section id="publicQueueSection" class="public-queue" aria-labelledby="publicQueueHeading">
+          <h3 id="publicQueueHeading">Current Selection Queue</h3>
 
-            <div class="public-queue-grid">
-              <div class="public-active-panel">
-                <h4>ACTIVE — May Select Now</h4>
-                <p class="public-queue-help">These participants may make their selections now.</p>
-                <div id="publicActiveList"></div>
-              </div>
-
-              <div class="public-up-next-panel">
-                <h4>Up Next</h4>
-                <p class="public-queue-help">Preview only — wait until your name moves to ACTIVE before making a selection.</p>
-                <div id="publicUpNextList"></div>
-              </div>
+          <div class="public-queue-grid">
+            <div class="public-active-panel">
+              <h4>ACTIVE — May Select Now</h4>
+              <p class="public-queue-help">These participants may make their selections now.</p>
+              <div id="publicActiveList"></div>
             </div>
-          </section>
 
-          <div class="find-person-controls">
-            <label for="findPersonSelect">Find Person</label>
+            <div class="public-up-next-panel">
+              <h4>Up Next</h4>
+              <p class="public-queue-help">Preview only — wait until your name moves to ACTIVE before making a selection.</p>
+              <div id="publicUpNextList"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Schedule Filters -->
+        <div class="schedule-filters">
+          <div class="filter-group">
+            <label for="filterType">Type</label>
+            <select id="filterType">
+              <option value="ALL">All Schedules</option>
+              <option value="VACATION">Vacation</option>
+              <option value="WEEKEND">Weekends</option>
+              <option value="HOLIDAY">Holidays</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="filterAvailability">Availability</label>
+            <select id="filterAvailability">
+              <option value="ALL">All</option>
+              <option value="AVAILABLE">Available</option>
+              <option value="NEARLY_FULL">Nearly Full</option>
+              <option value="FULL">Full</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="filterMonth">Month</label>
+            <select id="filterMonth">
+              <option value="ALL">All Months</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="findPersonSelect">Person</label>
             <select id="findPersonSelect">
               <option value="">Select a person</option>
             </select>
-            <button id="clearPersonBtn" class="btn btn-secondary" type="button">Clear</button>
           </div>
-
-          <div id="findPersonResult" role="status"></div>
-          <div id="publicCalendarContent"></div>
+          <div class="filter-actions">
+            <button id="myChoicesBtn" class="btn btn-secondary" type="button" aria-pressed="false" style="display:none;">My Choices</button>
+            <button id="clearFiltersBtn" class="btn btn-secondary" type="button">Clear</button>
+            <button id="refreshScheduleBtn" class="btn btn-secondary" type="button">Refresh</button>
+          </div>
         </div>
-      </section>
-    </div>
+
+        <div class="schedule-status-bar">
+          <div id="scheduleFilterResult" role="status"></div>
+          <div id="scheduleLastUpdated" class="text-muted text-sm"></div>
+        </div>
+
+        <div class="schedule-legend">
+          <span class="legend-item"><span class="legend-color legend-available"></span> Available</span>
+          <span class="legend-item"><span class="legend-color legend-nearly-full"></span> Nearly Full</span>
+          <span class="legend-item"><span class="legend-color legend-full"></span> Full</span>
+        </div>
+
+        <div id="publicCalendarContent"></div>
+      </div>
+    </section>
 
     <!-- Main App Screen -->
     <div id="mainScreen" class="screen" style="display:none;">

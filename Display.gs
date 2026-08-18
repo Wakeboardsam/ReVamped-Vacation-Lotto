@@ -24,6 +24,9 @@ function getPublicDisplaySnapshot() {
       var rawName = participants[i]['Name'];
       if (!rawName) continue;
 
+      var isActiveForYear = participants[i]['Active for Year'];
+      if (isActiveForYear !== true && isActiveForYear !== 'TRUE') continue;
+
       var trimmed = String(rawName).trim();
       if (!trimmed) continue;
 
@@ -43,129 +46,95 @@ function getPublicDisplaySnapshot() {
     });
 
     var calendar = {
-      supported: false,
-      kind: "NONE",
+      supported: true,
+      kind: "ALL",
       unsupportedReason: "",
       vacationWeeks: [],
       weekends: [],
       holidays: []
     };
 
-    if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
-      calendar.supported = true;
-      calendar.kind = "VACATION";
+    // Load Vacation Data
+    var vacationData = getSheetDataAsObjects('Vacation Availability', cache);
+    for (var i = 0; i < vacationData.length; i++) {
+      var row = vacationData[i];
+      var weekId = String(row['Week ID'] || '');
+      var startDate = normalizeDateKey_(row['Start Date (Monday)']) || String(row['Start Date (Monday)']);
 
-      var calendarData = getSheetDataAsObjects('Vacation Availability', cache);
-      for (var i = 0; i < calendarData.length; i++) {
-        var row = calendarData[i];
-        var weekId = String(row['Week ID'] || '');
-        var startDate = row['Start Date (Monday)'];
+      var capacity = parseInt(row['Capacity']) || 4;
 
-        var capacity = parseInt(row['Capacity']) || 4;
-
-        var assignedNamesStr = String(row['Assigned Participants'] || '');
-        var assignedNames = [];
-        if (assignedNamesStr) {
-          var splitNames = assignedNamesStr.split(',');
-          for (var j = 0; j < splitNames.length; j++) {
-            var n = splitNames[j].trim();
-            if (n) assignedNames.push(n);
-          }
+      var assignedNamesStr = String(row['Assigned Participants'] || '');
+      var assignedNames = [];
+      if (assignedNamesStr) {
+        var splitNames = assignedNamesStr.split(',');
+        for (var j = 0; j < splitNames.length; j++) {
+          var n = splitNames[j].trim();
+          if (n) assignedNames.push(n);
         }
-        var assignedCount = assignedNames.length;
-        var remainingCapacity = Math.max(0, capacity - assignedCount);
-
-        calendar.vacationWeeks.push({
-          weekId: weekId,
-          startDate: startDate,
-          capacity: capacity,
-          assignedCount: assignedCount,
-          remainingCapacity: remainingCapacity,
-          primeClassification: String(row['Prime Classification'] || ''),
-          specialWeekDesignation: String(row['Special Week Designation'] || ''),
-          assignedNames: assignedNames
-        });
       }
-      attachSoftHolidayWarnings_(calendar.vacationWeeks, 'startDate', 4);
-    } else if (phase === 'WEEKEND') {
-      calendar.supported = true;
-      calendar.kind = "WEEKEND";
+      var assignedCount = assignedNames.length;
+      var remainingCapacity = Math.max(0, capacity - assignedCount);
 
-      var calendarData = getSheetDataAsObjects('Weekend Coverage', cache);
-      for (var i = 0; i < calendarData.length; i++) {
-        var row = calendarData[i];
-        var assignedNames = [];
-        var fca = String(row['First Call Assignee'] || '').trim();
-        if (fca) assignedNames.push(fca);
-
-        var assignedCount = assignedNames.length;
-        var capacity = 1;
-        var remainingCapacity = Math.max(0, capacity - assignedCount);
-
-        calendar.weekends.push({
-          date: row['Date'],
-          dayOfWeek: String(row['Day of Week'] || ''),
-          capacity: capacity,
-          assignedCount: assignedCount,
-          remainingCapacity: remainingCapacity,
-          assignedNames: assignedNames,
-          holidayProximityWarning: String(row['Holiday Proximity Warning'] || '')
-        });
-      }
-      attachSoftHolidayWarnings_(calendar.weekends, 'date', 0);
-
-      var holidayData = getSheetDataAsObjects('Holiday Coverage', cache);
-      for (var i = 0; i < holidayData.length; i++) {
-        var row = holidayData[i];
-        var assignedNames = [];
-        var ap = String(row['Assigned Participant'] || '').trim();
-        if (ap) assignedNames.push(ap);
-
-        var assignedCount = assignedNames.length;
-        var capacity = 1;
-        var remainingCapacity = Math.max(0, capacity - assignedCount);
-
-        calendar.holidays.push({
-          holidayName: String(row['Holiday Name'] || ''),
-          observedDate: row['Observed Date'],
-          callPosition: String(row['Call Position (Call 1 / Call 2)'] || ''),
-          capacity: capacity,
-          assignedCount: assignedCount,
-          remainingCapacity: remainingCapacity,
-          assignedNames: assignedNames
-        });
-      }
-      attachSoftHolidayWarnings_(calendar.holidays, 'observedDate', 0);
-
-    } else if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
-      calendar.supported = true;
-      calendar.kind = "HOLIDAY";
-
-      var calendarData = getSheetDataAsObjects('Holiday Coverage', cache);
-      for (var i = 0; i < calendarData.length; i++) {
-        var row = calendarData[i];
-        var assignedNames = [];
-        var ap = String(row['Assigned Participant'] || '').trim();
-        if (ap) assignedNames.push(ap);
-
-        var assignedCount = assignedNames.length;
-        var capacity = 1;
-        var remainingCapacity = Math.max(0, capacity - assignedCount);
-
-        calendar.holidays.push({
-          holidayName: String(row['Holiday Name'] || ''),
-          observedDate: row['Observed Date'],
-          callPosition: String(row['Call Position (Call 1 / Call 2)'] || ''),
-          capacity: capacity,
-          assignedCount: assignedCount,
-          remainingCapacity: remainingCapacity,
-          assignedNames: assignedNames
-        });
-      }
-      attachSoftHolidayWarnings_(calendar.holidays, 'observedDate', 0);
-    } else {
-      calendar.unsupportedReason = "A calendar display is not available for the current phase.";
+      calendar.vacationWeeks.push({
+        weekId: weekId,
+        startDate: startDate,
+        capacity: capacity,
+        assignedCount: assignedCount,
+        remainingCapacity: remainingCapacity,
+        primeClassification: String(row['Prime Classification'] || ''),
+        specialWeekDesignation: String(row['Special Week Designation'] || ''),
+        assignedNames: assignedNames
+      });
     }
+    attachSoftHolidayWarnings_(calendar.vacationWeeks, 'startDate', 4);
+
+    // Load Weekend Data
+    var weekendData = getSheetDataAsObjects('Weekend Coverage', cache);
+    for (var i = 0; i < weekendData.length; i++) {
+      var row = weekendData[i];
+      var assignedNames = [];
+      var fca = String(row['First Call Assignee'] || '').trim();
+      if (fca) assignedNames.push(fca);
+
+      var assignedCount = assignedNames.length;
+      var capacity = 1;
+      var remainingCapacity = Math.max(0, capacity - assignedCount);
+
+      calendar.weekends.push({
+        date: normalizeDateKey_(row['Date']) || String(row['Date']),
+        dayOfWeek: String(row['Day of Week'] || ''),
+        capacity: capacity,
+        assignedCount: assignedCount,
+        remainingCapacity: remainingCapacity,
+        assignedNames: assignedNames,
+        holidayProximityWarning: String(row['Holiday Proximity Warning'] || '')
+      });
+    }
+    attachSoftHolidayWarnings_(calendar.weekends, 'date', 0);
+
+    // Load Holiday Data
+    var holidayData = getSheetDataAsObjects('Holiday Coverage', cache);
+    for (var i = 0; i < holidayData.length; i++) {
+      var row = holidayData[i];
+      var assignedNames = [];
+      var ap = String(row['Assigned Participant'] || '').trim();
+      if (ap) assignedNames.push(ap);
+
+      var assignedCount = assignedNames.length;
+      var capacity = 1;
+      var remainingCapacity = Math.max(0, capacity - assignedCount);
+
+      calendar.holidays.push({
+        holidayName: String(row['Holiday Name'] || ''),
+        observedDate: normalizeDateKey_(row['Observed Date']) || String(row['Observed Date']),
+        callPosition: String(row['Call Position (Call 1 / Call 2)'] || ''),
+        capacity: capacity,
+        assignedCount: assignedCount,
+        remainingCapacity: remainingCapacity,
+        assignedNames: assignedNames
+      });
+    }
+    attachSoftHolidayWarnings_(calendar.holidays, 'observedDate', 0);
 
     var result = {
       success: true,
