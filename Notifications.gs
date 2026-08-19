@@ -161,7 +161,7 @@ function notifyActiveParticipants() {
             reminderSent: pSheet.getRange(rowIndex, reminderCol).getValue(),
             alertSent: pSheet.getRange(rowIndex, alertCol).getValue(),
             resendWhatsApp: '', // Not applicable here
-            error: result.error || (result.failureType ? result.failureType : '')
+            error: result.failureType ? result.failureType : (result.error ? 'TRANSPORT_ERROR' : '')
           });
         }
 

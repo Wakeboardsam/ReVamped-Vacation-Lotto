@@ -44,9 +44,10 @@ function logNotificationEvent(logData) {
       timestamp, eventKey, pId, pName, maskedPhone, phase, type, status,
       entryTime, reminderSent, alertSent, resendWhatsApp, selectionRef, errorStr
     ]);
+    return true;
   } catch (err) {
     console.error("[NotificationLog] Failed to append log row: " + err.message);
-    throw err; // Re-throw to allow callers to verify success
+    return false; // Return false instead of throwing to prevent aborting main workflows
   }
 }
 
@@ -86,12 +87,7 @@ function reserveConfirmationEvent(eventKey, logData) {
   // Not found, append PENDING
   logData.status = 'PENDING';
   logData.eventKey = eventKey;
-  try {
-    logNotificationEvent(logData);
-    return true; // Successfully appended PENDING row
-  } catch (err) {
-    return false; // Fail closed if append throws
-  }
+  return logNotificationEvent(logData); // Returns true only if append succeeds, enforcing fail-closed
 }
 
 /**
@@ -100,8 +96,7 @@ function reserveConfirmationEvent(eventKey, logData) {
  * @param {string} phase - Current phase context
  */
 function logStateReset(participant, phase) {
-  try {
-    logNotificationEvent({
+  logNotificationEvent({
     timestamp: new Date(),
     eventKey: 'RESET-' + new Date().getTime() + '-' + participant['Name'],
     participantId: participant['Name'],
@@ -112,10 +107,7 @@ function logStateReset(participant, phase) {
     status: 'SUCCESS',
     entryTimestamp: participant['Entry Timestamp'],
     reminderSent: participant['Reminder Sent'],
-      alertSent: participant['Admin Alert Sent'],
-      resendWhatsApp: participant['Resend WhatsApp'] // Fallback to new name if mapped
-    });
-  } catch(e) {
-    // Swallow error for state reset logs so we don't break the reset workflow
-  }
+    alertSent: participant['Admin Alert Sent'],
+    resendWhatsApp: participant['Resend WhatsApp'] // Fallback to new name if mapped
+  });
 }

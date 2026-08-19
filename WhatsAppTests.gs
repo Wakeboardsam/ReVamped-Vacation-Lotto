@@ -488,6 +488,127 @@ function runWahaUnitTests() {
     console.error("Test group failed (Admin Options Migration): " + e);
   }
 
+
+  // 14. Add URL/Template Test
+  try {
+    MockSpreadsheetApp._sheets['Config'] = undefined;
+    getQueueState = function() { return { phase: 'VACATION_SENIORITY' }; };
+    getWhatsAppConfig_ = function() { return { session: 'test', adminPhone: '5551234567' }; };
+    MockSpreadsheetApp.createSheet('Config', [['Setting Name', 'Setting Value'], ['Current Phase', 'VACATION_SENIORITY']]);
+    getAdminOptions = function() {
+      return {
+        'Enable SMS Notifications': true,
+        'Prompt Text - Vacation': 'VACA_PROMPT',
+        'Web App URL': 'https://vaca.com'
+      };
+    };
+
+    var notifySendCalled = false;
+    var notifyText = '';
+    SpreadsheetApp.flush = function() {};
+    sendParticipantNotification_ = function(phone, text) {
+      notifySendCalled = true;
+      notifyText = text;
+      return { success: true };
+    };
+
+    getActiveParticipants = function() { return [{ _rowIndex: 2, 'Entry Timestamp': '', 'Reminder Sent': false, 'Admin Alert Sent': false, 'Phone Number': '5551111111', 'Name': 'Alice' }]; };
+
+    notifyActiveParticipants();
+    assert(notifySendCalled, "notifyActiveParticipants called sendParticipantNotification_");
+    assert(notifyText.indexOf('VACA_PROMPT') !== -1, "Notification text contains vacation prompt template");
+    assert(notifyText.indexOf('https://vaca.com') !== -1, "Notification text contains Web App URL");
+
+  } catch (e) {
+    failed++;
+    console.error("Test group failed (URL/Template): " + e);
+  }
+
+  // 15. Add State-Reset Snapshot Test
+  try {
+    // Attempt state reset and verify log
+    var initialLogLength = MockSpreadsheetApp._sheets['Notification Log'].getDataRange().getValues().length;
+    logStateReset({ 'Name': 'Bob', 'Phone Number': '5552222', 'Entry Timestamp': '1234', 'Reminder Sent': true, 'Admin Alert Sent': false }, 'WEEKEND');
+
+    var newLogData = MockSpreadsheetApp._sheets['Notification Log'].getDataRange().getValues();
+    assert(newLogData.length > initialLogLength, "logStateReset appended to Notification Log");
+    var lastRow = newLogData[newLogData.length - 1];
+    assert(lastRow[1].indexOf('RESET-') !== -1, "Log event key should contain RESET-");
+    assert(lastRow[8] === '1234', "Log should record entry timestamp 1234");
+    assert(lastRow[9] === true, "Log should record reminder sent true");
+  } catch (e) {
+    failed++;
+    console.error("Test group failed (State-Reset Snapshot): " + e);
+  }
+
+  // 16. Add Confirmation Deduplication & Failure Test
+  try {
+    // Insert an existing CONFIRM log
+    MockSpreadsheetApp._sheets['Notification Log'].appendRow([
+      new Date(), 'CONFIRM-Alice-VACATION_SENIORITY-1', 'Alice', 'Alice', '***', 'VACATION_SENIORITY', 'SELECTION_CONFIRMATION', 'SUCCESS',
+      '', '', '', '', '', ''
+    ]);
+
+    // Should fail to reserve because it already exists
+    var reserveExisting = reserveConfirmationEvent('CONFIRM-Alice-VACATION_SENIORITY-1', {});
+    assert(reserveExisting === false, "reserveConfirmationEvent returns false for already existing CONFIRM key");
+
+    // Now test if transport fails, it still completes the main flow
+    MockSpreadsheetApp.createSheet('Vacation Availability', [['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Assigned Participants'], ['99', '2025-01-01', '1', 'Non-Prime', '']]);
+    MockSpreadsheetApp.createSheet('Participant Config', [['Name', 'Phone Number', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent'], ['Alice', '5551234', '', '', '']]);
+    MockSpreadsheetApp.createSheet('Config', [['Setting Name', 'Setting Value'], ['Current Phase', 'VACATION_SENIORITY']]);
+
+    sendParticipantNotification_ = function(phone, text) {
+      throw new Error("Simulated Transport Failure");
+    };
+
+    var submitRes = submitSelection('Alice', { action: 'SUBMIT', phase: 'VACATION_SENIORITY', selections: ['99'] });
+    assert(submitRes.success === true, "Submit selection still succeeds even if transport throws");
+
+    var newLogData = MockSpreadsheetApp._sheets['Notification Log'].getDataRange().getValues();
+    var lastRow = newLogData[newLogData.length - 1];
+    assert(lastRow[7] === 'FAILED', "Failed transport correctly logged as FAILED");
+    assert(lastRow[13] === 'TRANSPORT_ERROR', "Raw error is sanitized to TRANSPORT_ERROR");
+  } catch (e) {
+    failed++;
+    console.error("Test group failed (Confirmation Deduplication & Failure Test): " + e);
+  }
+
+  // 17. Add Append Failure Test
+  try {
+    var originalAppendRow = MockSpreadsheetApp._sheets['Notification Log'].appendRow;
+    MockSpreadsheetApp._sheets['Notification Log'].appendRow = function() { throw new Error("Append Failed"); };
+
+    var reserveFailed = reserveConfirmationEvent('CONFIRM-Alice-FAIL-1', {});
+    assert(reserveFailed === false, "reserveConfirmationEvent returns false if appendRow throws");
+
+    MockSpreadsheetApp._sheets['Notification Log'].appendRow = originalAppendRow;
+  } catch (e) {
+    failed++;
+    console.error("Test group failed (Append Failure Test): " + e);
+  }
+
+  // 18. Add Mismatched Row Test
+  try {
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Phone Number', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp'],
+      ['Bob', '5552222', '', '', '', false],
+      ['Alice', '5551111', '', '', '', false]
+    ]);
+
+    sendParticipantNotification_ = function(phone, text) {
+      assert(phone === '5551111', "Sent to correct phone despite mismatched row index");
+      return { success: true };
+    };
+
+    // Provide rowIndex 2 (which points to Bob) but pass participantId 'Alice' (which is at row 3)
+    var resendRes = resendParticipantWhatsApp('Alice', 2);
+    assert(resendRes.success === true, "resendParticipantWhatsApp recovers from mismatched row index");
+  } catch (e) {
+    failed++;
+    console.error("Test group failed (Mismatched Row Test): " + e);
+  }
+
   // 13. Test missing log sheet fail closed
   try {
     MockSpreadsheetApp._sheets['Notification Log'] = undefined;
@@ -499,6 +620,7 @@ function runWahaUnitTests() {
     MockSpreadsheetApp.createSheet('Vacation Availability', [['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Assigned Participants'], ['1', '2025-01-01', '1', 'Non-Prime', '']]);
     MockSpreadsheetApp.createSheet('Participant Config', [['Name', 'Phone Number', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent'], ['Alice', '5551234', '', '', '']]);
 
+    getActiveParticipants = function() { return [{ Name: 'Alice' }]; };
     var submitRes = submitSelection('Alice', { action: 'SUBMIT', phase: 'VACATION_SENIORITY', selections: ['1'] });
     assert(submitRes.success === true, "Submit selection still succeeds even if log sheet is missing and confirmation fails.");
   } catch(e) {

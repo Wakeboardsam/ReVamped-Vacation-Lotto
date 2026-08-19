@@ -1142,11 +1142,11 @@ function submitSelection(participantId, selectionData) {
       try {
         notifResult = sendParticipantNotification_(conf.phone, msgText);
       } catch (err) {
-        notifResult = { success: false, error: err.message };
+        notifResult = { success: false, failureType: 'TRANSPORT_ERROR' };
       }
 
       conf.logData.status = notifResult.success ? 'SUCCESS' : 'FAILED';
-      conf.logData.error = notifResult.error || (notifResult.failureType ? notifResult.failureType : '');
+      conf.logData.error = notifResult.failureType ? notifResult.failureType : (notifResult.error ? 'TRANSPORT_ERROR' : '');
       logNotificationEvent(conf.logData);
 
       if (!notifResult.success) {

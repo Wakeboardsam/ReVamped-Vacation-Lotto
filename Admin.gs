@@ -675,36 +675,38 @@ function resendParticipantWhatsApp(participantId, rowIndex) {
       notificationText += " Log in to make your selection.";
     }
 
-    var result = { success: false, error: 'No phone number' };
-    if (phone) {
-      try {
-        result = sendParticipantNotification_(phone, notificationText);
-      } catch (err) {
-        result = { success: false, error: err.message };
+    var result = { success: false, failureType: 'NO_PHONE' };
+    try {
+      if (phone) {
+        try {
+          result = sendParticipantNotification_(phone, notificationText);
+        } catch (err) {
+          result = { success: false, failureType: 'TRANSPORT_ERROR' };
+        }
       }
-    }
 
-    // Log the result
-    if (typeof logNotificationEvent !== 'undefined') {
-      logNotificationEvent({
-        timestamp: new Date(),
-        eventKey: 'MANUAL_RESEND-' + new Date().getTime() + '-' + participantId,
-        participantId: participantId,
-        participantName: participantId,
-        phone: phone,
-        phase: phase,
-        type: 'MANUAL_RESEND',
-        status: result.success ? 'SUCCESS' : 'FAILED',
-        entryTimestamp: pData[rowIndex - 1][pHeaders.indexOf('Entry Timestamp')],
-        reminderSent: pData[rowIndex - 1][pHeaders.indexOf('Reminder Sent')],
-        alertSent: pData[rowIndex - 1][pHeaders.indexOf('Admin Alert Sent')],
-        resendWhatsApp: true,
-        error: result.error || (result.failureType ? result.failureType : '')
-      });
+      // Log the result
+      if (typeof logNotificationEvent !== 'undefined') {
+        logNotificationEvent({
+          timestamp: new Date(),
+          eventKey: 'MANUAL_RESEND-' + new Date().getTime() + '-' + participantId,
+          participantId: participantId,
+          participantName: participantId,
+          phone: phone,
+          phase: phase,
+          type: 'MANUAL_RESEND',
+          status: result.success ? 'SUCCESS' : 'FAILED',
+          entryTimestamp: pData[rowIndex - 1][pHeaders.indexOf('Entry Timestamp')],
+          reminderSent: pData[rowIndex - 1][pHeaders.indexOf('Reminder Sent')],
+          alertSent: pData[rowIndex - 1][pHeaders.indexOf('Admin Alert Sent')],
+          resendWhatsApp: true,
+          error: result.failureType ? result.failureType : (result.error ? 'TRANSPORT_ERROR' : '')
+        });
+      }
+    } finally {
+      // Always reset the checkbox back to FALSE
+      pSheet.getRange(rowIndex, resendColIdx).setValue(false);
     }
-
-    // Always reset the checkbox back to FALSE
-    pSheet.getRange(rowIndex, resendColIdx).setValue(false);
 
     return { success: true };
   });
