@@ -187,6 +187,15 @@ function beginWeekendPhase() {
     // 1. Reset Participant Config tracking fields
     for (var i = 1; i < pData.length; i++) {
       var row = i + 1;
+
+      if (typeof logStateReset !== 'undefined') {
+        var participantObj = {};
+        for (var c = 0; c < pHeaders.length; c++) {
+           participantObj[pHeaders[c]] = pData[i][c];
+        }
+        logStateReset(participantObj, 'WEEKEND');
+      }
+
       pSheet.getRange(row, entryColIdx).clearContent();
       pSheet.getRange(row, reminderColIdx).setValue(false);
       pSheet.getRange(row, alertColIdx).setValue(false);
@@ -609,46 +618,87 @@ function setupSmsTriggers() {
 }
 
 /**
- * Server RPC handler to manually resend an entry SMS to a specific participant.
- * Clears their tracking flags and immediately invokes notifyActiveParticipants().
- * @param {string} participantId - The participant's Name to resend the SMS to.
+ * Server RPC handler to manually resend an entry WhatsApp message to a specific participant.
+ * Sends exactly one message directly, without clearing tracking flags or triggering the batch job.
+ * @param {string} participantId - The participant's Name to resend the message to.
+ * @param {number} rowIndex - The row index of the participant in the sheet.
  */
-function resendParticipantSms(participantId) {
+function resendParticipantWhatsApp(participantId, rowIndex) {
   return withScriptLock(function() {
-    var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var pSheet = ss.getSheetByName('Participant Config');
     var pData = pSheet.getDataRange().getValues();
     var pHeaders = pData[0];
 
-    var nameCol = pHeaders.indexOf('Name');
-    var entryCol = pHeaders.indexOf('Entry Timestamp') + 1;
-    var remCol = pHeaders.indexOf('Reminder Sent') + 1;
-    var alertCol = pHeaders.indexOf('Admin Alert Sent') + 1;
-
-    var found = false;
-
-    for (var i = 1; i < pData.length; i++) {
-      if (pData[i][nameCol] === participantId) {
-        var rowIndex = i + 1;
-        pSheet.getRange(rowIndex, entryCol).clearContent();
-        pSheet.getRange(rowIndex, remCol).setValue(false);
-        pSheet.getRange(rowIndex, alertCol).setValue(false);
-        found = true;
-        break;
+    // We already have rowIndex from onEdit, but we can verify it just in case.
+    if (!rowIndex) {
+      for (var i = 1; i < pData.length; i++) {
+        if (pData[i][pHeaders.indexOf('Name')] === participantId) {
+          rowIndex = i + 1;
+          break;
+        }
       }
     }
 
-    if (!found) {
-      throw new Error("Participant not found for SMS resend.");
+    if (!rowIndex) {
+      throw new Error("Participant not found for WhatsApp resend.");
     }
 
-    // Trigger notification logic immediately so the entry message is resent
-    notifyActiveParticipants();
+    var phone = pData[rowIndex - 1][pHeaders.indexOf('Phone Number')];
+    var resendColIdx = pHeaders.indexOf('Resend WhatsApp') + 1;
+
+    var state = getQueueState();
+    var phase = state.phase;
+    var adminOptions = getAdminOptions();
+
+    var promptKey = 'Prompt Text - Vacation';
+    if (phase === 'WEEKEND') promptKey = 'Prompt Text - Weekend';
+    else if (phase.indexOf('HOLIDAY') > -1) promptKey = 'Prompt Text - Holiday';
+    else if (phase.indexOf('TRANSFER') > -1) promptKey = 'Prompt Text - Transfer';
+
+    var promptText = adminOptions[promptKey] || 'It is your turn to pick.';
+    var notificationText = "Vacation Lottery: " + promptText;
+
+    var webAppUrl = adminOptions['Web App URL'];
+    if (webAppUrl) {
+      notificationText += "\nOpen the lottery: " + webAppUrl;
+    } else {
+      notificationText += " Log in to make your selection.";
+    }
+
+    var result = { success: false, error: 'No phone number' };
+    if (phone) {
+      result = sendParticipantNotification_(phone, notificationText);
+    }
+
+    // Log the result
+    if (typeof logNotificationEvent !== 'undefined') {
+      logNotificationEvent({
+        timestamp: new Date(),
+        eventKey: 'MANUAL_RESEND-' + new Date().getTime() + '-' + participantId,
+        participantId: participantId,
+        participantName: participantId,
+        phone: phone,
+        phase: phase,
+        type: 'MANUAL_RESEND',
+        status: result.success ? 'SUCCESS' : 'FAILED',
+        entryTimestamp: pData[rowIndex - 1][pHeaders.indexOf('Entry Timestamp')],
+        reminderSent: pData[rowIndex - 1][pHeaders.indexOf('Reminder Sent')],
+        alertSent: pData[rowIndex - 1][pHeaders.indexOf('Admin Alert Sent')],
+        resendWhatsApp: true,
+        error: result.error || (result.failureType ? result.failureType : '')
+      });
+    }
+
+    // Always reset the checkbox back to FALSE
+    pSheet.getRange(rowIndex, resendColIdx).setValue(false);
+
     return { success: true };
   });
 }
 
 /**
- * Responds to sheet edits, specifically looking for the 'Resend SMS' checkbox being checked.
+ * Responds to sheet edits, specifically looking for the 'Resend WhatsApp' checkbox being checked.
  * Note: Simple onEdit triggers cannot make UrlFetchApp calls, so this assumes the user
  * authorizing the script has set up an installable onEdit trigger, OR we use an installable trigger.
  * But we'll provide the function here.
@@ -665,23 +715,24 @@ function onEdit(e) {
   if (row < 2) return; // Skip headers
 
   var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  var resendColIdx = headers.indexOf('Resend SMS') + 1;
+  var resendColIdx = headers.indexOf('Resend WhatsApp') + 1;
   var nameColIdx = headers.indexOf('Name') + 1;
 
-  // If the edited cell is the 'Resend SMS' checkbox and it was set to TRUE
+  // If the edited cell is the 'Resend WhatsApp' checkbox and it was set to TRUE
   if (col === resendColIdx && e.value === 'TRUE') {
     var participantId = sheet.getRange(row, nameColIdx).getValue();
 
     if (participantId) {
       try {
-        // Clear flags and resend
-        resendParticipantSms(participantId);
+        resendParticipantWhatsApp(participantId, row);
       } catch (err) {
-        console.error("Failed to resend SMS for " + participantId + ": " + err.message);
+        console.error("Failed to resend WhatsApp for " + participantId + ": " + err.message);
+        // Ensure checkbox is reset even if an outer error occurs
+        sheet.getRange(row, resendColIdx).setValue(false);
       }
+    } else {
+      // If no name, just reset the checkbox
+      sheet.getRange(row, resendColIdx).setValue(false);
     }
-
-    // Always reset the checkbox back to FALSE
-    sheet.getRange(row, col).setValue(false);
   }
 }

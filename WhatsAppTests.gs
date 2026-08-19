@@ -93,7 +93,7 @@ function runWahaUnitTests() {
     getAdminOptions = function() {
       return { 'Enable SMS Notifications': false };
     };
-    var notifRes = sendNotification_('5551234567', 'Test');
+    var notifRes = sendParticipantNotification_('5551234567', 'Test');
     assert(notifRes.failureType === 'DISABLED', "Returns DISABLED when notification setting is off");
     assert(notifRes.success === false, "Returns success false when disabled");
 
@@ -210,8 +210,17 @@ function runWahaUnitTests() {
                 return {
                   setValue: function(val) {
                     sheetValuesSet.push({row: row, col: col, val: val});
+                  },
+                  getValue: function() {
+                    return '';
                   }
                 };
+              },
+              getValue: function() {
+                return '';
+              },
+              appendRow: function(row) {
+                sheetValuesSet.push({type: 'append', row: row});
               }
             };
           }
@@ -369,7 +378,7 @@ function runWahaUnitTests() {
 
   var origGetWhatsAppConfig = typeof getWhatsAppConfig_ !== 'undefined' ? getWhatsAppConfig_ : null;
   var origOutage9 = typeof handleSystemOutage !== 'undefined' ? handleSystemOutage : null;
-  var origSendNotification = typeof sendNotification_ !== 'undefined' ? sendNotification_ : null;
+  var origSendNotification = typeof sendParticipantNotification_ !== 'undefined' ? sendParticipantNotification_ : null;
   var origSendWhatsAppMessage9 = typeof sendWhatsAppMessage !== 'undefined' ? sendWhatsAppMessage : null;
 
   try {
@@ -385,14 +394,14 @@ function runWahaUnitTests() {
 
     getWhatsAppConfig_ = function() { getWhatsAppConfigCalled++; return {}; };
     handleSystemOutage = function() { handleSystemOutageCalled++; };
-    sendNotification_ = function() { sendNotificationCalled++; };
+    sendParticipantNotification_ = function() { sendNotificationCalled++; };
     sendWhatsAppMessage = function() { sendWhatsAppMessageCalled++; };
 
     notifyActiveParticipants();
 
     assert(getWhatsAppConfigCalled === 0, "notifyActiveParticipants skips getWhatsAppConfig_ when disabled");
     assert(handleSystemOutageCalled === 0, "notifyActiveParticipants skips handleSystemOutage when disabled");
-    assert(sendNotificationCalled === 0, "notifyActiveParticipants skips sendNotification_ when disabled");
+    assert(sendNotificationCalled === 0, "notifyActiveParticipants skips sendParticipantNotification_ when disabled");
     assert(sendWhatsAppMessageCalled === 0, "notifyActiveParticipants skips sendWhatsAppMessage when disabled");
   } catch(e) {
     failed++;
@@ -405,7 +414,7 @@ function runWahaUnitTests() {
 
     if (origGetWhatsAppConfig) getWhatsAppConfig_ = origGetWhatsAppConfig;
     if (origOutage9) handleSystemOutage = origOutage9;
-    if (origSendNotification) sendNotification_ = origSendNotification;
+    if (origSendNotification) sendParticipantNotification_ = origSendNotification;
     if (origSendWhatsAppMessage9) sendWhatsAppMessage = origSendWhatsAppMessage9;
   }
 
@@ -440,6 +449,24 @@ function runWahaUnitTests() {
     if (origCheckWahaHealth) checkWahaHealth = origCheckWahaHealth;
     if (origSendWhatsAppMessage11) sendWhatsAppMessage = origSendWhatsAppMessage11;
     if (origGetWhatsAppConfig11) getWhatsAppConfig_ = origGetWhatsAppConfig11;
+  }
+
+  // 11. Test Notification Log for Resend WhatsApp
+  try {
+    var notificationLogData = MockSpreadsheetApp._sheets['Notification Log'] ? MockSpreadsheetApp._sheets['Notification Log'].getDataRange().getValues() : [];
+    var initialLength = notificationLogData.length;
+
+    // Attempt manual resend
+    var resendRes = resendParticipantWhatsApp('Alice', 2);
+
+    var newLogData = MockSpreadsheetApp._sheets['Notification Log'].getDataRange().getValues();
+    assert(newLogData.length > initialLength, "Manual resend should append to Notification Log");
+    var lastRow = newLogData[newLogData.length - 1];
+    assert(lastRow[1].indexOf('MANUAL_RESEND') !== -1, "Log event key should contain MANUAL_RESEND");
+    assert(lastRow[2] === 'Alice', "Log participant ID should be Alice");
+  } catch(e) {
+    failed++;
+    console.error("Test group failed (Notification Log): " + e);
   }
 
   console.log("WAHA Unit Tests completed. Passed: " + passed + " / Failed: " + failed);

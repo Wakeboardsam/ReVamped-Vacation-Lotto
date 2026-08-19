@@ -9,7 +9,7 @@
  * @param {string} text The notification text to send.
  * @returns {Object} Normalized result object with { success, systemic, ... }
  */
-function sendNotification_(phone, text) {
+function sendParticipantNotification_(phone, text) {
   // Check the global notification toggle.
   // Preserve legacy 'Enable SMS Notifications' name for backward compatibility.
   var options = getAdminOptions();

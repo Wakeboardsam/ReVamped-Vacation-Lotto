@@ -445,6 +445,9 @@ function advanceQueueInternal_() {
       var alertCol = pHeaders.indexOf('Admin Alert Sent') + 1;
 
       if (entryCol > 0) {
+        if (typeof logStateReset !== 'undefined') {
+           logStateReset(leadParticipant, phase);
+        }
         pSheet.getRange(leadParticipant._rowIndex, entryCol).clearContent();
         pSheet.getRange(leadParticipant._rowIndex, remCol).setValue(false);
         pSheet.getRange(leadParticipant._rowIndex, alertCol).setValue(false);

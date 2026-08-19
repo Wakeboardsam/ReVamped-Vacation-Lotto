@@ -29,7 +29,10 @@ function setupDatabaseSchema() {
         ['Twilio Auth Token', '', 'Your Twilio Auth Token'],
         ['Twilio Sender Phone', '', 'Your Twilio Sender Phone Number'],
         ['Prompt Text - Vacation', 'It is your turn to pick a vacation week.', 'Message sent when vacation turn starts'],
-        ['Prompt Text - Weekend', 'It is your turn to pick a weekend.', 'Message sent when weekend turn starts']
+        ['Prompt Text - Weekend', 'It is your turn to pick a weekend.', 'Message sent when weekend turn starts'],
+        ['Prompt Text - Holiday', 'It is your turn to pick a holiday assignment.', 'Message sent when holiday turn starts'],
+        ['Prompt Text - Transfer', 'It is your turn to select an available transfer.', 'Message sent when transfer turn starts'],
+        ['Web App URL', '', 'The public URL for the participant web interface']
       ]
     },
     {
@@ -46,7 +49,7 @@ function setupDatabaseSchema() {
         'Had Spring Break Last Year', 'Had Christmas Week Last Year',
         'Worked Any Official Holiday Last Year', 'Rules Acknowledged Year', 'Transfer Offers Submitted',
         'Skipped Turns Remaining', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent',
-        'Resend SMS'
+        'Resend WhatsApp'
       ]
     },
     {
@@ -90,6 +93,14 @@ function setupDatabaseSchema() {
     {
       name: 'Config',
       headers: ['Key', 'Value']
+    },
+    {
+      name: 'Notification Log',
+      headers: [
+        'Log Timestamp', 'Event Key', 'Participant ID', 'Participant Name', 'Masked Phone',
+        'Phase', 'Notification Type', 'Status', 'Entry Timestamp', 'Reminder Sent',
+        'Admin Alert Sent', 'Resend WhatsApp', 'Selection Reference', 'Sanitized Error'
+      ]
     }
   ];
 
@@ -122,6 +133,15 @@ function setupDatabaseSchema() {
         sheet.getRange(2, 1, schema.defaultData.length, schema.defaultData[0].length).setValues(schema.defaultData);
       }
     } else {
+      // In-place migration for "Participant Config": Rename "Resend SMS" to "Resend WhatsApp"
+      if (schema.name === 'Participant Config') {
+        var resendIdx = currentHeaders.indexOf('Resend SMS');
+        if (resendIdx !== -1) {
+          sheet.getRange(1, resendIdx + 1).setValue('Resend WhatsApp');
+          currentHeaders[resendIdx] = 'Resend WhatsApp';
+        }
+      }
+
       // Migrate missing columns for existing sheets
       var needsUpdate = false;
       for (var c = 0; c < schema.headers.length; c++) {
@@ -189,7 +209,7 @@ function sanitizeParticipantConfigSheet() {
     { name: 'Had Spring Break Last Year', defaultVal: false },
     { name: 'Had Christmas Week Last Year', defaultVal: false },
     { name: 'Worked Any Official Holiday Last Year', defaultVal: false },
-    { name: 'Resend SMS', defaultVal: false }
+    { name: 'Resend WhatsApp', defaultVal: false }
   ];
 
   booleanColsConfig.forEach(function(item) {
