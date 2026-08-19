@@ -10,7 +10,9 @@ function logNotificationEvent(logData) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var logSheet = ss.getSheetByName('Notification Log');
-    if (!logSheet) return; // Silent fallback if schema isn't fully set up
+    if (!logSheet) {
+      throw new Error("Notification Log sheet not found");
+    }
 
     var timestamp = logData.timestamp || new Date();
     var eventKey = logData.eventKey || '';
@@ -44,6 +46,7 @@ function logNotificationEvent(logData) {
     ]);
   } catch (err) {
     console.error("[NotificationLog] Failed to append log row: " + err.message);
+    throw err; // Re-throw to allow callers to verify success
   }
 }
 
@@ -51,7 +54,7 @@ function logNotificationEvent(logData) {
  * Atomically checks and reserves a confirmation event to prevent duplicates.
  * @param {string} eventKey - A stable identity for the event.
  * @param {Object} logData - Event details for the initial "PENDING" log.
- * @returns {boolean} True if successfully reserved (meaning it's new), false if it was already processed.
+ * @returns {boolean} True if successfully reserved (meaning it's new), false if it was already processed, missing log sheet, or append failed.
  */
 function reserveConfirmationEvent(eventKey, logData) {
   if (!eventKey) return false;
@@ -60,19 +63,21 @@ function reserveConfirmationEvent(eventKey, logData) {
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var logSheet = ss.getSheetByName('Notification Log');
-  if (!logSheet) return true; // Can't verify, proceed optimistically
+  if (!logSheet) return false; // Fail closed if log sheet is missing
 
   var data = logSheet.getDataRange().getValues();
-  var headers = data[0];
-  var keyCol = headers.indexOf('Event Key');
-  var statusCol = headers.indexOf('Status');
+  if (data.length > 0) {
+    var headers = data[0];
+    var keyCol = headers.indexOf('Event Key');
+    var statusCol = headers.indexOf('Status');
 
-  if (keyCol !== -1 && statusCol !== -1) {
-    for (var i = 1; i < data.length; i++) {
-      if (data[i][keyCol] === eventKey) {
-        var existingStatus = data[i][statusCol];
-        if (existingStatus === 'PENDING' || existingStatus === 'SUCCESS' || existingStatus === 'FAILED') {
-          return false; // Already processed or in progress
+    if (keyCol !== -1 && statusCol !== -1) {
+      for (var i = 1; i < data.length; i++) {
+        if (data[i][keyCol] === eventKey) {
+          var existingStatus = data[i][statusCol];
+          if (existingStatus === 'PENDING' || existingStatus === 'SUCCESS' || existingStatus === 'FAILED') {
+            return false; // Already processed or in progress
+          }
         }
       }
     }
@@ -81,8 +86,12 @@ function reserveConfirmationEvent(eventKey, logData) {
   // Not found, append PENDING
   logData.status = 'PENDING';
   logData.eventKey = eventKey;
-  logNotificationEvent(logData);
-  return true;
+  try {
+    logNotificationEvent(logData);
+    return true; // Successfully appended PENDING row
+  } catch (err) {
+    return false; // Fail closed if append throws
+  }
 }
 
 /**
@@ -91,7 +100,8 @@ function reserveConfirmationEvent(eventKey, logData) {
  * @param {string} phase - Current phase context
  */
 function logStateReset(participant, phase) {
-  logNotificationEvent({
+  try {
+    logNotificationEvent({
     timestamp: new Date(),
     eventKey: 'RESET-' + new Date().getTime() + '-' + participant['Name'],
     participantId: participant['Name'],
@@ -102,7 +112,10 @@ function logStateReset(participant, phase) {
     status: 'SUCCESS',
     entryTimestamp: participant['Entry Timestamp'],
     reminderSent: participant['Reminder Sent'],
-    alertSent: participant['Admin Alert Sent'],
-    resendWhatsApp: participant['Resend WhatsApp'] // Fallback to new name if mapped
-  });
+      alertSent: participant['Admin Alert Sent'],
+      resendWhatsApp: participant['Resend WhatsApp'] // Fallback to new name if mapped
+    });
+  } catch(e) {
+    // Swallow error for state reset logs so we don't break the reset workflow
+  }
 }

@@ -120,7 +120,8 @@ function setupDatabaseSchema() {
 
     // Ensure it has headers
     if (currentHeaders.length === 0 || currentHeaders[0] === '') {
-      sheet.getRange(1, 1, 1, schema.headers.length).setValues([schema.headers]);
+      // sheet.getRange(1, 1, 1, schema.headers.length).setValues([schema.headers]);
+sheet.appendRow(schema.headers);
 
       // Formatting
       var headerRange = sheet.getRange(1, 1, 1, schema.headers.length);
@@ -130,7 +131,7 @@ function setupDatabaseSchema() {
 
       // Populate default data if provided
       if (schema.defaultData && schema.defaultData.length > 0) {
-        sheet.getRange(2, 1, schema.defaultData.length, schema.defaultData[0].length).setValues(schema.defaultData);
+        schema.defaultData.forEach(function(row) { sheet.appendRow(row); });
       }
     } else {
       // In-place migration for "Participant Config": Rename "Resend SMS" to "Resend WhatsApp"
@@ -139,6 +140,28 @@ function setupDatabaseSchema() {
         if (resendIdx !== -1) {
           sheet.getRange(1, resendIdx + 1).setValue('Resend WhatsApp');
           currentHeaders[resendIdx] = 'Resend WhatsApp';
+        }
+      }
+
+      // In-place migration for "Admin Options": Append missing default rows
+      if (schema.name === 'Admin Options' && schema.defaultData && schema.defaultData.length > 0) {
+        var adminData = sheet.getDataRange().getValues();
+        var existingKeys = {};
+        for (var r = 1; r < adminData.length; r++) {
+          if (adminData[r][0]) {
+            existingKeys[adminData[r][0]] = true;
+          }
+        }
+        var rowsToAppend = [];
+        for (var d = 0; d < schema.defaultData.length; d++) {
+          var key = schema.defaultData[d][0];
+          if (!existingKeys[key]) {
+            rowsToAppend.push(schema.defaultData[d]);
+          }
+        }
+        if (rowsToAppend.length > 0) {
+          var lastRowAdmin = sheet.getLastRow();
+          rowsToAppend.forEach(function(r) { sheet.appendRow(r); });
         }
       }
 

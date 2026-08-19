@@ -1138,7 +1138,12 @@ function submitSelection(participantId, selectionData) {
     try {
       var conf = result._confirmation;
       var msgText = "Vacation Lottery Confirmation: You have successfully reserved: " + conf.details + ".";
-      var notifResult = sendParticipantNotification_(conf.phone, msgText);
+      var notifResult = null;
+      try {
+        notifResult = sendParticipantNotification_(conf.phone, msgText);
+      } catch (err) {
+        notifResult = { success: false, error: err.message };
+      }
 
       conf.logData.status = notifResult.success ? 'SUCCESS' : 'FAILED';
       conf.logData.error = notifResult.error || (notifResult.failureType ? notifResult.failureType : '');

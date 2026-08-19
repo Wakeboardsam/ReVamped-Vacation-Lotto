@@ -469,5 +469,42 @@ function runWahaUnitTests() {
     console.error("Test group failed (Notification Log): " + e);
   }
 
+
+  // 12. Test Admin Options Migration
+  try {
+    MockSpreadsheetApp.createSheet('Admin Options', [
+      ['Setting Name', 'Setting Value', 'Description'],
+      ['Existing Setting', 'Value', '']
+    ]);
+    setupDatabaseSchema();
+    var adminDataAfter = MockSpreadsheetApp._sheets['Admin Options'].getDataRange().getValues();
+    var hasHolidayPrompt = adminDataAfter.some(r => r[0] === 'Prompt Text - Holiday');
+    var hasTransferPrompt = adminDataAfter.some(r => r[0] === 'Prompt Text - Transfer');
+    var hasWebAppUrl = adminDataAfter.some(r => r[0] === 'Web App URL');
+    assert(hasHolidayPrompt && hasTransferPrompt && hasWebAppUrl, "Admin Options migration appended missing rows.");
+    assert(adminDataAfter.length === 25, "Admin Options migration appended correctly to existing sheet without duplicates.");
+  } catch(e) {
+    failed++;
+    console.error("Test group failed (Admin Options Migration): " + e);
+  }
+
+  // 13. Test missing log sheet fail closed
+  try {
+    MockSpreadsheetApp._sheets['Notification Log'] = undefined;
+    var reserveRes = reserveConfirmationEvent('test-event', {});
+    assert(reserveRes === false, "reserveConfirmationEvent fails closed if log sheet is missing.");
+
+    // Attempt submit selection which uses confirmation logging
+    MockSpreadsheetApp.createSheet('Config', [['Setting Name', 'Setting Value'], ['Current Phase', 'VACATION_SENIORITY']]);
+    MockSpreadsheetApp.createSheet('Vacation Availability', [['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Assigned Participants'], ['1', '2025-01-01', '1', 'Non-Prime', '']]);
+    MockSpreadsheetApp.createSheet('Participant Config', [['Name', 'Phone Number', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent'], ['Alice', '5551234', '', '', '']]);
+
+    var submitRes = submitSelection('Alice', { action: 'SUBMIT', phase: 'VACATION_SENIORITY', selections: ['1'] });
+    assert(submitRes.success === true, "Submit selection still succeeds even if log sheet is missing and confirmation fails.");
+  } catch(e) {
+    failed++;
+    console.error("Test group failed (Missing Log Fail Closed): " + e);
+  }
+
   console.log("WAHA Unit Tests completed. Passed: " + passed + " / Failed: " + failed);
 }

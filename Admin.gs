@@ -630,8 +630,17 @@ function resendParticipantWhatsApp(participantId, rowIndex) {
     var pData = pSheet.getDataRange().getValues();
     var pHeaders = pData[0];
 
-    // We already have rowIndex from onEdit, but we can verify it just in case.
-    if (!rowIndex) {
+    // Validate that the supplied rowIndex actually belongs to the participantId
+    var isRowValid = false;
+    if (rowIndex && rowIndex > 1 && rowIndex <= pData.length) {
+       if (pData[rowIndex - 1][pHeaders.indexOf('Name')] === participantId) {
+          isRowValid = true;
+       }
+    }
+
+    if (!isRowValid) {
+      // Fallback: locate the row by participant name
+      rowIndex = 0;
       for (var i = 1; i < pData.length; i++) {
         if (pData[i][pHeaders.indexOf('Name')] === participantId) {
           rowIndex = i + 1;
@@ -640,7 +649,7 @@ function resendParticipantWhatsApp(participantId, rowIndex) {
       }
     }
 
-    if (!rowIndex) {
+    if (!rowIndex || rowIndex === 0) {
       throw new Error("Participant not found for WhatsApp resend.");
     }
 
@@ -668,7 +677,11 @@ function resendParticipantWhatsApp(participantId, rowIndex) {
 
     var result = { success: false, error: 'No phone number' };
     if (phone) {
-      result = sendParticipantNotification_(phone, notificationText);
+      try {
+        result = sendParticipantNotification_(phone, notificationText);
+      } catch (err) {
+        result = { success: false, error: err.message };
+      }
     }
 
     // Log the result
