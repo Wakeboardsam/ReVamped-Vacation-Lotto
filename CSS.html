@@ -188,6 +188,19 @@
     gap: 8px;
   }
 
+  @media(max-width: 599px) {
+    body.density-compact .weekend-grid,
+    body.density-compact .holiday-grid,
+    body.density-compact .transfer-grid,
+    body.density-compact .vacation-grid,
+    body.density-subcompact .weekend-grid,
+    body.density-subcompact .holiday-grid,
+    body.density-subcompact .transfer-grid,
+    body.density-subcompact .vacation-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
   /* Action Bar */
   .action-bar { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); padding: 16px 20px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; box-shadow: 0 -4px 6px -1px rgba(0,0,0,0.05); z-index: 90; }
   #selectionSummary { font-weight: 600; font-size: 16px; color: var(--text-main); }
@@ -268,6 +281,13 @@
   body.density-subcompact .public-calendar-grid {
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 8px;
+  }
+
+  @media(max-width: 599px) {
+    body.density-compact .public-calendar-grid,
+    body.density-subcompact .public-calendar-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   /* Override card cursor and hover for public items */

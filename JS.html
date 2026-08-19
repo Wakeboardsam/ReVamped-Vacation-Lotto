@@ -742,7 +742,11 @@
       if (isEarlyRound && special === 'Christmas' && hadChristmas) { disabled = true; disableReason = 'Restricted (Had Last Year)'; }
 
       var cardClass = 'card';
-      if (disabled) cardClass += ' disabled';
+      if (disabled) {
+        cardClass += ' disabled';
+      } else if (capacity > 1 && capacity - assigneesList.length === 1) {
+        cardClass += ' schedule-status-nearly-full';
+      }
 
       var badgesHtml = '';
       if (isPrime) badgesHtml += '<span class="badge badge-prime">Prime</span>';
@@ -1622,20 +1626,6 @@
     avail.className = 'public-availability card-subtitle';
     avail.textContent = availStr;
 
-    var assigned = document.createElement('div');
-    assigned.className = 'public-assigned-names assignees';
-
-    if (obj.assignedNames && obj.assignedNames.length > 0) {
-      for (var j = 0; j < obj.assignedNames.length; j++) {
-        var p = document.createElement('span');
-        p.className = 'assignee-pill';
-        p.textContent = obj.assignedNames[j];
-        assigned.appendChild(p);
-      }
-    } else {
-      assigned.textContent = 'No assignments';
-    }
-
     var content = document.createElement('div');
     content.className = 'card-content';
 
@@ -1644,7 +1634,18 @@
       content.appendChild(subContent);
     }
     content.appendChild(avail);
-    content.appendChild(assigned);
+
+    if (obj.assignedNames && obj.assignedNames.length > 0) {
+      var assigned = document.createElement('div');
+      assigned.className = 'public-assigned-names assignees';
+      for (var j = 0; j < obj.assignedNames.length; j++) {
+        var p = document.createElement('span');
+        p.className = 'assignee-pill';
+        p.textContent = obj.assignedNames[j];
+        assigned.appendChild(p);
+      }
+      content.appendChild(assigned);
+    }
 
     item.appendChild(content);
     return item;

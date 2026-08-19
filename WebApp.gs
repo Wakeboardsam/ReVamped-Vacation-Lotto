@@ -491,6 +491,17 @@ function getInitialState(participantId, pin) {
                    var rD = holsData[h]['Observed Date'];
                    if (rD instanceof Date) rD = formatDate(rD);
                    resolvedDates.push(rD);
+
+                   // Attach the observed date for display purposes if processing the offer
+                   if (o.type === 'GROUPED') {
+                      for (var c = 0; c < o.components.length; c++) {
+                         if (o.components[c]['Date/Position'] === hNamePos) {
+                            o.components[c]['Observed Date'] = rD;
+                         }
+                      }
+                   } else if (o['Date/Position'] === hNamePos) {
+                      o['Observed Date'] = rD;
+                   }
                    break;
                 }
              }
