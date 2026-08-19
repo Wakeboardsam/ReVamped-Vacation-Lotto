@@ -73,9 +73,67 @@
   .loading { text-align: center; padding: 48px; color: var(--text-muted); font-size: 18px; font-weight: 500; }
 
   /* Cards (Vacation/Weekend/Holiday Slots) */
-  .card { background: var(--surface); border-radius: 12px; border: 1px solid var(--border); margin-bottom: 16px; padding: 20px; display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; transition: all 0.2s ease; box-shadow: var(--shadow-sm); flex-direction: column; gap: 12px; }
-  @media(min-width: 600px) { .card { flex-direction: row; align-items: center; } }
+  .card { background: var(--surface); border-radius: 12px; border: 1px solid var(--border); padding: 20px; display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; transition: all 0.2s ease; box-shadow: var(--shadow-sm); flex-direction: column; gap: 12px; margin-bottom: 0; }
   .card:hover:not(.disabled) { box-shadow: var(--shadow-md); transform: translateY(-2px); border-color: #cbd5e1; }
+
+  /* Density control variables for cards */
+  body.density-compact .card {
+    padding: 12px;
+    gap: 8px;
+    border-radius: 10px;
+  }
+  body.density-compact .card-title {
+    font-size: 16px;
+    margin-bottom: 4px;
+  }
+  body.density-compact .card-subtitle {
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+  body.density-compact .badge-container {
+    margin-bottom: 8px;
+  }
+  body.density-compact .assignees {
+    font-size: 13px;
+  }
+  body.density-compact .assignee-pill {
+    padding: 2px 6px;
+    font-size: 12px;
+  }
+
+  body.density-subcompact .card {
+    padding: 8px;
+    gap: 4px;
+    border-radius: 8px;
+  }
+  body.density-subcompact .card-title {
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  body.density-subcompact .card-subtitle {
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
+  body.density-subcompact .badge {
+    padding: 2px 6px;
+    font-size: 11px;
+  }
+  body.density-subcompact .badge-container {
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+  body.density-subcompact .assignees {
+    font-size: 12px;
+    gap: 4px;
+  }
+  body.density-subcompact .assignee-pill {
+    padding: 1px 4px;
+    font-size: 11px;
+  }
+
+  /* Pale yellow availability for exactly 1 spot on multi-capacity */
+  .card.schedule-status-nearly-full { background-color: #fef9c3; border-color: #fde047; }
+
   .card.selected { border: 2px solid var(--primary); background-color: #eff6ff; box-shadow: 0 0 0 1px var(--primary); }
   .card.disabled { opacity: 0.6; cursor: not-allowed; background-color: #f8fafc; pointer-events: none; }
 
@@ -83,9 +141,9 @@
   .card.card-proximity-positive { background-color: #f0fdf4; border-color: #bbf7d0; }
   .card.card-proximity-caution { background-color: #fef2f2; border-color: #fecaca; }
 
-  /* Disabled/Selected take priority over proximity styling */
-  .card.card-proximity-positive.selected, .card.card-proximity-caution.selected { border: 2px solid var(--primary); background-color: #eff6ff; box-shadow: 0 0 0 1px var(--primary); }
-  .card.card-proximity-positive.disabled, .card.card-proximity-caution.disabled { opacity: 0.6; cursor: not-allowed; background-color: #f8fafc; pointer-events: none; border-color: var(--border); }
+  /* Disabled/Selected take priority over proximity/yellow styling */
+  .card.schedule-status-nearly-full.selected, .card.card-proximity-positive.selected, .card.card-proximity-caution.selected { border: 2px solid var(--primary); background-color: #eff6ff; box-shadow: 0 0 0 1px var(--primary); }
+  .card.schedule-status-nearly-full.disabled, .card.card-proximity-positive.disabled, .card.card-proximity-caution.disabled { opacity: 0.6; cursor: not-allowed; background-color: #f8fafc; pointer-events: none; border-color: var(--border); }
 
   .card-content { flex: 1; width: 100%; }
   .card-title { font-size: 18px; font-weight: 700; margin: 0 0 8px 0; color: var(--text-main); }
@@ -108,9 +166,27 @@
   .capacity-text { font-weight: 600; margin-right: 4px; }
 
   /* Grid Layouts */
-  .weekend-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
-  @media(min-width: 768px) { .weekend-grid { grid-template-columns: repeat(2, 1fr); } }
-  @media(min-width: 1024px) { .weekend-grid { grid-template-columns: repeat(3, 1fr); } }
+  .weekend-grid, .holiday-grid, .transfer-grid, .vacation-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+  }
+
+  body.density-compact .weekend-grid,
+  body.density-compact .holiday-grid,
+  body.density-compact .transfer-grid,
+  body.density-compact .vacation-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+
+  body.density-subcompact .weekend-grid,
+  body.density-subcompact .holiday-grid,
+  body.density-subcompact .transfer-grid,
+  body.density-subcompact .vacation-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+  }
 
   /* Action Bar */
   .action-bar { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); padding: 16px 20px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; box-shadow: 0 -4px 6px -1px rgba(0,0,0,0.05); z-index: 90; }
@@ -182,9 +258,17 @@
 
   #findPersonResult { margin-bottom: 24px; font-size: 14px; color: var(--text-muted); min-height: 20px; font-weight: 500; }
 
-  .public-calendar-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 40px; }
-  @media(min-width: 600px) { .public-calendar-grid { grid-template-columns: repeat(2, 1fr); } }
-  @media(min-width: 1024px) { .public-calendar-grid { grid-template-columns: repeat(3, 1fr); } }
+  .public-calendar-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-bottom: 40px; }
+
+  body.density-compact .public-calendar-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+
+  body.density-subcompact .public-calendar-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+  }
 
   /* Override card cursor and hover for public items */
   .public-calendar-item { cursor: default; border: 1px solid var(--border); }
