@@ -23,8 +23,9 @@ var MockSpreadsheetApp = {
       },
       getRange: function(row, col, numRows, numCols) {
         return {
-          setValue: function(val) { data[row - 1][col - 1] = val; },
+          setValue: function(val) { if(!data[row-1]) data[row-1] = []; data[row - 1][col - 1] = val; },
           setValues: function(vals) { for(var i=0; i<vals.length; i++){ if(!data[row-1+i]) data[row-1+i] = []; for(var j=0; j<vals[i].length; j++){ data[row-1+i][col-1+j]=vals[i][j]; } } },
+          getValue: function() { return data[row - 1] ? data[row - 1][col - 1] : ''; },
           getValues: function() {
              var res = [];
              var nr = numRows || 1;
@@ -39,18 +40,23 @@ var MockSpreadsheetApp = {
           },
           clearContent: function() { data[row - 1][col - 1] = ''; },
           clearDataValidations: function() {},
-          setDataValidation: function() {}
+          setDataValidation: function() {},
+          setFontColor: function() { return this; },
+          setFontWeight: function() { return this; },
+          setBackground: function() { return this; }
         };
       },
+      setFrozenRows: function() {},
       getLastRow: function() { return data.length; },
-      getLastColumn: function() { return data[0].length; },
+      getLastColumn: function() { return data.length > 0 ? data[0].length : 0; },
       appendRow: function(row) { data.push(row); }
     };
   },
   getActiveSpreadsheet: function() {
     var self = this;
     return {
-      getSheetByName: function(name) { return self._sheets[name] || null; }
+      getSheetByName: function(name) { return self._sheets[name] || null; },
+      insertSheet: function(name) { self.createSheet(name, []); return self._sheets[name]; }
     };
   }
 };

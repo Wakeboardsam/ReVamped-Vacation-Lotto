@@ -589,7 +589,7 @@ function saveRulesAcknowledgment(participantId, volunteerChoice, transferPref) {
  * @param {object} selectionData
  */
 function submitSelection(participantId, selectionData) {
-  return withScriptLock(function() {
+  var result = withScriptLock(function() {
     // 1. Verify queue and active status
     var state = getQueueState();
     var phase = state.phase;
@@ -649,6 +649,9 @@ function submitSelection(participantId, selectionData) {
     }
 
     if (selectionData.action === 'SUBMIT') {
+      var newlyCommitted = [];
+      var phoneStr = String(pData[pRowIdx - 1][pHeaders.indexOf('Phone Number')] || '');
+
       if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
         // Selection data format: { phase: 'VACATION', selections: ['Week ID 1', 'Week ID 2'] }
         var vSheet = ss.getSheetByName('Vacation Availability');
@@ -729,6 +732,15 @@ function submitSelection(participantId, selectionData) {
         // Write updates
         for (var i = 0; i < toUpdate.length; i++) {
           vSheet.getRange(toUpdate[i].row, vHeaders.indexOf('Assigned Participants') + 1).setValue(toUpdate[i].assigneesStr);
+
+          var weekIdConfirmed = vData[toUpdate[i].row - 1][vHeaders.indexOf('Week ID')];
+          var startDateConfirmed = vData[toUpdate[i].row - 1][vHeaders.indexOf('Start Date (Monday)')];
+          if (startDateConfirmed instanceof Date) startDateConfirmed = formatDate(startDateConfirmed);
+
+          newlyCommitted.push({
+             type: 'VACATION',
+             details: "Week " + weekIdConfirmed + " (" + startDateConfirmed + ")"
+          });
         }
 
         // If 2 non-prime weeks selected, they skip their next turn
@@ -813,30 +825,19 @@ function submitSelection(participantId, selectionData) {
         // 2. Perform updates after all validations pass
         for (var i = 0; i < weekendUpdates.length; i++) {
            wSheet.getRange(weekendUpdates[i].row, weekendUpdates[i].col).setValue(participantId);
+           var wDateConfirmed = wData[weekendUpdates[i].row - 1][wHeaders.indexOf('Date')];
+           if (wDateConfirmed instanceof Date) wDateConfirmed = formatDate(wDateConfirmed);
+           newlyCommitted.push({
+             type: 'WEEKEND',
+             details: wDateConfirmed
+           });
         }
         if (holidayUpdate) {
            holidayUpdate.sheet.getRange(holidayUpdate.row, holidayUpdate.col).setValue(participantId);
-
-           // Send SMS confirmation for adjacent holiday reservation
-           try {
-             var phone = pData[pRowIdx - 1][pHeaders.indexOf('Phone Number')];
-             if (phone) {
-               var holName = selectionData.adjacentHoliday.holidayName;
-               var pos = selectionData.adjacentHoliday.position;
-               var notifResult = sendNotification_(phone, "Vacation Lottery Confirmation: You have successfully reserved " + holName + " (" + pos + ").");
-               if (notifResult && !notifResult.success) {
-                 var maskedPhone = String(phone).replace(/[^\d]/g, '');
-                 if (maskedPhone.length >= 4) {
-                   maskedPhone = "*******" + maskedPhone.slice(-4);
-                 } else {
-                   maskedPhone = "****";
-                 }
-                 console.warn("[WARN] Failed to send adjacent-holiday confirmation to " + maskedPhone + ". Selection remains committed.");
-               }
-             }
-           } catch (err) {
-             console.warn("[WARN] Failed to process adjacent holiday confirmation notification. Selection remains committed.");
-           }
+           newlyCommitted.push({
+             type: 'HOLIDAY',
+             details: selectionData.adjacentHoliday.holidayName + " (" + selectionData.adjacentHoliday.position + ")"
+           });
         }
 
       } else if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
@@ -873,6 +874,10 @@ function submitSelection(participantId, selectionData) {
                 throw new Error("That position was just selected by another participant. Please try again.");
               }
               hSheet.getRange(i + 1, hHeaders.indexOf('Assigned Participant') + 1).setValue(participantId);
+              newlyCommitted.push({
+                type: 'HOLIDAY',
+                details: selectedItem.name + " (" + selectedItem.position + ")"
+              });
               found = true;
               break;
           }
@@ -1083,19 +1088,77 @@ function submitSelection(participantId, selectionData) {
         for (var c = 0; c < componentsToClaim.length; c++) {
            var comp = componentsToClaim[c];
            histSheet.appendRow([new Date(), comp.assignmentType, comp.datePos, '', comp.originalAssignee, participantId, activeYear]);
+           newlyCommitted.push({
+              type: 'TRANSFER',
+              details: comp.assignmentType + " - " + comp.datePos + " (from " + comp.originalAssignee + ")"
+           });
         }
       }
 
       // Advance Queue after successful selection submission
       advanceQueueInternal_();
-      if (partialSuccessMessage) {
-        return { success: true, message: partialSuccessMessage };
+
+      // Instead of sending under the lock, reserve the event and return data for sending outside
+      var confirmationData = null;
+      if (newlyCommitted.length > 0 && phoneStr && typeof reserveConfirmationEvent !== 'undefined') {
+        var detailsList = newlyCommitted.map(function(c) { return c.details; }).join(", ");
+        var selectionHash = detailsList.replace(/[^a-zA-Z0-9]/g, '');
+        var eventKey = 'CONFIRM-' + participantId + '-' + phase + '-' + selectionHash;
+
+        var logData = {
+          timestamp: new Date(),
+          participantId: participantId,
+          participantName: participantId,
+          phone: phoneStr,
+          phase: phase,
+          type: 'SELECTION_CONFIRMATION',
+          entryTimestamp: pData[pRowIdx - 1][pHeaders.indexOf('Entry Timestamp')],
+          reminderSent: pData[pRowIdx - 1][pHeaders.indexOf('Reminder Sent')],
+          alertSent: pData[pRowIdx - 1][pHeaders.indexOf('Admin Alert Sent')],
+          selectionReference: detailsList
+        };
+
+        if (reserveConfirmationEvent(eventKey, logData)) {
+           confirmationData = { phone: phoneStr, details: detailsList, logData: logData };
+        }
       }
-      return { success: true };
+
+      return {
+        success: true,
+        message: partialSuccessMessage || undefined,
+        _confirmation: confirmationData
+      };
     }
 
     throw new Error("Invalid action.");
   });
+
+  // Lock is released here. Now send confirmation if reserved.
+  if (result && result._confirmation) {
+    try {
+      var conf = result._confirmation;
+      var msgText = "Vacation Lottery Confirmation: You have successfully reserved: " + conf.details + ".";
+      var notifResult = null;
+      try {
+        notifResult = sendParticipantNotification_(conf.phone, msgText);
+      } catch (err) {
+        notifResult = { success: false, failureType: 'TRANSPORT_ERROR' };
+      }
+
+      conf.logData.status = notifResult.success ? 'SUCCESS' : 'FAILED';
+      conf.logData.error = notifResult.failureType ? notifResult.failureType : (notifResult.error ? 'TRANSPORT_ERROR' : '');
+      logNotificationEvent(conf.logData);
+
+      if (!notifResult.success) {
+         console.warn("[WARN] Failed to send confirmation to " + participantId + ". Selection remains committed.");
+      }
+    } catch (err) {
+      console.warn("[WARN] Failed to process confirmation notification for " + participantId + ". Error: " + err.message);
+    }
+    delete result._confirmation; // Remove internal data from client response
+  }
+
+  return result;
 }
 
 /**

@@ -76,9 +76,21 @@ function notifyActiveParticipants() {
 
       // 1. Immediate Entry Notification
       if (!entryTimeRaw) {
-        var promptText = adminOptions['Prompt Text - ' + (phase.indexOf('VACATION') > -1 ? 'Vacation' : 'Weekend')] || 'It is your turn to pick.';
+        var promptKey = 'Prompt Text - Vacation';
+        if (phase === 'WEEKEND') promptKey = 'Prompt Text - Weekend';
+        else if (phase.indexOf('HOLIDAY') > -1) promptKey = 'Prompt Text - Holiday';
+        else if (phase.indexOf('TRANSFER') > -1) promptKey = 'Prompt Text - Transfer';
+
+        var promptText = adminOptions[promptKey] || 'It is your turn to pick.';
         notificationPhone = participantPhone;
-        notificationText = "Vacation Lottery: " + promptText + " Log in to make your selection.";
+        notificationText = "Vacation Lottery: " + promptText;
+
+        var webAppUrl = adminOptions['Web App URL'];
+        if (webAppUrl) {
+          notificationText += "\nOpen the lottery: " + webAppUrl;
+        } else {
+          notificationText += " Log in to make your selection.";
+        }
 
         // Update state BEFORE sending
         pSheet.getRange(rowIndex, entryTimeCol).setValue(now);
@@ -100,8 +112,23 @@ function notifyActiveParticipants() {
         }
         // 3. Participant Reminder Notification
         else if (elapsedMins > reminderDelayMins && !reminderSent) {
+          var promptKey = 'Prompt Text - Vacation';
+          if (phase === 'WEEKEND') promptKey = 'Prompt Text - Weekend';
+          else if (phase.indexOf('HOLIDAY') > -1) promptKey = 'Prompt Text - Holiday';
+          else if (phase.indexOf('TRANSFER') > -1) promptKey = 'Prompt Text - Transfer';
+
+          var promptText = adminOptions[promptKey] || 'It is your turn to pick.';
+
           notificationPhone = participantPhone;
-          notificationText = "Vacation Lottery Reminder: It is still your turn to make a selection. Please log in as soon as possible.";
+          notificationText = "Vacation Lottery Reminder: " + promptText;
+
+          var webAppUrl = adminOptions['Web App URL'];
+          if (webAppUrl) {
+            notificationText += "\nOpen the lottery: " + webAppUrl;
+          } else {
+            notificationText += " Please log in as soon as possible.";
+          }
+
           // Update state BEFORE sending
           pSheet.getRange(rowIndex, reminderCol).setValue(true);
         }
@@ -116,7 +143,27 @@ function notifyActiveParticipants() {
         }
         attemptsMade++;
 
-        var result = sendNotification_(notificationPhone, notificationText);
+        var result = sendParticipantNotification_(notificationPhone, notificationText);
+
+        // Log the result
+        var notifType = !entryTimeRaw ? 'INITIAL' : (notificationPhone === adminPhone ? 'ADMIN_ALERT' : 'REMINDER');
+        if (typeof logNotificationEvent !== 'undefined') {
+          logNotificationEvent({
+            timestamp: new Date(),
+            eventKey: 'AUTO-' + notifType + '-' + new Date().getTime() + '-' + participantName,
+            participantId: participantName,
+            participantName: participantName,
+            phone: notificationPhone, // Admin phone if admin alert
+            phase: phase,
+            type: notifType,
+            status: result.success ? 'SUCCESS' : 'FAILED',
+            entryTimestamp: !entryTimeRaw ? now : entryTimeRaw,
+            reminderSent: pSheet.getRange(rowIndex, reminderCol).getValue(),
+            alertSent: pSheet.getRange(rowIndex, alertCol).getValue(),
+            resendWhatsApp: '', // Not applicable here
+            error: result.failureType ? result.failureType : (result.error ? 'TRANSPORT_ERROR' : '')
+          });
+        }
 
         if (result && result.systemic === true) {
           // Abort further processing in this trigger run on systemic failure
