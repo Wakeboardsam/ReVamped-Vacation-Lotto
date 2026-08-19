@@ -71,8 +71,66 @@
     }
   }
 
+  // Density Management
+  function initDensityControl() {
+    var savedDensity = localStorage.getItem('lotto_ui_density') || 'normal';
+    if (['normal', 'compact', 'subcompact'].indexOf(savedDensity) === -1) {
+      savedDensity = 'normal';
+    }
+
+    // Sync initial state to radio buttons
+    var radios = document.querySelectorAll('input[name="densitySchedule"], input[name="densityLogged"]');
+    radios.forEach(function(r) {
+      if (r.value === savedDensity) r.checked = true;
+
+      // Update aria-pressed
+      var label = document.querySelector('label[for="' + r.id + '"]');
+      if (label) {
+        label.setAttribute('aria-pressed', r.checked ? 'true' : 'false');
+      }
+
+      r.addEventListener('change', function(e) {
+        if (e.target.checked) {
+          setUiDensity(e.target.value);
+        }
+      });
+    });
+
+    // Apply initial class
+    applyDensityClass(savedDensity);
+  }
+
+  function setUiDensity(density) {
+    localStorage.setItem('lotto_ui_density', density);
+
+    // Sync all density radio buttons across both controls
+    var radios = document.querySelectorAll('input[name="densitySchedule"], input[name="densityLogged"]');
+    radios.forEach(function(r) {
+      r.checked = (r.value === density);
+      var label = document.querySelector('label[for="' + r.id + '"]');
+      if (label) {
+        label.setAttribute('aria-pressed', r.checked ? 'true' : 'false');
+      }
+    });
+
+    applyDensityClass(density);
+  }
+
+  function applyDensityClass(density) {
+    // Remove existing
+    document.body.classList.remove('density-compact', 'density-subcompact');
+
+    if (density === 'compact') {
+      document.body.classList.add('density-compact');
+    } else if (density === 'subcompact') {
+      document.body.classList.add('density-subcompact');
+    }
+  }
+
   // Initialization
   document.addEventListener("DOMContentLoaded", function() {
+    initDensityControl();
+
     // Check local storage for session
     var savedName = localStorage.getItem('lotto_user');
 
@@ -553,20 +611,32 @@
     var container = document.getElementById('viewContent');
     container.innerHTML = '';
 
+    var showDensityControl = false;
+
     if (appState.phase === 'VACATION_SENIORITY' || appState.phase === 'VACATION_RANDOM') {
       renderVacationPhase(container);
+      showDensityControl = true;
     } else if (appState.phase === 'WEEKEND') {
       renderWeekendPhase(container);
+      showDensityControl = true;
     } else if (appState.phase === 'HOLIDAY_VOLUNTEER' || appState.phase === 'HOLIDAY_MANDATORY') {
       renderHolidayPhase(container);
+      showDensityControl = true;
     } else if (appState.phase === 'TRANSFER_OFFER_COLLECTION') {
       renderTransferOfferPhase(container);
+      showDensityControl = true;
     } else if (appState.phase === 'TRANSFER_RECEIVER') {
       renderTransferReceiverPhase(container);
+      showDensityControl = true;
     } else if (appState.phase === 'COMPLETE') {
       container.innerHTML = '<div class="card"><div class="card-content"><p class="card-title">Lottery Complete</p><p>All phases of the lottery have concluded for this year.</p></div></div>';
     } else {
       container.innerHTML = '<p>Please wait for the administrator to start a lottery phase.</p>';
+    }
+
+    var densityCtrl = document.getElementById('loggedInDensityControl');
+    if (densityCtrl) {
+      densityCtrl.style.display = showDensityControl ? 'flex' : 'none';
     }
 
     updateActionBar();
@@ -649,6 +719,7 @@
     var isEarlyRound = appState.round <= 3;
 
     var html = '<h3>Select Vacation Weeks</h3>';
+    html += '<div class="vacation-grid">';
 
     for (var i = 0; i < weeks.length; i++) {
       var w = weeks[i];
@@ -671,14 +742,18 @@
       if (isEarlyRound && special === 'Christmas' && hadChristmas) { disabled = true; disableReason = 'Restricted (Had Last Year)'; }
 
       var cardClass = 'card';
-      if (disabled) cardClass += ' disabled';
+      if (disabled) {
+        cardClass += ' disabled';
+      } else if (capacity > 1 && capacity - assigneesList.length === 1) {
+        cardClass += ' schedule-status-nearly-full';
+      }
 
       var badgesHtml = '';
       if (isPrime) badgesHtml += '<span class="badge badge-prime">Prime</span>';
       else badgesHtml += '<span class="badge badge-nonprime">Non-Prime</span>';
       if (special && special !== 'None') badgesHtml += '<span class="badge badge-special">' + special + '</span>';
       badgesHtml += softHolidayBadgesHtml_(w.softHolidayWarnings);
-      if (disableReason) badgesHtml += '<span class="badge badge-warning">' + disableReason + '</span>';
+      if (disableReason && disableReason !== 'Full') badgesHtml += '<span class="badge badge-warning">' + disableReason + '</span>';
 
       var assignedPills = '';
       if (assigneesList.length > 0) {
@@ -691,12 +766,19 @@
 
       html += '<div class="' + cardClass + '" data-id="' + weekId + '" data-prime="' + isPrime + '" onclick="toggleSelection(this, \'vacation\')">';
       html += '  <div class="card-content">';
-      html += '    <h4 class="card-title">Week ' + weekId + ' (' + formatDateDisplay(w['Start Date (Monday)']) + ')</h4>';
+      html += '    <h4 class="card-title">' + formatDateDisplay(w['Start Date (Monday)']) + '</h4>';
       html += '    <div class="badge-container">' + badgesHtml + '</div>';
-      html += '    <div class="assignees"><span class="capacity-text">Assigned (' + assigneesList.length + '/' + capacity + '):</span> ' + assignedPills + '</div>';
+
+      var capacityDisplay = (capacity - assigneesList.length) + ' spots available';
+      if (capacity - assigneesList.length === 1) capacityDisplay = '1 spot available';
+      if (capacity - assigneesList.length <= 0) capacityDisplay = 'Full';
+
+      html += '    <div class="assignees"><span class="capacity-text">' + capacityDisplay + '</span> ' + (assigneesList.length > 0 ? assignedPills : '') + '</div>';
       html += '  </div>';
       html += '</div>';
     }
+
+    html += '</div>';
 
     container.innerHTML = html;
   }
@@ -744,7 +826,11 @@
       html += '  <div class="card-content">';
       html += '    <h4 class="card-title">' + dayOfWeek + ' - ' + displayDate + '</h4>';
       if (badgesHtml) html += '    <div style="margin-bottom:8px;">' + badgesHtml + '</div>';
-      html += '    <div class="assignees">Assignee: ' + (assignee || 'Available') + '</div>';
+
+      var availDisplay = assignee ? 'Full' : 'Available';
+      var pillDisplay = assignee ? ' <span class="assignee-pill">' + assignee + '</span>' : '';
+      if (disabled && !assignee) availDisplay = 'Unavailable';
+      html += '    <div class="assignees"><span class="capacity-text">' + availDisplay + '</span>' + pillDisplay + '</div>';
       html += '  </div>';
       html += '</div>';
     }
@@ -761,6 +847,7 @@
     }
 
     var html = '<h3>Select a Holiday Position</h3>';
+    html += '<div class="holiday-grid">';
 
     for (var i = 0; i < holidays.length; i++) {
       var h = holidays[i];
@@ -782,22 +869,28 @@
         badgesHtml += '<span class="badge badge-proximity-positive">' + escapeSoftHolidayText(badgeText) + '</span> ';
       }
       if (h.nearVacation) {
-        var vWeek = h.nearVacationWeek ? 'Week ' + h.nearVacationWeek : '';
-        var badgeText = vWeek ? 'Near Your Vacation: ' + vWeek : 'Near Your Vacation';
+        var vWeek = h.nearVacationWeek ? h.nearVacationWeek : '';
+        var badgeText = vWeek ? 'Near Your Vacation' : 'Near Your Vacation';
         badgesHtml += '<span class="badge badge-proximity-caution">' + escapeSoftHolidayText(badgeText) + '</span> ';
       }
 
+      var displayStr = h['Holiday Name'] + ' — ' + formatDateDisplay(h['Observed Date']) + ' · ' + posLabel;
+
       html += '<div class="' + cardClass + '" data-id="' + idStr + '" data-name="' + h['Holiday Name'] + '" data-pos="' + posLabel + '" onclick="toggleSelection(this, \'holiday\')">';
       html += '  <div class="card-content">';
-      html += '    <h4 class="card-title">' + h['Holiday Name'] + ' - ' + posLabel + '</h4>';
-      html += '    <div class="card-subtitle">' + formatDateDisplay(h['Observed Date']) + '</div>';
+      html += '    <h4 class="card-title">' + displayStr + '</h4>';
       if (badgesHtml) {
         html += '    <div style="margin-bottom:8px;">' + badgesHtml + '</div>';
       }
-      html += '    <div class="assignees">Assignee: ' + (assignee || 'Available') + '</div>';
+      var availDisplay = assignee ? 'Full' : 'Available';
+      var pillDisplay = assignee ? ' <span class="assignee-pill">' + assignee + '</span>' : '';
+      if (disabled && !assignee) availDisplay = 'Unavailable';
+      html += '    <div class="assignees"><span class="capacity-text">' + availDisplay + '</span>' + pillDisplay + '</div>';
       html += '  </div>';
       html += '</div>';
     }
+
+    html += '</div>';
 
     container.innerHTML = html;
   }
@@ -813,6 +906,7 @@
 
     var html = '<h3>Select an assignment to put in the Transfer Pool</h3>';
     html += '<p style="color:var(--danger); font-weight:bold;">WARNING: Offers are irrevocable once submitted.</p>';
+    html += '<div class="transfer-grid">';
 
     for (var i = 0; i < myAssignments.length; i++) {
       var a = myAssignments[i];
@@ -830,12 +924,13 @@
         valStr = dStr;
         objStr = JSON.stringify({ type: a.type, datePos: valStr });
       } else if (a.type === 'HOLIDAY') {
-        displayStr = a.details['Holiday Name'] + ' - ' + a.details['Call Position (Call 1 / Call 2)'];
-        valStr = displayStr;
+        displayStr = a.details['Holiday Name'] + ' — ' + formatDateDisplay(a.details['Observed Date']) + ' · ' + a.details['Call Position (Call 1 / Call 2)'];
+        // Backend relies on "Holiday Name - Call Position" format
+        valStr = a.details['Holiday Name'] + ' - ' + a.details['Call Position (Call 1 / Call 2)'];
         objStr = JSON.stringify({ type: a.type, datePos: valStr });
       } else if (a.type === 'GROUPED') {
         var wDisplay = a.details.weekend['Day of Week'] + ' ' + formatDateDisplay(a.details.weekend['Date']);
-        var hDisplay = a.details.holiday['Holiday Name'] + ' - ' + a.details.holiday['Call Position (Call 1 / Call 2)'];
+        var hDisplay = a.details.holiday['Holiday Name'] + ' — ' + formatDateDisplay(a.details.holiday['Observed Date']) + ' · ' + a.details.holiday['Call Position (Call 1 / Call 2)'];
 
         displayStr = wDisplay + '<br> + ' + hDisplay;
 
@@ -852,8 +947,8 @@
 
       var badgesHtml = '';
       if (a.nearVacation) {
-        var vWeek = a.nearVacationWeek ? 'Week ' + a.nearVacationWeek : '';
-        var badgeText = vWeek ? 'Near Your Vacation: ' + vWeek : 'Near Your Vacation';
+        var vWeek = a.nearVacationWeek ? a.nearVacationWeek : '';
+        var badgeText = vWeek ? 'Near Your Vacation' : 'Near Your Vacation';
         badgesHtml += '<span class="badge badge-proximity-caution">' + escapeSoftHolidayText(badgeText) + '</span> ';
       }
 
@@ -868,6 +963,8 @@
       html += '</div>';
     }
 
+    html += '</div>';
+
     container.innerHTML = html;
   }
 
@@ -880,14 +977,15 @@
     }
 
     var html = '<h3>Select a Transfer Offer to Claim</h3>';
+    html += '<div class="transfer-grid">';
 
     for (var i = 0; i < offers.length; i++) {
       var o = offers[i];
 
       var badgesHtml = '';
       if (o.nearVacation) {
-        var vWeek = o.nearVacationWeek ? 'Week ' + o.nearVacationWeek : '';
-        var badgeText = vWeek ? 'Near Your Vacation: ' + vWeek : 'Near Your Vacation';
+        var vWeek = o.nearVacationWeek ? o.nearVacationWeek : '';
+        var badgeText = vWeek ? 'Near Your Vacation' : 'Near Your Vacation';
         badgesHtml += '<span class="badge badge-proximity-caution">' + escapeSoftHolidayText(badgeText) + '</span> ';
       }
 
@@ -905,7 +1003,16 @@
             if (o.components[j]['Assignment Type'] === 'WEEKEND') {
                wDisplay = 'WEEKEND: ' + formatDateDisplay(o.components[j]['Date/Position']);
             } else if (o.components[j]['Assignment Type'] === 'HOLIDAY') {
-               hDisplay = 'HOLIDAY: ' + o.components[j]['Date/Position'];
+               var parts = (o.components[j]['Date/Position'] || '').split(' - ');
+               var holName = parts[0];
+               var holPos = parts[1] || '';
+               var holDate = o.components[j]['Observed Date'] ? formatDateDisplay(o.components[j]['Observed Date']) : '';
+
+               if (holDate) {
+                   hDisplay = holName + ' — ' + holDate + ' · ' + holPos;
+               } else {
+                   hDisplay = 'HOLIDAY: ' + o.components[j]['Date/Position'];
+               }
             }
          }
 
@@ -919,30 +1026,46 @@
          if (badgesHtml) {
            html += '    <div style="margin-bottom:8px; margin-top:8px;">' + badgesHtml + '</div>';
          }
-         html += '    <div class="assignees">Offered by: ' + o.originalAssignee + '</div>';
+         html += '    <div class="assignees">Offered by: <span class="assignee-pill">' + o.originalAssignee + '</span></div>';
          html += '  </div>';
          html += '</div>';
       } else {
          var objStr = JSON.stringify({ type: 'SINGLE', offerId: o['Offer ID'] });
          var encodedObj = objStr.replace(/"/g, '&quot;');
 
+         var displayTitle = o['Assignment Type'];
          var displayVal = o['Date/Position'];
+
          if (o['Assignment Type'] === 'WEEKEND') {
            displayVal = formatDateDisplay(displayVal);
+         } else if (o['Assignment Type'] === 'HOLIDAY') {
+             var parts = (o['Date/Position'] || '').split(' - ');
+             var holName = parts[0];
+             var holPos = parts[1] || '';
+             var holDate = o['Observed Date'] ? formatDateDisplay(o['Observed Date']) : '';
+
+             if (holDate) {
+                 displayTitle = holName + ' — ' + holDate + ' · ' + holPos;
+                 displayVal = '';
+             }
          }
 
          html += '<div class="' + cardClass + '" data-json="' + encodedObj + '" ' + clickHandler + '>';
          html += '  <div class="card-content">';
-         html += '    <h4 class="card-title">' + o['Assignment Type'] + '</h4>';
-         html += '    <div class="card-subtitle">' + displayVal + '</div>';
+         html += '    <h4 class="card-title">' + displayTitle + '</h4>';
+         if (displayVal) {
+             html += '    <div class="card-subtitle">' + displayVal + '</div>';
+         }
          if (badgesHtml) {
            html += '    <div style="margin-bottom:8px; margin-top:8px;">' + badgesHtml + '</div>';
          }
-         html += '    <div class="assignees">Offered by: ' + o['Original Assignee (Giver)'] + '</div>';
+         html += '    <div class="assignees">Offered by: <span class="assignee-pill">' + o['Original Assignee (Giver)'] + '</span></div>';
          html += '  </div>';
          html += '</div>';
       }
     }
+
+    html += '</div>';
 
     container.innerHTML = html;
   }
@@ -1438,13 +1561,14 @@
     if (type === 'VACATION') {
       if (obj.remainingCapacity >= 2) {
         availStatusClass = 'schedule-status-available';
-        availStr = 'Available \u2014 ' + obj.remainingCapacity + ' remaining';
+        availStr = obj.remainingCapacity + ' spots available';
       } else if (obj.remainingCapacity === 1) {
+        // Pale yellow availability for 1 spot remaining on multi-capacity
         availStatusClass = 'schedule-status-nearly-full';
-        availStr = 'Nearly Full \u2014 1 remaining';
+        availStr = '1 spot available';
       } else {
         availStatusClass = 'schedule-status-full';
-        availStr = 'Full \u2014 0 remaining';
+        availStr = 'Full';
       }
     } else {
       // WEEKEND or HOLIDAY
@@ -1453,15 +1577,14 @@
         availStr = 'Available';
       } else {
         availStatusClass = 'schedule-status-full';
-        var assignedName = obj.assignedNames && obj.assignedNames.length > 0 ? obj.assignedNames[0] : 'Assigned';
-        availStr = 'Full \u2014 Assigned to ' + assignedName;
+        availStr = 'Full';
       }
     }
 
     item.classList.add(availStatusClass);
 
     if (type === 'VACATION') {
-      header.textContent = 'Week ' + obj.weekId + ' · ' + formatPublicDate(obj.startDate);
+      header.textContent = formatPublicDate(obj.startDate);
 
       if (obj.primeClassification && obj.primeClassification.toLowerCase() === 'prime') {
          var pBadge = document.createElement('span');
@@ -1491,7 +1614,7 @@
         subContent.appendChild(hBadge);
       }
     } else if (type === 'HOLIDAY') {
-      header.textContent = obj.holidayName + ' (' + obj.callPosition + ') · ' + formatPublicDate(obj.observedDate);
+      header.textContent = obj.holidayName + ' — ' + formatPublicDate(obj.observedDate) + ' · ' + obj.callPosition;
     }
 
     appendPublicSoftHolidayBadges_(
@@ -1503,20 +1626,6 @@
     avail.className = 'public-availability card-subtitle';
     avail.textContent = availStr;
 
-    var assigned = document.createElement('div');
-    assigned.className = 'public-assigned-names assignees';
-
-    if (obj.assignedNames && obj.assignedNames.length > 0) {
-      for (var j = 0; j < obj.assignedNames.length; j++) {
-        var p = document.createElement('span');
-        p.className = 'assignee-pill';
-        p.textContent = obj.assignedNames[j];
-        assigned.appendChild(p);
-      }
-    } else {
-      assigned.textContent = 'No assignments';
-    }
-
     var content = document.createElement('div');
     content.className = 'card-content';
 
@@ -1525,7 +1634,18 @@
       content.appendChild(subContent);
     }
     content.appendChild(avail);
-    content.appendChild(assigned);
+
+    if (obj.assignedNames && obj.assignedNames.length > 0) {
+      var assigned = document.createElement('div');
+      assigned.className = 'public-assigned-names assignees';
+      for (var j = 0; j < obj.assignedNames.length; j++) {
+        var p = document.createElement('span');
+        p.className = 'assignee-pill';
+        p.textContent = obj.assignedNames[j];
+        assigned.appendChild(p);
+      }
+      content.appendChild(assigned);
+    }
 
     item.appendChild(content);
     return item;

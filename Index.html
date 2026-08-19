@@ -78,6 +78,24 @@
 
         <!-- Schedule Filters -->
         <div class="schedule-filters">
+          <!-- Density Control -->
+          <div class="density-control" style="margin-right: auto; display: flex; align-items: center; gap: 8px;">
+            <div class="segmented-group" style="margin: 0; background: var(--surface); border: 1px solid var(--border);">
+              <div class="segmented-item density-item">
+                <input type="radio" name="densitySchedule" id="densSchNormal" value="normal" checked>
+                <label for="densSchNormal" class="segmented-label" aria-label="Normal Density" title="Normal Density">🚛</label>
+              </div>
+              <div class="segmented-item density-item">
+                <input type="radio" name="densitySchedule" id="densSchCompact" value="compact">
+                <label for="densSchCompact" class="segmented-label" aria-label="Compact Density" title="Compact Density">🛻</label>
+              </div>
+              <div class="segmented-item density-item">
+                <input type="radio" name="densitySchedule" id="densSchSubcompact" value="subcompact">
+                <label for="densSchSubcompact" class="segmented-label" aria-label="Sub-compact Density" title="Sub-compact Density">🛵</label>
+              </div>
+            </div>
+          </div>
+
           <div class="filter-group">
             <label for="filterType">Type</label>
             <select id="filterType">
@@ -92,7 +110,7 @@
             <select id="filterAvailability">
               <option value="ALL">All</option>
               <option value="AVAILABLE">Available</option>
-              <option value="NEARLY_FULL">Nearly Full</option>
+              <option value="NEARLY_FULL">1 Spot Available</option>
               <option value="FULL">Full</option>
             </select>
           </div>
@@ -122,7 +140,7 @@
 
         <div class="schedule-legend">
           <span class="legend-item"><span class="legend-color legend-available"></span> Available</span>
-          <span class="legend-item"><span class="legend-color legend-nearly-full"></span> Nearly Full</span>
+          <span class="legend-item"><span class="legend-color legend-nearly-full"></span> 1 Spot Available</span>
           <span class="legend-item"><span class="legend-color legend-full"></span> Full</span>
         </div>
 
@@ -190,6 +208,24 @@
 
         <!-- Phase View Containers -->
         <div id="phaseContainer">
+          <!-- Density Control for Logged-in View -->
+          <div id="loggedInDensityControl" class="density-control" style="display:none; margin-bottom: 16px; justify-content: flex-end;">
+            <div class="segmented-group" style="margin: 0; background: var(--surface); border: 1px solid var(--border); display: inline-flex;">
+              <div class="segmented-item density-item">
+                <input type="radio" name="densityLogged" id="densLogNormal" value="normal" checked>
+                <label for="densLogNormal" class="segmented-label" aria-label="Normal Density" title="Normal Density">🚛</label>
+              </div>
+              <div class="segmented-item density-item">
+                <input type="radio" name="densityLogged" id="densLogCompact" value="compact">
+                <label for="densLogCompact" class="segmented-label" aria-label="Compact Density" title="Compact Density">🛻</label>
+              </div>
+              <div class="segmented-item density-item">
+                <input type="radio" name="densityLogged" id="densLogSubcompact" value="subcompact">
+                <label for="densLogSubcompact" class="segmented-label" aria-label="Sub-compact Density" title="Sub-compact Density">🛵</label>
+              </div>
+            </div>
+          </div>
+
           <div id="loadingIndicator" class="loading" style="display:none;">Loading...</div>
           <div id="viewContent"></div>
 
