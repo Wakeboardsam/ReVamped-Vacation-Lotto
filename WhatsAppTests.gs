@@ -242,7 +242,10 @@ function runWahaUnitTests() {
       return { success: false, systemic: true, failureType: 'TUNNEL_OFFLINE' };
     };
 
+    var origWarn8 = console.warn;
+    console.warn = function() {};
     notifyActiveParticipants();
+    console.warn = origWarn8;
 
     assert(flushCalled === 1, "Flush is called to persist state before network request");
     assert(wahaCalled === 1, "Network loop aborted after first systemic failure");
@@ -272,6 +275,10 @@ function runWahaUnitTests() {
     };
     PropertiesService = { getScriptProperties: function() { return { getProperty: function() { return null; } }; } };
     getAdminOptions = function() { return { 'Enable SMS Notifications': true }; };
+
+    // We also need to restore getQueueState and getActiveParticipants properly
+    getQueueState = function() { return { phase: 'VACATION_SENIORITY' }; };
+    getActiveParticipants = function() { return [{ Name: 'Alice' }]; };
 
     notifyActiveParticipants();
     assert(outageCalled, "Calls outage handler on preflight config failure");
@@ -437,7 +444,10 @@ function runWahaUnitTests() {
       return { success: true };
     };
 
+    var origWarnDiag = console.warn;
+    console.warn = function() {};
     var diagRes = runWhatsAppDiagnostics();
+    console.warn = origWarnDiag;
     assert(diagSendCalled === false, "runWhatsAppDiagnostics skips sending when sessionStatus is not WORKING");
     assert(diagRes.health.sessionStatus === 'STOPPED', "runWhatsAppDiagnostics reads health sessionStatus properly");
     assert(diagRes.testSendAttempted === false, "runWhatsAppDiagnostics records testSendAttempted false");
@@ -451,9 +461,29 @@ function runWahaUnitTests() {
     if (origGetWhatsAppConfig11) getWhatsAppConfig_ = origGetWhatsAppConfig11;
   }
 
+
   // 11. Test Notification Log for Resend WhatsApp
+  var origSpreadsheetApp11 = SpreadsheetApp;
+  var origSendNotification11 = typeof sendParticipantNotification_ !== 'undefined' ? sendParticipantNotification_ : null;
+  var origGetQueueState11 = typeof getQueueState !== 'undefined' ? getQueueState : null;
+  var origGetAdminOptions11 = typeof getAdminOptions !== 'undefined' ? getAdminOptions : null;
+  var origWithScriptLock11 = typeof withScriptLock !== 'undefined' ? withScriptLock : null;
   try {
-    var notificationLogData = MockSpreadsheetApp._sheets['Notification Log'] ? MockSpreadsheetApp._sheets['Notification Log'].getDataRange().getValues() : [];
+    SpreadsheetApp = MockSpreadsheetApp;
+    withScriptLock = function(cb) { return cb(); };
+    getQueueState = function() { return { phase: 'VACATION_SENIORITY' }; };
+    getAdminOptions = function() { return {}; };
+    sendParticipantNotification_ = function(phone, text) { return { success: true }; };
+
+    MockSpreadsheetApp.createSheet('Notification Log', [
+      ['Log Timestamp', 'Event Key', 'Participant ID', 'Participant Name', 'Masked Phone', 'Phase', 'Notification Type', 'Status', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp', 'Selection Reference', 'Sanitized Error']
+    ]);
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Phone Number', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp'],
+      ['Alice', '5551111', '', '', '', false]
+    ]);
+
+    var notificationLogData = MockSpreadsheetApp._sheets['Notification Log'].getDataRange().getValues();
     var initialLength = notificationLogData.length;
 
     // Attempt manual resend
@@ -467,11 +497,19 @@ function runWahaUnitTests() {
   } catch(e) {
     failed++;
     console.error("Test group failed (Notification Log): " + e);
+  } finally {
+    SpreadsheetApp = origSpreadsheetApp11;
+    if (origSendNotification11) sendParticipantNotification_ = origSendNotification11;
+    if (origGetQueueState11) getQueueState = origGetQueueState11;
+    if (origGetAdminOptions11) getAdminOptions = origGetAdminOptions11;
+    if (origWithScriptLock11) withScriptLock = origWithScriptLock11;
   }
 
 
   // 12. Test Admin Options Migration
+  var origSpreadsheetApp12 = SpreadsheetApp;
   try {
+    SpreadsheetApp = MockSpreadsheetApp;
     MockSpreadsheetApp.createSheet('Admin Options', [
       ['Setting Name', 'Setting Value', 'Description'],
       ['Existing Setting', 'Value', '']
@@ -486,12 +524,71 @@ function runWahaUnitTests() {
   } catch(e) {
     failed++;
     console.error("Test group failed (Admin Options Migration): " + e);
+  } finally {
+    SpreadsheetApp = origSpreadsheetApp12;
   }
 
 
-  // 14. Add URL/Template Test
+        // 13. Test missing log sheet fail closed
+  var origSpreadsheetApp13 = SpreadsheetApp;
+  var origWithScriptLock13 = typeof withScriptLock !== 'undefined' ? withScriptLock : null;
+  var origGetActiveParticipants13 = typeof getActiveParticipants !== 'undefined' ? getActiveParticipants : null;
+  var origGetQueueState13 = typeof getQueueState !== 'undefined' ? getQueueState : null;
+  var origError13 = console.error;
+  var origWarn13 = console.warn;
   try {
-    MockSpreadsheetApp._sheets['Config'] = undefined;
+    console.error = function() {};
+    console.warn = function() {};
+    SpreadsheetApp = MockSpreadsheetApp;
+    withScriptLock = function(cb) { return cb(); };
+    getQueueState = function() { return { phase: 'VACATION_SENIORITY', round: 1, direction: 'ASCENDING', lead: 1 }; };
+    getActiveParticipants = function() { return [{ Name: 'Alice', _rowIndex: 2, 'Entry Timestamp': '', 'Reminder Sent': false, 'Admin Alert Sent': false }]; };
+
+    MockSpreadsheetApp._sheets['Notification Log'] = undefined;
+    var reserveRes = reserveConfirmationEvent('test-event', {});
+    assert(reserveRes === false, "reserveConfirmationEvent fails closed if log sheet is missing.");
+
+    // Attempt submit selection which uses confirmation logging
+    MockSpreadsheetApp.createSheet('Config', [['Setting Name', 'Setting Value'], ['Current Phase', 'VACATION_SENIORITY']]);
+    MockSpreadsheetApp.createSheet('Vacation Availability', [['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Assigned Participants'], ['1', '2025-01-01', '1', 'Non-Prime', '']]);
+    MockSpreadsheetApp.createSheet('Participant Config', [['Name', 'Phone Number', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent'], ['Alice', '5551234', '', '', '']]);
+
+    var sendCalled = false;
+    var origSend13 = sendParticipantNotification_;
+    sendParticipantNotification_ = function(phone, text) { sendCalled = true; return { success: true }; };
+
+    var submitRes = submitSelection('Alice', { action: 'SUBMIT', phase: 'VACATION_SENIORITY', selections: ['1'] });
+
+    assert(submitRes.success === true, "Submit selection still succeeds even if log sheet is missing and confirmation fails.");
+    assert(sendCalled === false, "Confirmation message is skipped if log sheet is missing");
+
+    sendParticipantNotification_ = origSend13;
+  } catch(e) {
+    failed++;
+    origError13("Test group failed (Missing Log Fail Closed): " + e);
+  } finally {
+    console.error = origError13;
+    console.warn = origWarn13;
+    SpreadsheetApp = origSpreadsheetApp13;
+    if (origWithScriptLock13) withScriptLock = origWithScriptLock13;
+    if (origGetActiveParticipants13) getActiveParticipants = origGetActiveParticipants13;
+    if (origGetQueueState13) getQueueState = origGetQueueState13;
+  }
+
+  // 14. Add URL/Template Test
+  var origSpreadsheetApp14 = SpreadsheetApp;
+  var origGetQueueState14 = typeof getQueueState !== 'undefined' ? getQueueState : null;
+  var origGetWhatsAppConfig14 = typeof getWhatsAppConfig_ !== 'undefined' ? getWhatsAppConfig_ : null;
+  var origGetAdminOptions14 = typeof getAdminOptions !== 'undefined' ? getAdminOptions : null;
+  var origSendNotification14 = typeof sendParticipantNotification_ !== 'undefined' ? sendParticipantNotification_ : null;
+  var origGetActiveParticipants14 = typeof getActiveParticipants !== 'undefined' ? getActiveParticipants : null;
+  var origWithScriptLock14 = typeof withScriptLock !== 'undefined' ? withScriptLock : null;
+  var origFlush14 = SpreadsheetApp.flush;
+  try {
+    SpreadsheetApp = MockSpreadsheetApp;
+    withScriptLock = function(cb) { return cb(); };
+    SpreadsheetApp.flush = function() {};
+    MockSpreadsheetApp.createSheet('Notification Log', [['Log Timestamp']]);
     getQueueState = function() { return { phase: 'VACATION_SENIORITY' }; };
     getWhatsAppConfig_ = function() { return { session: 'test', adminPhone: '5551234567' }; };
     MockSpreadsheetApp.createSheet('Config', [['Setting Name', 'Setting Value'], ['Current Phase', 'VACATION_SENIORITY']]);
@@ -505,7 +602,6 @@ function runWahaUnitTests() {
 
     var notifySendCalled = false;
     var notifyText = '';
-    SpreadsheetApp.flush = function() {};
     sendParticipantNotification_ = function(phone, text) {
       notifySendCalled = true;
       notifyText = text;
@@ -513,6 +609,7 @@ function runWahaUnitTests() {
     };
 
     getActiveParticipants = function() { return [{ _rowIndex: 2, 'Entry Timestamp': '', 'Reminder Sent': false, 'Admin Alert Sent': false, 'Phone Number': '5551111111', 'Name': 'Alice' }]; };
+    MockSpreadsheetApp.createSheet('Participant Config', [['Name', 'Phone Number', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent'], ['Alice', '5551111111', '', '', '']]);
 
     notifyActiveParticipants();
     assert(notifySendCalled, "notifyActiveParticipants called sendParticipantNotification_");
@@ -522,11 +619,25 @@ function runWahaUnitTests() {
   } catch (e) {
     failed++;
     console.error("Test group failed (URL/Template): " + e);
+  } finally {
+    SpreadsheetApp.flush = origFlush14;
+    SpreadsheetApp = origSpreadsheetApp14;
+    if (origGetQueueState14) getQueueState = origGetQueueState14;
+    if (origGetWhatsAppConfig14) getWhatsAppConfig_ = origGetWhatsAppConfig14;
+    if (origGetAdminOptions14) getAdminOptions = origGetAdminOptions14;
+    if (origSendNotification14) sendParticipantNotification_ = origSendNotification14;
+    if (origGetActiveParticipants14) getActiveParticipants = origGetActiveParticipants14;
+    if (origWithScriptLock14) withScriptLock = origWithScriptLock14;
   }
 
   // 15. Add State-Reset Snapshot Test
+  var origSpreadsheetApp15 = SpreadsheetApp;
   try {
-    // Attempt state reset and verify log
+    SpreadsheetApp = MockSpreadsheetApp;
+    MockSpreadsheetApp.createSheet('Notification Log', [
+      ['Log Timestamp', 'Event Key', 'Participant ID', 'Participant Name', 'Masked Phone', 'Phase', 'Notification Type', 'Status', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp', 'Selection Reference', 'Sanitized Error']
+    ]);
+
     var initialLogLength = MockSpreadsheetApp._sheets['Notification Log'].getDataRange().getValues().length;
     logStateReset({ 'Name': 'Bob', 'Phone Number': '5552222', 'Entry Timestamp': '1234', 'Reminder Sent': true, 'Admin Alert Sent': false }, 'WEEKEND');
 
@@ -539,30 +650,53 @@ function runWahaUnitTests() {
   } catch (e) {
     failed++;
     console.error("Test group failed (State-Reset Snapshot): " + e);
+  } finally {
+    SpreadsheetApp = origSpreadsheetApp15;
   }
 
   // 16. Add Confirmation Deduplication & Failure Test
+  var origSpreadsheetApp16 = SpreadsheetApp;
+  var origSendNotification16 = typeof sendParticipantNotification_ !== 'undefined' ? sendParticipantNotification_ : null;
+  var origGetActiveParticipants16 = typeof getActiveParticipants !== 'undefined' ? getActiveParticipants : null;
+  var origGetQueueState16 = typeof getQueueState !== 'undefined' ? getQueueState : null;
+  var origWithScriptLock16 = typeof withScriptLock !== 'undefined' ? withScriptLock : null;
   try {
-    // Insert an existing CONFIRM log
+    SpreadsheetApp = MockSpreadsheetApp;
+    withScriptLock = function(cb) { return cb(); };
+    getQueueState = function() { return { phase: 'VACATION_SENIORITY', round: 1, direction: 'ASCENDING', lead: 1 }; };
+    getActiveParticipants = function() { return [{ Name: 'Alice' }]; };
+
+    MockSpreadsheetApp.createSheet('Notification Log', [
+      ['Log Timestamp', 'Event Key', 'Participant ID', 'Participant Name', 'Masked Phone', 'Phase', 'Notification Type', 'Status', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp', 'Selection Reference', 'Sanitized Error']
+    ]);
+
     MockSpreadsheetApp._sheets['Notification Log'].appendRow([
       new Date(), 'CONFIRM-Alice-VACATION_SENIORITY-1', 'Alice', 'Alice', '***', 'VACATION_SENIORITY', 'SELECTION_CONFIRMATION', 'SUCCESS',
       '', '', '', '', '', ''
     ]);
 
-    // Should fail to reserve because it already exists
     var reserveExisting = reserveConfirmationEvent('CONFIRM-Alice-VACATION_SENIORITY-1', {});
     assert(reserveExisting === false, "reserveConfirmationEvent returns false for already existing CONFIRM key");
 
-    // Now test if transport fails, it still completes the main flow
     MockSpreadsheetApp.createSheet('Vacation Availability', [['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Assigned Participants'], ['99', '2025-01-01', '1', 'Non-Prime', '']]);
     MockSpreadsheetApp.createSheet('Participant Config', [['Name', 'Phone Number', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent'], ['Alice', '5551234', '', '', '']]);
     MockSpreadsheetApp.createSheet('Config', [['Setting Name', 'Setting Value'], ['Current Phase', 'VACATION_SENIORITY']]);
+
+    var origWarn16 = console.warn;
+    console.warn = function() {};
 
     sendParticipantNotification_ = function(phone, text) {
       throw new Error("Simulated Transport Failure");
     };
 
+        var origError16 = console.warn;
+    console.warn = function() {};
+    var origWarn16 = console.warn;
+    console.warn = function() {};
     var submitRes = submitSelection('Alice', { action: 'SUBMIT', phase: 'VACATION_SENIORITY', selections: ['99'] });
+    console.warn = origWarn16;
+    console.warn = origError16;
+    console.warn = origWarn16;
     assert(submitRes.success === true, "Submit selection still succeeds even if transport throws");
 
     var newLogData = MockSpreadsheetApp._sheets['Notification Log'].getDataRange().getValues();
@@ -572,24 +706,59 @@ function runWahaUnitTests() {
   } catch (e) {
     failed++;
     console.error("Test group failed (Confirmation Deduplication & Failure Test): " + e);
+  } finally {
+    SpreadsheetApp = origSpreadsheetApp16;
+    if (origSendNotification16) sendParticipantNotification_ = origSendNotification16;
+    if (origGetActiveParticipants16) getActiveParticipants = origGetActiveParticipants16;
+    if (origGetQueueState16) getQueueState = origGetQueueState16;
+    if (origWithScriptLock16) withScriptLock = origWithScriptLock16;
   }
 
   // 17. Add Append Failure Test
+  var origSpreadsheetApp17 = SpreadsheetApp;
   try {
+    SpreadsheetApp = MockSpreadsheetApp;
+    MockSpreadsheetApp.createSheet('Notification Log', [
+      ['Log Timestamp', 'Event Key', 'Participant ID', 'Participant Name', 'Masked Phone', 'Phase', 'Notification Type', 'Status', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp', 'Selection Reference', 'Sanitized Error']
+    ]);
     var originalAppendRow = MockSpreadsheetApp._sheets['Notification Log'].appendRow;
     MockSpreadsheetApp._sheets['Notification Log'].appendRow = function() { throw new Error("Append Failed"); };
 
+    var origError17 = console.error;
+    console.error = function() {};
+    console.error = function() {};
+        var origError17 = console.error;
+    console.error = function() {};
+    var origError17 = console.error;
+    console.error = function() {};
     var reserveFailed = reserveConfirmationEvent('CONFIRM-Alice-FAIL-1', {});
+    console.error = origError17;
+    console.error = origError17;
+    console.error = origError17;
     assert(reserveFailed === false, "reserveConfirmationEvent returns false if appendRow throws");
 
     MockSpreadsheetApp._sheets['Notification Log'].appendRow = originalAppendRow;
   } catch (e) {
     failed++;
     console.error("Test group failed (Append Failure Test): " + e);
+  } finally {
+    SpreadsheetApp = origSpreadsheetApp17;
   }
 
   // 18. Add Mismatched Row Test
+  var origSpreadsheetApp18 = SpreadsheetApp;
+  var origSendNotification18 = typeof sendParticipantNotification_ !== 'undefined' ? sendParticipantNotification_ : null;
+  var origGetQueueState18 = typeof getQueueState !== 'undefined' ? getQueueState : null;
+  var origGetAdminOptions18 = typeof getAdminOptions !== 'undefined' ? getAdminOptions : null;
+  var origWithScriptLock18 = typeof withScriptLock !== 'undefined' ? withScriptLock : null;
   try {
+    SpreadsheetApp = MockSpreadsheetApp;
+    withScriptLock = function(cb) { return cb(); };
+    getQueueState = function() { return { phase: 'VACATION_SENIORITY' }; };
+    getAdminOptions = function() { return {}; };
+    MockSpreadsheetApp.createSheet('Notification Log', [
+      ['Log Timestamp', 'Event Key', 'Participant ID', 'Participant Name', 'Masked Phone', 'Phase', 'Notification Type', 'Status', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp', 'Selection Reference', 'Sanitized Error']
+    ]);
     MockSpreadsheetApp.createSheet('Participant Config', [
       ['Name', 'Phone Number', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp'],
       ['Bob', '5552222', '', '', '', false],
@@ -607,25 +776,12 @@ function runWahaUnitTests() {
   } catch (e) {
     failed++;
     console.error("Test group failed (Mismatched Row Test): " + e);
-  }
-
-  // 13. Test missing log sheet fail closed
-  try {
-    MockSpreadsheetApp._sheets['Notification Log'] = undefined;
-    var reserveRes = reserveConfirmationEvent('test-event', {});
-    assert(reserveRes === false, "reserveConfirmationEvent fails closed if log sheet is missing.");
-
-    // Attempt submit selection which uses confirmation logging
-    MockSpreadsheetApp.createSheet('Config', [['Setting Name', 'Setting Value'], ['Current Phase', 'VACATION_SENIORITY']]);
-    MockSpreadsheetApp.createSheet('Vacation Availability', [['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Assigned Participants'], ['1', '2025-01-01', '1', 'Non-Prime', '']]);
-    MockSpreadsheetApp.createSheet('Participant Config', [['Name', 'Phone Number', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent'], ['Alice', '5551234', '', '', '']]);
-
-    getActiveParticipants = function() { return [{ Name: 'Alice' }]; };
-    var submitRes = submitSelection('Alice', { action: 'SUBMIT', phase: 'VACATION_SENIORITY', selections: ['1'] });
-    assert(submitRes.success === true, "Submit selection still succeeds even if log sheet is missing and confirmation fails.");
-  } catch(e) {
-    failed++;
-    console.error("Test group failed (Missing Log Fail Closed): " + e);
+  } finally {
+    SpreadsheetApp = origSpreadsheetApp18;
+    if (origSendNotification18) sendParticipantNotification_ = origSendNotification18;
+    if (origGetQueueState18) getQueueState = origGetQueueState18;
+    if (origGetAdminOptions18) getAdminOptions = origGetAdminOptions18;
+    if (origWithScriptLock18) withScriptLock = origWithScriptLock18;
   }
 
   console.log("WAHA Unit Tests completed. Passed: " + passed + " / Failed: " + failed);
