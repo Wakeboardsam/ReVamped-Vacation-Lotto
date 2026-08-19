@@ -753,7 +753,7 @@
       else badgesHtml += '<span class="badge badge-nonprime">Non-Prime</span>';
       if (special && special !== 'None') badgesHtml += '<span class="badge badge-special">' + special + '</span>';
       badgesHtml += softHolidayBadgesHtml_(w.softHolidayWarnings);
-      if (disableReason) badgesHtml += '<span class="badge badge-warning">' + disableReason + '</span>';
+      if (disableReason && disableReason !== 'Full') badgesHtml += '<span class="badge badge-warning">' + disableReason + '</span>';
 
       var assignedPills = '';
       if (assigneesList.length > 0) {
