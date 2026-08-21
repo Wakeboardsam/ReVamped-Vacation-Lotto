@@ -749,6 +749,7 @@
 
     // Check restrictions
     var hadSpringBreak = (appState.participant['Had Spring Break Last Year'] === true || appState.participant['Had Spring Break Last Year'] === 'TRUE');
+    var hadThanksgiving = (appState.participant['Had Thanksgiving Week Last Year'] === true || appState.participant['Had Thanksgiving Week Last Year'] === 'TRUE');
     var hadChristmas = (appState.participant['Had Christmas Week Last Year'] === true || appState.participant['Had Christmas Week Last Year'] === 'TRUE');
     var isEarlyRound = appState.round <= 3;
 
@@ -772,8 +773,19 @@
 
       if (isFull) { disabled = true; disableReason = 'Full'; }
       if (alreadySelected) { disabled = true; disableReason = 'Already Selected'; }
-      if (isEarlyRound && special === 'Spring Break' && hadSpringBreak) { disabled = true; disableReason = 'Restricted (Had Last Year)'; }
-      if (isEarlyRound && special === 'Christmas' && hadChristmas) { disabled = true; disableReason = 'Restricted (Had Last Year)'; }
+
+      if (isEarlyRound) {
+        if (special === 'Spring Break' && hadSpringBreak) {
+          disabled = true;
+          disableReason = 'Unavailable \u2014 had Spring Break last year; eligible beginning in Round 4.';
+        } else if (special === 'Thanksgiving' && hadThanksgiving) {
+          disabled = true;
+          disableReason = 'Unavailable \u2014 had Thanksgiving Week last year; eligible beginning in Round 4.';
+        } else if (special === 'Christmas' && hadChristmas) {
+          disabled = true;
+          disableReason = 'Unavailable \u2014 had Christmas Week last year; eligible beginning in Round 4.';
+        }
+      }
 
       var cardClass = 'card';
       if (disabled) {

@@ -477,6 +477,123 @@ function runRegressionTests() {
     }
     assert(!mandPassSubmit, "HOLIDAY_MANDATORY Pass is rejected and does not advance the queue.");
 
+
+    // --- Prior Year Restrictions Regression Tests ---
+    log.push("--- Testing Prior Year Vacation Restrictions ---");
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants'],
+      ['W1', '2025-03-10', '4', 'Prime', 'Spring Break', ''],
+      ['W2', '2025-11-24', '4', 'Non-Prime', 'Thanksgiving', ''],
+      ['W3', '2025-12-22', '4', 'Prime', 'Christmas', ''],
+      ['W4', '2025-06-09', '4', 'Prime', 'None', '']
+    ]);
+
+    // Ensure columns exist
+    var ptHeaders = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues()[0];
+    if (ptHeaders.indexOf('Had Spring Break Last Year') === -1) ptHeaders.push('Had Spring Break Last Year');
+    if (ptHeaders.indexOf('Had Thanksgiving Week Last Year') === -1) ptHeaders.push('Had Thanksgiving Week Last Year');
+    if (ptHeaders.indexOf('Had Christmas Week Last Year') === -1) ptHeaders.push('Had Christmas Week Last Year');
+
+    var aliceRow = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues().findIndex(row => row[0] === 'Alice');
+    var ptDataUpdated = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+    ptDataUpdated[aliceRow][ptHeaders.indexOf('Had Spring Break Last Year')] = true;
+    ptDataUpdated[aliceRow][ptHeaders.indexOf('Had Thanksgiving Week Last Year')] = true;
+    ptDataUpdated[aliceRow][ptHeaders.indexOf('Had Christmas Week Last Year')] = true;
+
+    MockSpreadsheetApp._sheets['Config'] = undefined;
+    MockSpreadsheetApp.createSheet('Config', [
+      ['Setting Name', 'Setting Value'],
+      ['Current Phase', 'VACATION_SENIORITY'],
+      ['Current Round', '3'],
+      ['Current Direction', 'ASCENDING'],
+      ['Current Lead', '1']
+    ]);
+
+    getActiveParticipants = function(p) { return [{ Name: 'Alice' }]; };
+
+    // 1. Spring Break restriction in Round 3
+    var r3SpringSubmit = false;
+    try {
+      submitSelection('Alice', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W1'] });
+      r3SpringSubmit = true;
+    } catch(e) {
+      assert(e.message.indexOf('restricted from selecting Spring Break until Round 4') !== -1, "Spring Break correctly restricted in Round 3.");
+    }
+    assert(!r3SpringSubmit, "Spring Break should be restricted in Round 3.");
+
+    // 2. Thanksgiving restriction in Round 3
+    var r3ThanksgivingSubmit = false;
+    try {
+      submitSelection('Alice', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W2'] });
+      r3ThanksgivingSubmit = true;
+    } catch(e) {
+      assert(e.message.indexOf('restricted from selecting Thanksgiving until Round 4') !== -1, "Thanksgiving correctly restricted in Round 3.");
+    }
+    assert(!r3ThanksgivingSubmit, "Thanksgiving should be restricted in Round 3.");
+
+    // 3. Christmas restriction in Round 3
+    var r3ChristmasSubmit = false;
+    try {
+      submitSelection('Alice', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W3'] });
+      r3ChristmasSubmit = true;
+    } catch(e) {
+      assert(e.message.indexOf('restricted from selecting Christmas until Round 4') !== -1, "Christmas correctly restricted in Round 3.");
+    }
+    assert(!r3ChristmasSubmit, "Christmas should be restricted in Round 3.");
+
+    // Verify atomicity/no partial writes on error (tried to submit [W4, W1])
+    var r3MultiSubmit = false;
+    try {
+      submitSelection('Alice', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W4', 'W1'] });
+      r3MultiSubmit = true;
+    } catch(e) {
+      assert(e.message.indexOf('restricted from selecting Spring Break') !== -1, "Multi-select correctly fails if any selection is restricted.");
+    }
+    assert(!r3MultiSubmit, "Multi-select with a restricted week should fail completely.");
+    var vData = MockSpreadsheetApp._sheets['Vacation Availability'].getDataRange().getValues();
+    assert(vData[4][5] === '', "No partial writes occurred; W4 remains unassigned after failed multi-select.");
+
+    // 4. Allowed in Round 4
+    MockSpreadsheetApp._sheets['Config'].getRange(3, 2).setValue('4');
+    var r4Submit = false;
+    try {
+      var r4Res = submitSelection('Alice', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W2'] });
+      r4Submit = r4Res.success;
+    } catch(e) { console.log(e); }
+    assert(r4Submit, "Thanksgiving restriction lifted in Round 4.");
+    vData = MockSpreadsheetApp._sheets['Vacation Availability'].getDataRange().getValues();
+    assert(vData[2][5] === 'Alice', "Alice successfully assigned Thanksgiving in Round 4.");
+
+    // 5. Independence (Bob had Spring Break, but not Thanksgiving)
+    var bobRow = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues().findIndex(row => row[0] === 'Bob');
+    if (bobRow === -1) {
+       MockSpreadsheetApp._sheets['Participant Config'].appendRow(['Bob', false, true, '', false, false, true, 2, '2']);
+       ptDataUpdated = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+       bobRow = ptDataUpdated.findIndex(row => row[0] === 'Bob');
+    }
+    // Fill out array length if needed
+    while (ptDataUpdated[bobRow].length < ptHeaders.length) {
+       ptDataUpdated[bobRow].push('');
+    }
+    ptDataUpdated[bobRow][ptHeaders.indexOf('Had Spring Break Last Year')] = true;
+    ptDataUpdated[bobRow][ptHeaders.indexOf('Had Thanksgiving Week Last Year')] = false;
+    ptDataUpdated[bobRow][ptHeaders.indexOf('Had Christmas Week Last Year')] = false;
+
+    MockSpreadsheetApp._sheets['Config'].getRange(3, 2).setValue('2'); // Round 2
+    getActiveParticipants = function(p) { return [{ Name: 'Bob' }]; };
+
+    // Clear Alice's previous assignment for testing
+    MockSpreadsheetApp._sheets['Vacation Availability'].getRange(3, 6).setValue('');
+
+    var indepSubmit = false;
+    try {
+      var indepRes = submitSelection('Bob', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W2'] });
+      indepSubmit = indepRes.success;
+    } catch(e) { console.log(e); }
+    assert(indepSubmit, "Bob can select Thanksgiving since he only had Spring Break.");
+    vData = MockSpreadsheetApp._sheets['Vacation Availability'].getDataRange().getValues();
+    assert(vData[2][5] === 'Bob', "Bob successfully assigned Thanksgiving.");
+
     // --- Transfer Receiver Fix Regression Tests ---
     log.push("--- Testing Transfer Receiver Rules ---");
     MockSpreadsheetApp.createSheet('Transfer History', [

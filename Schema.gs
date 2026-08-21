@@ -37,7 +37,10 @@ function setupDatabaseSchema() {
     },
     {
       name: 'Rules & Tips',
-      headers: ['Section Key', 'Display Text']
+      headers: ['Section Key', 'Display Text'],
+      defaultData: [
+        ['Rule 1', 'Participants who had Spring Break, Thanksgiving Week, or Christmas Week last year must wait until Round 4 to select that same week again.']
+      ]
     },
     {
       name: 'Participant Config',
@@ -46,7 +49,7 @@ function setupDatabaseSchema() {
         'Active for Year', 'Vacation Phase Enabled', 'Vacation Week Target Override',
         'Weekend Phase Enabled', 'Weekend Assignment Maximum', 'Holiday Volunteer Response',
         'Mandatory Holiday Eligible', 'Transfer Giver', 'Transfer Receiver',
-        'Had Spring Break Last Year', 'Had Christmas Week Last Year',
+        'Had Spring Break Last Year', 'Had Thanksgiving Week Last Year', 'Had Christmas Week Last Year',
         'Worked Any Official Holiday Last Year', 'Rules Acknowledged Year', 'Transfer Offers Submitted',
         'Skipped Turns Remaining', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent',
         'Resend WhatsApp'
@@ -143,6 +146,20 @@ sheet.appendRow(schema.headers);
         }
       }
 
+      // In-place migration for "Rules & Tips": Update default wording for Thanksgiving
+      if (schema.name === 'Rules & Tips') {
+        var rulesData = sheet.getDataRange().getValues();
+        for (var r = 1; r < rulesData.length; r++) {
+          if (typeof rulesData[r][1] === 'string' && rulesData[r][1].indexOf('Spring Break') !== -1 && rulesData[r][1].indexOf('Christmas') !== -1 && rulesData[r][1].indexOf('Thanksgiving') === -1) {
+             var updatedText = rulesData[r][1].replace('Spring Break or Christmas Week', 'Spring Break, Thanksgiving Week, or Christmas Week').replace('Spring Break and Christmas', 'Spring Break, Thanksgiving Week, and Christmas Week');
+             if (updatedText === rulesData[r][1]) { // Fallback standard replace
+               updatedText = 'Participants who had Spring Break, Thanksgiving Week, or Christmas Week last year must wait until Round 4 to select that same week again.';
+             }
+             sheet.getRange(r + 1, 2).setValue(updatedText);
+          }
+        }
+      }
+
       // In-place migration for "Admin Options": Append missing default rows
       if (schema.name === 'Admin Options' && schema.defaultData && schema.defaultData.length > 0) {
         var adminData = sheet.getDataRange().getValues();
@@ -230,6 +247,7 @@ function sanitizeParticipantConfigSheet() {
     { name: 'Transfer Receiver', defaultVal: true },
     { name: 'Transfer Offers Submitted', defaultVal: false },
     { name: 'Had Spring Break Last Year', defaultVal: false },
+    { name: 'Had Thanksgiving Week Last Year', defaultVal: false },
     { name: 'Had Christmas Week Last Year', defaultVal: false },
     { name: 'Worked Any Official Holiday Last Year', defaultVal: false },
     { name: 'Resend WhatsApp', defaultVal: false }
