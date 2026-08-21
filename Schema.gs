@@ -146,20 +146,6 @@ sheet.appendRow(schema.headers);
         }
       }
 
-      // In-place migration for "Rules & Tips": Update default wording for Thanksgiving
-      if (schema.name === 'Rules & Tips') {
-        var rulesData = sheet.getDataRange().getValues();
-        for (var r = 1; r < rulesData.length; r++) {
-          if (typeof rulesData[r][1] === 'string' && rulesData[r][1].indexOf('Spring Break') !== -1 && rulesData[r][1].indexOf('Christmas') !== -1 && rulesData[r][1].indexOf('Thanksgiving') === -1) {
-             var updatedText = rulesData[r][1].replace('Spring Break or Christmas Week', 'Spring Break, Thanksgiving Week, or Christmas Week').replace('Spring Break and Christmas', 'Spring Break, Thanksgiving Week, and Christmas Week');
-             if (updatedText === rulesData[r][1]) { // Fallback standard replace
-               updatedText = 'Participants who had Spring Break, Thanksgiving Week, or Christmas Week last year must wait until Round 4 to select that same week again.';
-             }
-             sheet.getRange(r + 1, 2).setValue(updatedText);
-          }
-        }
-      }
-
       // In-place migration for "Admin Options": Append missing default rows
       if (schema.name === 'Admin Options' && schema.defaultData && schema.defaultData.length > 0) {
         var adminData = sheet.getDataRange().getValues();
@@ -180,6 +166,27 @@ sheet.appendRow(schema.headers);
           var lastRowAdmin = sheet.getLastRow();
           rowsToAppend.forEach(function(r) { sheet.appendRow(r); });
         }
+      }
+
+      // Specific column placement migration for Participant Config
+      if (schema.name === 'Participant Config') {
+         var thanksgivingMissing = currentHeaders.indexOf('Had Thanksgiving Week Last Year') === -1;
+         if (thanksgivingMissing) {
+            var christmasIdx = currentHeaders.indexOf('Had Christmas Week Last Year');
+            if (christmasIdx !== -1) {
+               // Insert right before Christmas
+               sheet.insertColumnBefore(christmasIdx + 1);
+               sheet.getRange(1, christmasIdx + 1).setValue('Had Thanksgiving Week Last Year');
+               // Update currentHeaders array to reflect the new state so the generic loop doesn't append it again
+               currentHeaders.splice(christmasIdx, 0, 'Had Thanksgiving Week Last Year');
+               needsUpdate = true;
+
+               // Re-apply formatting for the newly shifted headers
+               var newHeaderRange = sheet.getRange(1, 1, 1, currentHeaders.length);
+               newHeaderRange.setFontWeight('bold');
+               newHeaderRange.setBackground('#f3f3f3');
+            }
+         }
       }
 
       // Migrate missing columns for existing sheets
