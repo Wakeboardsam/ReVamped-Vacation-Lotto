@@ -496,6 +496,7 @@
     document.getElementById('viewContent').innerHTML = '';
     document.getElementById('actionBar').style.display = 'none';
     appState.selections = [];
+    appState.adjacentHolidayPending = null;
 
     google.script.run
       .withSuccessHandler(onStateLoaded)
@@ -1134,6 +1135,10 @@
         // All other phases allow only 1 selection
         appState.selections = [];
         document.querySelectorAll('.card.selected').forEach(function(c) { c.classList.remove('selected'); });
+      }
+
+      if (type === 'weekend') {
+        appState.adjacentHolidayPending = null;
       }
 
       appState.selections.push(id);

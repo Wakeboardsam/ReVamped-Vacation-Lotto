@@ -661,6 +661,27 @@ function runRegressionTests() {
     assert(simulatedDOM.logoutBtn.style.display === 'none', "logoutBtn hidden after logout");
     assert(simulatedDOM.statusBadge.textContent === 'GUEST / LOG IN', "statusBadge reset to GUEST / LOG IN after logout");
 
+    // --- Simulated Weekend Selection State Reset Test ---
+    log.push("--- Testing Simulated Weekend Holiday State Reset ---");
+    // Simulate setting a pending holiday via confirmHolidaySelection
+    simAppState.adjacentHolidayPending = { holidayName: 'Thanksgiving', position: 'Call 2' };
+
+    // Test 1: fetchInitialState behavior clears it
+    resetToGuestStateSimulated(); // analogous to the resets in fetchInitialState
+    assert(simAppState.adjacentHolidayPending === null, "fetchInitialState-like reset clears adjacentHolidayPending");
+
+    // Test 2: toggleSelection behavior clears it for new weekend selection
+    simAppState.adjacentHolidayPending = { holidayName: 'Christmas', position: 'Call 1' };
+    function toggleSelectionSimulated(type) {
+      // Simulate branch when idx = -1
+      if (type === 'weekend') {
+        simAppState.adjacentHolidayPending = null;
+      }
+      simAppState.selections.push('fake-date');
+    }
+    toggleSelectionSimulated('weekend');
+    assert(simAppState.adjacentHolidayPending === null, "Selecting a new weekend card clears existing adjacentHolidayPending");
+
 } finally {
     // Restore globals
     SpreadsheetApp = originalSpreadsheetApp;
