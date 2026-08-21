@@ -37,7 +37,10 @@ function setupDatabaseSchema() {
     },
     {
       name: 'Rules & Tips',
-      headers: ['Section Key', 'Display Text']
+      headers: ['Section Key', 'Display Text'],
+      defaultData: [
+        ['Rule 1', 'Participants who had Spring Break, Thanksgiving Week, or Christmas Week last year must wait until Round 4 to select that same week again.']
+      ]
     },
     {
       name: 'Participant Config',
@@ -46,7 +49,7 @@ function setupDatabaseSchema() {
         'Active for Year', 'Vacation Phase Enabled', 'Vacation Week Target Override',
         'Weekend Phase Enabled', 'Weekend Assignment Maximum', 'Holiday Volunteer Response',
         'Mandatory Holiday Eligible', 'Transfer Giver', 'Transfer Receiver',
-        'Had Spring Break Last Year', 'Had Christmas Week Last Year',
+        'Had Spring Break Last Year', 'Had Thanksgiving Week Last Year', 'Had Christmas Week Last Year',
         'Worked Any Official Holiday Last Year', 'Rules Acknowledged Year', 'Transfer Offers Submitted',
         'Skipped Turns Remaining', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent',
         'Resend WhatsApp'
@@ -165,6 +168,27 @@ sheet.appendRow(schema.headers);
         }
       }
 
+      // Specific column placement migration for Participant Config
+      if (schema.name === 'Participant Config') {
+         var thanksgivingMissing = currentHeaders.indexOf('Had Thanksgiving Week Last Year') === -1;
+         if (thanksgivingMissing) {
+            var christmasIdx = currentHeaders.indexOf('Had Christmas Week Last Year');
+            if (christmasIdx !== -1) {
+               // Insert right before Christmas
+               sheet.insertColumnBefore(christmasIdx + 1);
+               sheet.getRange(1, christmasIdx + 1).setValue('Had Thanksgiving Week Last Year');
+               // Update currentHeaders array to reflect the new state so the generic loop doesn't append it again
+               currentHeaders.splice(christmasIdx, 0, 'Had Thanksgiving Week Last Year');
+               needsUpdate = true;
+
+               // Re-apply formatting for the newly shifted headers
+               var newHeaderRange = sheet.getRange(1, 1, 1, currentHeaders.length);
+               newHeaderRange.setFontWeight('bold');
+               newHeaderRange.setBackground('#f3f3f3');
+            }
+         }
+      }
+
       // Migrate missing columns for existing sheets
       var needsUpdate = false;
       for (var c = 0; c < schema.headers.length; c++) {
@@ -230,6 +254,7 @@ function sanitizeParticipantConfigSheet() {
     { name: 'Transfer Receiver', defaultVal: true },
     { name: 'Transfer Offers Submitted', defaultVal: false },
     { name: 'Had Spring Break Last Year', defaultVal: false },
+    { name: 'Had Thanksgiving Week Last Year', defaultVal: false },
     { name: 'Had Christmas Week Last Year', defaultVal: false },
     { name: 'Worked Any Official Holiday Last Year', defaultVal: false },
     { name: 'Resend WhatsApp', defaultVal: false }

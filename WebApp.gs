@@ -691,6 +691,22 @@ function submitSelection(participantId, selectionData) {
                 throw new Error("You already selected this week.");
               }
 
+              var special = String(vData[i][vHeaders.indexOf('Special Week Designation')] || '');
+              if (state.round <= 3) {
+                var isRestricted = false;
+                var pRowData = pData[pRowIdx - 1];
+                if (special === 'Spring Break' && (pRowData[pHeaders.indexOf('Had Spring Break Last Year')] === true || pRowData[pHeaders.indexOf('Had Spring Break Last Year')] === 'TRUE')) {
+                   isRestricted = true;
+                } else if (special === 'Thanksgiving' && (pRowData[pHeaders.indexOf('Had Thanksgiving Week Last Year')] === true || pRowData[pHeaders.indexOf('Had Thanksgiving Week Last Year')] === 'TRUE')) {
+                   isRestricted = true;
+                } else if (special === 'Christmas' && (pRowData[pHeaders.indexOf('Had Christmas Week Last Year')] === true || pRowData[pHeaders.indexOf('Had Christmas Week Last Year')] === 'TRUE')) {
+                   isRestricted = true;
+                }
+                if (isRestricted) {
+                   throw new Error("You are restricted from selecting " + special + " until Round 4.");
+                }
+              }
+
               var isPrime = String(vData[i][vHeaders.indexOf('Prime Classification')]).toLowerCase() === 'prime';
               if (isPrime) primeCount++; else nonPrimeCount++;
 
