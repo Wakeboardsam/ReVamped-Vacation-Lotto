@@ -71,6 +71,39 @@
     }
   }
 
+  // Helper to wait for viewport stability after dismissing the keyboard
+  function waitForViewportStability(callback) {
+    var completed = false;
+    var debounceTimer = null;
+    var maxTimer = null;
+
+    function finish() {
+      if (completed) return;
+      completed = true;
+      clearTimeout(debounceTimer);
+      clearTimeout(maxTimer);
+      window.removeEventListener('resize', onResize);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', onResize);
+      }
+      callback();
+    }
+
+    function onResize() {
+      clearTimeout(debounceTimer);
+      // Wait for 200ms of no resize events to consider the viewport stable
+      debounceTimer = setTimeout(finish, 200);
+    }
+
+    // Set hard maximum timeout of 1200ms
+    maxTimer = setTimeout(finish, 1200);
+
+    window.addEventListener('resize', onResize);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', onResize);
+    }
+  }
+
   // Density Management
   function initDensityControl() {
     var savedDensity = localStorage.getItem('lotto_ui_density') || 'normal';
@@ -324,7 +357,7 @@
           appState.name = res.participantName;
           appState.pin = pin; // Securely store pin in memory for privacy context fetches
           dismissKeyboard();
-          showMainScreen();
+          waitForViewportStability(showMainScreen);
         }
       })
       .withFailureHandler(function(err) {
