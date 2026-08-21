@@ -258,6 +258,20 @@ function advanceQueueInternal_() {
       return { success: true, message: 'Transfer offer collection does not advance like a queue.' };
     }
 
+    if (phase === 'TRANSFER_RECEIVER') {
+      var offers = getSheetDataAsObjects('Transfer Offers', {});
+      var activeOffers = 0;
+      for (var i = 0; i < offers.length; i++) {
+        if (offers[i]['Status'] !== 'Claimed' && offers[i]['Assignment Type'] !== 'VACATION') {
+          activeOffers++;
+        }
+      }
+      if (activeOffers === 0) {
+        setQueueState({ phase: 'COMPLETE' });
+        return { success: true, complete: true, message: 'No active transferable offers remain.' };
+      }
+    }
+
     if (
       phase === 'HOLIDAY_VOLUNTEER' ||
       phase === 'HOLIDAY_MANDATORY'
@@ -386,6 +400,9 @@ function advanceQueueInternal_() {
             message: 'All holiday call positions are filled.'
           };
         }
+      } else if (phase === 'TRANSFER_RECEIVER') {
+        setQueueState({ phase: 'COMPLETE' });
+        return { success: true, complete: true, message: 'Transfer Receiver phase complete.' };
       }
       return; // Queue does not advance
     }
