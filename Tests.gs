@@ -477,6 +477,126 @@ function runRegressionTests() {
     }
     assert(!mandPassSubmit, "HOLIDAY_MANDATORY Pass is rejected and does not advance the queue.");
 
+    // --- Transfer Receiver Fix Regression Tests ---
+    log.push("--- Testing Transfer Receiver Rules ---");
+    MockSpreadsheetApp.createSheet('Transfer History', [
+      ['Timestamp', 'Assignment Type', 'Assignment Date', 'Call Position/Day', 'Original Assignee', 'New Assignee', 'Year', 'Receiver Round', 'Claim ID']
+    ]);
+    MockSpreadsheetApp.createSheet('Transfer Offers', [
+      ['Offer ID', 'Original Assignee (Giver)', 'Assignment Type', 'Date/Position', 'Status', 'Timestamp', 'Group ID'],
+      ['OFFER-1', 'Dan', 'WEEKEND', '2025-02-01', 'Active', '', 'GRP-1'],
+      ['OFFER-2', 'Dan', 'HOLIDAY', 'President - Call 1', 'Active', '', 'GRP-1'],
+      ['OFFER-3', 'Eve', 'WEEKEND', '2025-02-08', 'Active', '', '']
+    ]);
+    MockSpreadsheetApp._sheets['Config'] = undefined;
+    MockSpreadsheetApp.createSheet('Config', [
+      ['Setting Name', 'Setting Value'],
+      ['Current Phase', 'TRANSFER_RECEIVER'],
+      ['Current Round', '1'],
+      ['Current Direction', 'ASCENDING'],
+      ['Current Lead', '1']
+    ]);
+
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2025-02-01', 'Saturday', 'Dan'],
+      ['2025-02-08', 'Saturday', 'Eve']
+    ]);
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['President', '2025-02-17', 'Call 1', 'Dan']
+    ]);
+
+    // Ensure Alice has Transfer Receiver = true
+    var ptData = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+    var pHeaders = ptData[0];
+    if (pHeaders.indexOf('Transfer Receiver') === -1) {
+      pHeaders.push('Transfer Receiver');
+      for (var r = 1; r < ptData.length; r++) ptData[r].push(true);
+    }
+    var aliceRow = ptData.findIndex(row => row[0] === 'Alice');
+    ptData[aliceRow][pHeaders.indexOf('Transfer Receiver')] = true;
+
+    // Unmock getActiveParticipants to test real queue logic
+    getActiveParticipants = origGetActiveParticipants;
+
+    // Test real queue initialization for TRANSFER_RECEIVER
+    var activeBeforeSubmit = getActiveParticipants('TRANSFER_RECEIVER');
+    assert(activeBeforeSubmit.length > 0 && activeBeforeSubmit[0]['Name'] === 'Alice', "Round 1 begins ASCENDING at Lottery Position 1 (Alice).");
+    var qStateBefore = getQueueState();
+    assert(qStateBefore.round == 1 && qStateBefore.direction === 'ASCENDING' && qStateBefore.lead == 1, "Queue State correctly points to Round 1, ASCENDING, Lead 1.");
+
+    // A) Grouped offer counts as one turn
+    var groupedSubmit = submitSelection('Alice', { phase: 'TRANSFER_RECEIVER', action: 'SUBMIT', selections: [{ type: 'GROUPED', groupId: 'GRP-1' }] });
+    assert(groupedSubmit.success === true, "Receiver can successfully claim a grouped Weekend+Holiday offer.");
+
+    var thData = MockSpreadsheetApp._sheets['Transfer History'].getDataRange().getValues();
+    assert(thData.length === 3, "Transfer History appended 2 rows for grouped claim."); // header + 2 rows
+    assert(thData[1][8] === thData[2][8], "Grouped claim shares a single Claim ID: " + thData[1][8]);
+    assert(thData[1][7] == 1 && thData[2][7] == 1, "Receiver Round is recorded as 1.");
+
+    // B) Duplicate submission blocked in same round
+    // We mock getActiveParticipants here because Alice just claimed and advanceQueueInternal_ moved the queue forward (she is no longer the active participant in the real queue)
+    // To test duplicate protection, we force her to be active for the simulation.
+    getActiveParticipants = function() { return [{ Name: 'Alice' }]; };
+    MockSpreadsheetApp._sheets['Config'].getRange(3, 2).setValue('1');
+    var dupSubmit = false;
+    try {
+      submitSelection('Alice', { phase: 'TRANSFER_RECEIVER', action: 'SUBMIT', selections: [{ type: 'WEEKEND', offerId: 'OFFER-3' }] });
+      dupSubmit = true;
+    } catch(e) {
+      assert(e.message.indexOf('already claimed an offer in the current transfer round') !== -1, "Duplicate claim correctly blocked in the same round.");
+    }
+    assert(!dupSubmit, "Receiver cannot claim a second time in Round 1.");
+    getActiveParticipants = origGetActiveParticipants; // restore
+
+    // C) "None" behavior
+    var ptDataUpdated = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+    var bobRow = -1;
+    for (var r = 1; r < ptDataUpdated.length; r++) { if (ptDataUpdated[r][0] === 'Bob') bobRow = r; }
+    if (bobRow === -1) {
+      // Bob doesn't exist, create him explicitly
+      MockSpreadsheetApp._sheets['Participant Config'].appendRow(['Bob', false, true, '', false, false, true, 2, '2']);
+      ptDataUpdated = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+      bobRow = ptDataUpdated.length - 1;
+    }
+    ptDataUpdated[bobRow][pHeaders.indexOf('Transfer Receiver')] = true;
+    getActiveParticipants = function() { return [{ Name: 'Bob' }]; };
+
+    var passSubmit = submitSelection('Bob', { phase: 'TRANSFER_RECEIVER', action: 'PASS' });
+    assert(passSubmit.success === true, "Bob can select None.");
+    var bobTr = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues()[bobRow][pHeaders.indexOf('Transfer Receiver')];
+    assert(bobTr === false, "Selecting None sets Transfer Receiver to false.");
+
+    // D) Can claim again in the next round
+    MockSpreadsheetApp._sheets['Config'].getRange(3, 2).setValue('2'); // Advance to Round 2
+    getActiveParticipants = function() { return [{ Name: 'Alice' }]; };
+    var round2Submit = submitSelection('Alice', { phase: 'TRANSFER_RECEIVER', action: 'SUBMIT', selections: [{ type: 'WEEKEND', offerId: 'OFFER-3' }] });
+    assert(round2Submit.success === true, "Alice can claim again in Round 2.");
+
+    var thDataR2 = MockSpreadsheetApp._sheets['Transfer History'].getDataRange().getValues();
+    assert(thDataR2.length === 4, "Transfer History appended 1 row for Round 2 claim.");
+    assert(thDataR2[3][7] == 2, "Receiver Round is recorded as 2.");
+
+    // E) Completion Path: No active offers remaining
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('TRANSFER_RECEIVER'); // Ensure phase is correct
+    var advanceRes = advanceQueueInternal_();
+    assert(advanceRes && advanceRes.complete === true, "advanceQueueInternal returns complete when out of active offers.");
+    var finalState = getQueueState();
+    assert(finalState.phase === 'COMPLETE', "Queue sets phase to COMPLETE when no active offers remain.");
+
+    // F) Completion Path: No eligible receivers remaining
+    // Reset state to a new phase where we have active offers, but everyone has Transfer Receiver = false
+    MockSpreadsheetApp._sheets['Transfer Offers'].appendRow(['OFFER-4', 'Dan', 'WEEKEND', '2025-02-15', 'Active', '', '']);
+    setQueueState({ phase: 'TRANSFER_RECEIVER', round: 3, direction: 'ASCENDING', lead: 1 });
+    // Set all receivers to false
+    for (var r = 1; r < ptDataUpdated.length; r++) {
+      ptDataUpdated[r][pHeaders.indexOf('Transfer Receiver')] = false;
+    }
+    advanceRes = advanceQueueInternal_();
+    finalState = getQueueState();
+    assert(finalState.phase === 'COMPLETE', "Queue sets phase to COMPLETE when no eligible receivers remain.");
+
     // --- Public Display Snapshot ---
     log.push("--- Testing Public Display Snapshot ---");
     MockSpreadsheetApp.createSheet('Vacation Availability', [

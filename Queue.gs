@@ -58,6 +58,30 @@ function getParticipantAssignments(participantName, phase, cache) {
         count++;
       }
     }
+  } else if (phase === 'TRANSFER_RECEIVER') {
+    var adminOptions = getAdminOptions();
+    var activeYear = String(adminOptions['Active Year'] || new Date().getFullYear());
+    var state = getQueueState();
+    var currentRound = String(state.round);
+
+    var histData = getSheetDataAsObjects('Transfer History', cache);
+    var seenClaimIds = {};
+    for (var i = 0; i < histData.length; i++) {
+      if (String(histData[i]['New Assignee']) === participantName &&
+          String(histData[i]['Year']) === activeYear &&
+          String(histData[i]['Receiver Round']) === currentRound) {
+        var claimId = String(histData[i]['Claim ID'] || '');
+        if (claimId) {
+          if (!seenClaimIds[claimId]) {
+            seenClaimIds[claimId] = true;
+            count++;
+          }
+        } else {
+          // Fallback if Claim ID missing, count each row as 1 action
+          count++;
+        }
+      }
+    }
   }
 
   return count;
@@ -146,7 +170,14 @@ function getQueueWindows_(phase, state, cache) {
     var skippedTurns = parseInt(p['Skipped Turns Remaining']) || 0;
     var effectiveAssignments = actualAssignments + skippedTurns;
 
-    var isEligibleForRound = (actualAssignments < targetCap) && (effectiveAssignments < currentRound);
+    var isEligibleForRound = false;
+    if (phase === 'TRANSFER_RECEIVER') {
+      // For TRANSFER_RECEIVER, skipped turns, assignment maximums, etc. do not apply.
+      // We only check if they have claimed during the current round.
+      isEligibleForRound = actualAssignments < 1;
+    } else {
+      isEligibleForRound = (actualAssignments < targetCap) && (effectiveAssignments < currentRound);
+    }
 
     eligiblePool.push({
       participant: p,
@@ -227,6 +258,20 @@ function advanceQueueInternal_() {
       return { success: true, message: 'Transfer offer collection does not advance like a queue.' };
     }
 
+    if (phase === 'TRANSFER_RECEIVER') {
+      var offers = getSheetDataAsObjects('Transfer Offers', {});
+      var activeOffers = 0;
+      for (var i = 0; i < offers.length; i++) {
+        if (offers[i]['Status'] !== 'Claimed' && offers[i]['Assignment Type'] !== 'VACATION') {
+          activeOffers++;
+        }
+      }
+      if (activeOffers === 0) {
+        setQueueState({ phase: 'COMPLETE' });
+        return { success: true, complete: true, message: 'No active transferable offers remain.' };
+      }
+    }
+
     if (
       phase === 'HOLIDAY_VOLUNTEER' ||
       phase === 'HOLIDAY_MANDATORY'
@@ -302,7 +347,12 @@ function advanceQueueInternal_() {
       var skippedTurns = parseInt(p['Skipped Turns Remaining']) || 0;
       var effectiveAssignments = actualAssignments + skippedTurns;
 
-      var isEligibleForRound = (actualAssignments < targetCap) && (effectiveAssignments < currentRound);
+      var isEligibleForRound = false;
+      if (phase === 'TRANSFER_RECEIVER') {
+        isEligibleForRound = actualAssignments < 1;
+      } else {
+        isEligibleForRound = (actualAssignments < targetCap) && (effectiveAssignments < currentRound);
+      }
 
       eligiblePool.push({
         participant: p,
@@ -350,6 +400,9 @@ function advanceQueueInternal_() {
             message: 'All holiday call positions are filled.'
           };
         }
+      } else if (phase === 'TRANSFER_RECEIVER') {
+        setQueueState({ phase: 'COMPLETE' });
+        return { success: true, complete: true, message: 'Transfer Receiver phase complete.' };
       }
       return; // Queue does not advance
     }
@@ -487,11 +540,28 @@ function advanceQueueInternal_() {
       // Re-evaluate eligibility for the new round
       for (var i = startIdx; i >= 0 && i < eligiblePool.length; i += newStep) {
         var p = eligiblePool[i].participant;
-        var actual = getParticipantAssignments(p['Name'], phase, {});
-        var skipped = parseInt(p['Skipped Turns Remaining']) || 0;
-        if (actual + skipped < newRound) {
+        // Mock the new round in state for getParticipantAssignments logic if it's TRANSFER_RECEIVER
+        var prevRoundObj = { round: currentRound };
+        if (phase === 'TRANSFER_RECEIVER') {
+           // We temporarily fake the queue state so getParticipantAssignments checks the new round's claims
+           var sysConfig = getSystemConfig();
+           sysConfig['Current Round'] = newRound;
+           // NOTE: Since getParticipantAssignments fetches actual state using getQueueState(),
+           // let's pass a mock cache or override it? Actually we can just do:
+           // getParticipantAssignments queries getQueueState() directly.
+           // To be perfectly clean without modifying the database, let's query history manually here
+           // or we can just assume `actual < 1` for the *new* round is always true if they are in eligiblePool,
+           // because they haven't had a chance to claim in the new round yet!
+           // For TRANSFER_RECEIVER, everyone in eligiblePool (who hasn't selected NONE) starts with 0 claims in the new round.
            newLeadIdx = i;
            break;
+        } else {
+           var actual = getParticipantAssignments(p['Name'], phase, {});
+           var skipped = parseInt(p['Skipped Turns Remaining']) || 0;
+           if (actual + skipped < newRound) {
+              newLeadIdx = i;
+              break;
+           }
         }
       }
 

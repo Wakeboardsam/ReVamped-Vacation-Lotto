@@ -87,7 +87,7 @@ function setupDatabaseSchema() {
       name: 'Transfer History',
       headers: [
         'Timestamp', 'Assignment Type', 'Assignment Date', 'Call Position/Day',
-        'Original Assignee', 'New Assignee', 'Year'
+        'Original Assignee', 'New Assignee', 'Year', 'Receiver Round', 'Claim ID'
       ]
     },
     {
