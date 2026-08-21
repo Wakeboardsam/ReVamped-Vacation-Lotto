@@ -1025,6 +1025,22 @@ function submitSelection(participantId, selectionData) {
         var hDataAll = hSheet ? hSheet.getDataRange().getValues() : null;
         var hH = hDataAll ? hDataAll[0] : null;
 
+        var currentRound = state.round;
+        var activeYear = getAdminOptions()['Active Year'] || new Date().getFullYear();
+
+        var histSheet = ss.getSheetByName('Transfer History');
+        var histData = histSheet ? histSheet.getDataRange().getValues() : null;
+        if (histData && histData.length > 1) {
+           var histHeaders = histData[0];
+           for (var k = 1; k < histData.length; k++) {
+              if (String(histData[k][histHeaders.indexOf('New Assignee')]) === participantId &&
+                  String(histData[k][histHeaders.indexOf('Year')]) === String(activeYear) &&
+                  String(histData[k][histHeaders.indexOf('Receiver Round')]) === String(currentRound)) {
+                 throw new Error("You have already claimed an offer in the current transfer round.");
+              }
+           }
+        }
+
         // Pre-validate that original assignee still owns the item and receiver is eligible
         var targetRows = [];
         for (var c = 0; c < componentsToClaim.length; c++) {
@@ -1082,8 +1098,10 @@ function submitSelection(participantId, selectionData) {
         }
 
         // 2. Perform Writes ONLY if all checks passed
-        var histSheet = ss.getSheetByName('Transfer History');
-        var activeYear = getAdminOptions()['Active Year'] || new Date().getFullYear();
+        if (!histSheet) {
+          histSheet = ss.insertSheet('Transfer History');
+          histSheet.appendRow(['Timestamp', 'Assignment Type', 'Assignment Date', 'Call Position/Day', 'Original Assignee', 'New Assignee', 'Year', 'Receiver Round', 'Claim ID']);
+        }
 
         // A) Update all Weekend/Holiday ownership rows
         for (var i = 0; i < targetRows.length; i++) {
@@ -1096,9 +1114,11 @@ function submitSelection(participantId, selectionData) {
         }
 
         // C) Append Transfer History rows
+        var newClaimId = 'CLAIM-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1000);
         for (var c = 0; c < componentsToClaim.length; c++) {
            var comp = componentsToClaim[c];
-           histSheet.appendRow([new Date(), comp.assignmentType, comp.datePos, '', comp.originalAssignee, participantId, activeYear]);
+           // ['Timestamp', 'Assignment Type', 'Assignment Date', 'Call Position/Day', 'Original Assignee', 'New Assignee', 'Year', 'Receiver Round', 'Claim ID']
+           histSheet.appendRow([new Date(), comp.assignmentType, comp.datePos, '', comp.originalAssignee, participantId, activeYear, currentRound, newClaimId]);
            newlyCommitted.push({
               type: 'TRANSFER',
               details: comp.assignmentType + " - " + comp.datePos + " (from " + comp.originalAssignee + ")"
