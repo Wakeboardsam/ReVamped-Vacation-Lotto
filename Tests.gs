@@ -1122,15 +1122,8 @@ function runRegressionTests() {
         return { 'Web App URL': 'https://mock.example.com' };
       };
 
-      var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
-      // Setup rows for tests:
-      // Row 1: Headers
-      // Row 2: Alice, True, Phone, PIN (Valid)
-      // Row 3: Bob, False, Phone, PIN (Skipped because Active=False)
-      // Row 4: Dan, True, '', PIN (Skipped because missing phone)
-      // Row 5: Eve, True, Phone, '' (Skipped because missing PIN)
-      // Row 6: Frank, True, Phone2, PIN2 (Valid)
-      pSheet.setValues([
+      // Setup rows for tests using MockSpreadsheetApp
+      MockSpreadsheetApp.createSheet('Participant Config', [
         ['Name', 'Active for Year', 'Phone Number', 'PIN'],
         ['Alice', true, '111', '1234'],
         ['Bob', false, '222', '5678'],
