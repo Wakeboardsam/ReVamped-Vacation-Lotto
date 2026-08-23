@@ -350,7 +350,7 @@ function sendActiveParticipantPINs() {
     }
 
     var report = sendWhatsAppBatch(items);
-    var totalFailed = report.failed + report.aborted;
+    var totalFailed = report.failed;
 
     var summary = 'Sent PIN messages to active participants.\n\n' +
                   'Successfully sent: ' + report.sent + '\n' +
