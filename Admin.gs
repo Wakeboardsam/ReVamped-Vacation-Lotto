@@ -17,6 +17,8 @@ function onOpen(e) {
       .addItem('▶️ Begin Weekend Phase', 'beginWeekendPhase')
       .addItem('▶️ Begin Holiday Phase', 'beginHolidayPhase')
       .addItem('▶️ Begin Transfer Phase', 'beginTransferPhase')
+      .addSeparator()
+      .addItem('✉️ Send Active Participant PINs', 'sendActiveParticipantPINs')
       .addToUi();
 }
 
@@ -299,6 +301,65 @@ function beginTransferPhase() {
  * Calculates vacation adjacency and stores participant names in Weekend Coverage.
  */
 
+
+/**
+ * Sends a WhatsApp message containing the PIN and Web App URL to all participants
+ * who have "Active for Year" set to TRUE.
+ */
+function sendActiveParticipantPINs() {
+  return withScriptLock(function() {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var pSheet = ss.getSheetByName('Participant Config');
+    if (!pSheet) throw new Error("Participant Config sheet not found.");
+
+    var pData = pSheet.getDataRange().getValues();
+    if (pData.length < 2) throw new Error("'Participant Config' sheet is missing data.");
+
+    var pHeaders = pData[0];
+    var nameIdx = pHeaders.indexOf('Name');
+    var phoneIdx = pHeaders.indexOf('Phone Number');
+    var pinIdx = pHeaders.indexOf('PIN');
+    var activeIdx = pHeaders.indexOf('Active for Year');
+
+    if (nameIdx === -1 || phoneIdx === -1 || pinIdx === -1 || activeIdx === -1) {
+      throw new Error("Missing required headers in 'Participant Config'.");
+    }
+
+    var adminOptions = getAdminOptions();
+    var webAppUrl = adminOptions['Web App URL'] || '';
+
+    var items = [];
+    var skippedCount = 0;
+
+    for (var i = 1; i < pData.length; i++) {
+      var row = pData[i];
+      var isActive = row[activeIdx] === true || String(row[activeIdx]).toUpperCase() === 'TRUE';
+
+      if (isActive) {
+        var name = String(row[nameIdx] || '').trim();
+        var phone = String(row[phoneIdx] || '').trim();
+        var pin = String(row[pinIdx] || '').trim();
+
+        if (!phone || !pin) {
+          skippedCount++;
+        } else {
+          var message = "Hi " + name + ", your Vacation Lottery PIN is " + pin + ". Open the lottery here: " + webAppUrl + ". Please keep your PIN private.";
+          items.push({ phone: phone, message: message });
+        }
+      }
+    }
+
+    var report = sendWhatsAppBatch(items);
+    var totalFailed = report.failed;
+
+    var summary = 'Sent PIN messages to active participants.\n\n' +
+                  'Successfully sent: ' + report.sent + '\n' +
+                  'Skipped (missing phone/PIN): ' + skippedCount + '\n' +
+                  'Failed: ' + totalFailed;
+
+    SpreadsheetApp.getUi().alert(summary);
+  });
+}
 
 function autoFillAndRandomize(targetYear) {
   // Fallback to Admin Options setting or 2027 default if no argument is passed

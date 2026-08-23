@@ -1104,6 +1104,74 @@ function runRegressionTests() {
     toggleSelectionSimulated('weekend');
     assert(simAppState.adjacentHolidayPending === null, "Selecting a new weekend card clears existing adjacentHolidayPending");
 
+    // --- TEST 9: sendActiveParticipantPINs Menu Action ---
+    log.push("--- Testing sendActiveParticipantPINs ---");
+    var originalSendWhatsAppBatch = typeof sendWhatsAppBatch !== 'undefined' ? sendWhatsAppBatch : null;
+    var originalGetAdminOptions = typeof getAdminOptions !== 'undefined' ? getAdminOptions : null;
+
+    try {
+      var batchCallLog = [];
+      var mockBatchReport = { total: 0, attempted: 0, sent: 0, failed: 0, success: true, aborted: 0, abortedBecause: null, errors: [] };
+
+      // We will override these globally during this test scope
+      sendWhatsAppBatch = function(items) {
+        batchCallLog.push(items);
+        return mockBatchReport;
+      };
+      getAdminOptions = function() {
+        return { 'Web App URL': 'https://mock.example.com' };
+      };
+
+      // Setup rows for tests using MockSpreadsheetApp
+      MockSpreadsheetApp.createSheet('Participant Config', [
+        ['Name', 'Active for Year', 'Phone Number', 'PIN'],
+        ['Alice', true, '111', '1234'],
+        ['Bob', false, '222', '5678'],
+        ['Dan', true, '', '9999'],
+        ['Eve', true, '444', ''],
+        ['Frank', true, '555', '7777']
+      ]);
+
+      // Subtest 1: Successful send
+      mockBatchReport = { total: 2, attempted: 2, sent: 2, failed: 0, success: true, aborted: 0, abortedBecause: null, errors: [] };
+
+      // Intercept the alert summary
+      var alertMessage = "";
+      var uiMock = {
+        alert: function(msg) { alertMessage = msg; }
+      };
+      SpreadsheetApp.getUi = function() { return uiMock; };
+
+      sendActiveParticipantPINs();
+
+      assert(batchCallLog.length === 1, "sendWhatsAppBatch should be called once");
+      assert(batchCallLog[0].length === 2, "Only Alice and Frank should be sent to batch");
+      assert(batchCallLog[0][0].phone === '111', "Alice's phone is correct");
+      assert(batchCallLog[0][0].message.indexOf('1234') !== -1, "Alice's PIN is in message");
+      assert(batchCallLog[0][1].phone === '555', "Frank's phone is correct");
+      assert(batchCallLog[0][1].message.indexOf('https://mock.example.com') !== -1, "URL is in message");
+
+      assert(alertMessage.indexOf('Successfully sent: 2') !== -1, "Alert shows correct sent count");
+      assert(alertMessage.indexOf('Skipped (missing phone/PIN): 2') !== -1, "Alert shows correct skipped count (Dan and Eve)");
+      assert(alertMessage.indexOf('Failed: 0') !== -1, "Alert shows correct failed count");
+
+      // Subtest 2: Systemic Abort
+      batchCallLog = [];
+      alertMessage = "";
+      mockBatchReport = { total: 2, attempted: 1, sent: 0, failed: 2, success: false, aborted: 1, abortedBecause: 'TUNNEL_OFFLINE', errors: [] };
+
+      sendActiveParticipantPINs();
+
+      assert(alertMessage.indexOf('Successfully sent: 0') !== -1, "Systemic abort: 0 sent");
+      assert(alertMessage.indexOf('Skipped (missing phone/PIN): 2') !== -1, "Systemic abort: 2 skipped");
+      assert(alertMessage.indexOf('Failed: 2') !== -1, "Systemic abort: 2 failed (includes aborted exactly once without double counting)");
+
+    } finally {
+      // Restore globals modified for this specific test
+      if (originalSendWhatsAppBatch) sendWhatsAppBatch = originalSendWhatsAppBatch;
+      if (originalGetAdminOptions) getAdminOptions = originalGetAdminOptions;
+    }
+
 } finally {
     // Restore globals
     SpreadsheetApp = originalSpreadsheetApp;
