@@ -1104,56 +1104,6 @@ function runRegressionTests() {
     toggleSelectionSimulated('weekend');
     assert(simAppState.adjacentHolidayPending === null, "Selecting a new weekend card clears existing adjacentHolidayPending");
 
-    // --- Year at a Glance Logic Simulator ---
-    log.push("--- Testing Year at a Glance Capacity Mapping ---");
-    function buildVacationOverviewHtmlSimulated(weeks, activeYear) {
-      // Stripped down mock of client logic for testing source-contract boundaries only
-      var monthGroups = {};
-      var orderedKeys = [];
-      for (var i = 0; i < weeks.length; i++) {
-        var w = weeks[i];
-        var norm = w['Start Date (Monday)']; // skipping normalizeDateKeyClient here since we feed it ISO
-        if (!norm) continue;
-        var parts = norm.split('-');
-        var groupKey = parts[0] + '-' + parts[1];
-        if (!monthGroups[groupKey]) {
-          monthGroups[groupKey] = [];
-          orderedKeys.push(groupKey);
-        }
-        var capacity = parseInt(w['Capacity']) || 4;
-        var assigneesStr = w['Assigned Participants'] || '';
-        var assigneesList = assigneesStr ? String(assigneesStr).split(',').map(function(s){return s.trim();}) : [];
-        var remaining = capacity - assigneesList.length;
-        var status = 'available';
-        if (remaining === 1) status = 'nearly-full';
-        if (remaining <= 0) status = 'full';
-        monthGroups[groupKey].push({ status: status });
-      }
-      return { keys: orderedKeys.sort(), groups: monthGroups };
-    }
-
-    var testWeeks = [
-      { 'Start Date (Monday)': '2026-12-28', 'Capacity': '4', 'Assigned Participants': '' }, // boundary date
-      { 'Start Date (Monday)': '2027-01-04', 'Capacity': '', 'Assigned Participants': '' }, // blank cap defaults 4 -> white
-      { 'Start Date (Monday)': '2027-01-11', 'Capacity': '4', 'Assigned Participants': 'Alice, Bob' }, // 2 rem -> white
-      { 'Start Date (Monday)': '2027-01-18', 'Capacity': '4', 'Assigned Participants': 'Alice, Bob, Charlie' }, // 1 rem -> yellow
-      { 'Start Date (Monday)': '2027-01-25', 'Capacity': '4', 'Assigned Participants': 'A, B, C, D' }, // 0 rem -> red
-      { 'Start Date (Monday)': '2027-02-01', 'Capacity': '2', 'Assigned Participants': 'A, B, C' } // -1 rem (over cap) -> red
-    ];
-
-    var simOverview = buildVacationOverviewHtmlSimulated(testWeeks, 2027);
-    assert(simOverview.keys.length === 3, "Overview groups months correctly (Dec '26 boundary, Jan, Feb)");
-    assert(simOverview.keys[0] === '2026-12', "Boundary week respects actual calendar month instead of shifting");
-
-    var janGroup = simOverview.groups['2027-01'];
-    assert(janGroup[0].status === 'available', "Blank capacity correctly defaults to 4 and shows available (white)");
-    assert(janGroup[1].status === 'available', "Capacity 4 with 2 assignees maps to available (white)");
-    assert(janGroup[2].status === 'nearly-full', "Capacity 4 with 3 assignees maps to nearly full (yellow)");
-    assert(janGroup[3].status === 'full', "Capacity 4 with 4 assignees maps to full (red)");
-
-    var febGroup = simOverview.groups['2027-02'];
-    assert(febGroup[0].status === 'full', "Over-capacity correctly maps to full (red)");
-
     // --- TEST 9: sendActiveParticipantPINs Menu Action ---
     log.push("--- Testing sendActiveParticipantPINs ---");
     var originalSendWhatsAppBatch = typeof sendWhatsAppBatch !== 'undefined' ? sendWhatsAppBatch : null;

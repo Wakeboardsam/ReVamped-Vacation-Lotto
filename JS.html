@@ -783,7 +783,8 @@
 
       monthGroups[groupKey].push({
         dayNum: parseInt(dd, 10).toString(),
-        status: status
+        status: status,
+        fullDate: norm
       });
 
       validTotal++;
@@ -835,12 +836,21 @@
       var shortName = monthNames[mm];
       var fullName = fullMonthNames[mm];
       var displayName = shortName;
+      var ariaName = fullName;
       if (mmCounts[mm] > 1) {
         var shortYear = yyyy.substring(2);
         displayName += " \u2019" + shortYear;
+        ariaName = fullName + ' ' + yyyy;
       }
 
       var monthWeeks = monthGroups[key];
+      // Sort chronologically just before rendering
+      monthWeeks.sort(function(a, b) {
+        if (a.fullDate < b.fullDate) return -1;
+        if (a.fullDate > b.fullDate) return 1;
+        return 0;
+      });
+
       var countAvailable = 0;
       var countNearlyFull = 0;
       var countFull = 0;
@@ -862,7 +872,7 @@
       if (countNearlyFull > 0) ariaParts.push(countNearlyFull + ' ' + (countNearlyFull === 1 ? 'week' : 'weeks') + ' with one spot');
       if (countAvailable > 0) ariaParts.push(countAvailable + ' ' + (countAvailable === 1 ? 'week' : 'weeks') + ' with two or more spots');
 
-      var ariaLabel = fullName + ': ';
+      var ariaLabel = ariaName + ': ';
       if (ariaParts.length > 0) {
         if (ariaParts.length === 1) {
           ariaLabel += ariaParts[0] + '. ';
@@ -874,7 +884,7 @@
       } else {
         ariaLabel += '0 weeks. ';
       }
-      ariaLabel += 'Tap to jump to ' + fullName + ' choices.';
+      ariaLabel += 'Tap to jump to ' + ariaName + ' choices.';
 
       html += '<button type="button" class="vacation-year-overview__month" data-overview-target="' + key + '" aria-label="' + ariaLabel + '">';
       html += '<span class="vacation-year-overview__month-name">' + displayName + '</span>';
