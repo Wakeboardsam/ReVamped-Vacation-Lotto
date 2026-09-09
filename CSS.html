@@ -496,6 +496,25 @@
     text-decoration: line-through;
   }
 
+  @media (max-width: 359px) {
+    .vacation-year-overview {
+      padding: 10px;
+    }
+    .vacation-year-overview__months {
+      gap: 6px;
+    }
+    .vacation-year-overview__month {
+      padding: 8px 2px;
+    }
+    .vacation-year-overview__weeks {
+      gap: 1px;
+    }
+    .vacation-year-overview__week--nearly-full::after {
+      width: 3px;
+      height: 3px;
+    }
+  }
+
   /* Support for scrolling to a detailed card from the overview */
   .vacation-choice-card {
     scroll-margin-top: 110px;

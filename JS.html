@@ -744,7 +744,7 @@
    * Helper for Year at a Glance Overview
    * Builds the HTML string for the overview without mutating the weeks array.
    */
-  function buildVacationOverviewHtml(weeks, activeYear) {
+  function buildVacationOverviewHtml(weeks) {
     if (!weeks || weeks.length === 0) return '';
 
     // 1. Build a chronological map of month groups
@@ -912,7 +912,7 @@
     var hadChristmas = (appState.participant['Had Christmas Week Last Year'] === true || appState.participant['Had Christmas Week Last Year'] === 'TRUE');
     var isEarlyRound = appState.round <= 3;
 
-    var html = buildVacationOverviewHtml(weeks, appState.activeYear);
+    var html = buildVacationOverviewHtml(weeks);
 
     html += '<h3>Select Vacation Weeks</h3>';
     html += '<div class="vacation-grid">';
