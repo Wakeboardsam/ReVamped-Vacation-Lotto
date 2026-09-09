@@ -315,3 +315,55 @@ function participantAlreadyHasWeekend_(participantName, selectedDate, weekendDat
 
   return false;
 }
+
+/**
+ * Idempotent helper to clear notification tracking for a specific participant.
+ * Prevents redundant STATE_RESET logging when values are already cleared.
+ */
+function clearNotificationTracking_(participantId, phase) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var pSheet = ss.getSheetByName('Participant Config');
+  if (!pSheet) return;
+  var pData = pSheet.getDataRange().getValues();
+  var pHeaders = pData[0];
+
+  var pRowIdx = -1;
+  for (var i = 1; i < pData.length; i++) {
+    if (pData[i][pHeaders.indexOf('Name')] === participantId) {
+      pRowIdx = i + 1;
+      break;
+    }
+  }
+
+  if (pRowIdx === -1) return; // Not found
+
+  var entryCol = pHeaders.indexOf('Entry Timestamp');
+  var remCol = pHeaders.indexOf('Reminder Sent');
+  var alertCol = pHeaders.indexOf('Admin Alert Sent');
+
+  var currentEntry = pData[pRowIdx - 1][entryCol];
+  var currentRem = pData[pRowIdx - 1][remCol];
+  var currentAlert = pData[pRowIdx - 1][alertCol];
+
+  // Check if actually populated
+  var hasEntry = currentEntry !== '' && currentEntry !== undefined && currentEntry !== null;
+  var hasRem = currentRem === true || String(currentRem).toUpperCase() === 'TRUE';
+  var hasAlert = currentAlert === true || String(currentAlert).toUpperCase() === 'TRUE';
+
+  if (hasEntry || hasRem || hasAlert) {
+    if (typeof logStateReset !== 'undefined') {
+      var pObj = {
+        'Name': participantId,
+        'Phone Number': pData[pRowIdx - 1][pHeaders.indexOf('Phone Number')],
+        'Entry Timestamp': currentEntry,
+        'Reminder Sent': currentRem,
+        'Admin Alert Sent': currentAlert,
+        'Resend WhatsApp': pData[pRowIdx - 1][pHeaders.indexOf('Resend WhatsApp')]
+      };
+      logStateReset(pObj, phase);
+    }
+    if (entryCol !== -1) pSheet.getRange(pRowIdx, entryCol + 1).clearContent();
+    if (remCol !== -1) pSheet.getRange(pRowIdx, remCol + 1).setValue(false);
+    if (alertCol !== -1) pSheet.getRange(pRowIdx, alertCol + 1).setValue(false);
+  }
+}
