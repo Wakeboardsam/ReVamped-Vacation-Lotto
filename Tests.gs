@@ -1086,11 +1086,13 @@ function runRegressionTests() {
     // --- Testing Multiperson Active Window Notification Reset ---
     log.push("--- Testing Multiperson Active Window Notification Reset ---");
 
+    getActiveParticipants = origGetActiveParticipants; // Restore from any previous mocks
+
     // Setup VACATION_RANDOM window for Alice, Bob, Charlie (3 people)
     MockSpreadsheetApp.createSheet('Config', [
       ['Setting Name', 'Setting Value'],
       ['Current Phase', 'VACATION_RANDOM'],
-      ['Current Round', '4'],
+      ['Current Round', '2'],
       ['Current Direction', 'ASCENDING'],
       ['Current Lead', '1'],
       ['Active Year', '2025'] // for default cap
@@ -1109,7 +1111,7 @@ function runRegressionTests() {
     ]);
     MockSpreadsheetApp.createSheet('Vacation Availability', [
       ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants'],
-      ['W1', '2025-01-06', 4, 'Non-Prime', '', ''],
+      ['W1', '2025-01-06', 4, 'Non-Prime', '', 'Alice, Bob, Charlie'], // Seed with 1 assignment each (completed round 1)
       ['W2', '2025-01-13', 4, 'Non-Prime', '', '']
     ]);
     MockSpreadsheetApp.createSheet('Notification Log', [
@@ -1119,8 +1121,11 @@ function runRegressionTests() {
     var preLogCount = MockSpreadsheetApp._sheets['Notification Log'].getDataRange().getValues().length;
 
     // Bob submits a selection (multi-person window because Alice is lead)
-    var bResRandom = submitSelection('Bob', { phase: 'VACATION_RANDOM', action: 'SUBMIT', selections: ['W1'] });
-    assert(bResRandom.success === true, "Bob successfully selects while Alice remains lead in Round 4.");
+    var bResRandom = submitSelection('Bob', { phase: 'VACATION_RANDOM', action: 'SUBMIT', selections: ['W2'] });
+    assert(bResRandom.success === true, "Bob successfully selects while Alice remains lead in Round 2.");
+
+    var vacData = MockSpreadsheetApp._sheets['Vacation Availability'].getDataRange().getValues();
+    assert(vacData[2][5] === 'Bob', "Bob was added to the assigned participants for W2.");
 
     var pDataResetTest = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
     var pHeadersResetTest = pDataResetTest[0];
