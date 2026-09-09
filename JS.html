@@ -740,6 +740,155 @@
     } catch(e) { return norm; }
   }
 
+  /**
+   * Helper for Year at a Glance Overview
+   * Builds the HTML string for the overview without mutating the weeks array.
+   */
+  function buildVacationOverviewHtml(weeks, activeYear) {
+    if (!weeks || weeks.length === 0) return '';
+
+    // 1. Build a chronological map of month groups
+    var monthGroups = {}; // key: "YYYY-MM", value: array of valid week objects
+    var orderedKeys = [];
+
+    var validTotal = 0;
+
+    for (var i = 0; i < weeks.length; i++) {
+      var w = weeks[i];
+      var startStr = w['Start Date (Monday)'];
+      var norm = normalizeDateKeyClient(startStr);
+      if (!norm) continue; // skip malformed dates
+
+      var parts = norm.split('-');
+      var yyyy = parts[0];
+      var mm = parts[1];
+      var dd = parts[2];
+
+      var groupKey = yyyy + '-' + mm;
+
+      if (!monthGroups[groupKey]) {
+        monthGroups[groupKey] = [];
+        orderedKeys.push(groupKey);
+      }
+
+      // Compute status for the miniature week
+      var capacity = parseInt(w['Capacity']) || 4;
+      var assigneesStr = w['Assigned Participants'] || '';
+      var assigneesList = assigneesStr ? String(assigneesStr).split(',').map(function(s){return s.trim();}) : [];
+      var remaining = capacity - assigneesList.length;
+
+      var status = 'available'; // remaining >= 2
+      if (remaining === 1) status = 'nearly-full';
+      if (remaining <= 0) status = 'full';
+
+      monthGroups[groupKey].push({
+        dayNum: parseInt(dd, 10).toString(),
+        status: status
+      });
+
+      validTotal++;
+    }
+
+    if (orderedKeys.length === 0) return '';
+
+    // Sort the month groups chronologically
+    orderedKeys.sort();
+
+    // To determine if we need year suffixes, find all distinct months (MM)
+    // If a month appears more than once across different years, append suffix.
+    var mmCounts = {};
+    for (var k = 0; k < orderedKeys.length; k++) {
+      var mm = orderedKeys[k].split('-')[1];
+      mmCounts[mm] = (mmCounts[mm] || 0) + 1;
+    }
+
+    var monthNames = {
+      '01': 'JAN', '02': 'FEB', '03': 'MAR', '04': 'APR',
+      '05': 'MAY', '06': 'JUN', '07': 'JUL', '08': 'AUG',
+      '09': 'SEP', '10': 'OCT', '11': 'NOV', '12': 'DEC'
+    };
+    var fullMonthNames = {
+      '01': 'January', '02': 'February', '03': 'March', '04': 'April',
+      '05': 'May', '06': 'June', '07': 'July', '08': 'August',
+      '09': 'September', '10': 'October', '11': 'November', '12': 'December'
+    };
+
+    var html = '<div class="vacation-year-overview">';
+    html += '<div class="vacation-year-overview__header">';
+    html += '<h3 class="vacation-year-overview__title">Year at a Glance</h3>';
+    html += '<span class="vacation-year-overview__subtitle">' + validTotal + ' weeks</span>';
+    html += '</div>';
+
+    html += '<div class="vacation-year-overview__legend">';
+    html += '<div class="vacation-year-overview__legend-item"><span class="vacation-year-overview__swatch vacation-year-overview__swatch--available"></span> 2+ spots</div>';
+    html += '<div class="vacation-year-overview__legend-item"><span class="vacation-year-overview__swatch vacation-year-overview__swatch--nearly-full"></span> 1 spot</div>';
+    html += '<div class="vacation-year-overview__legend-item"><span class="vacation-year-overview__swatch vacation-year-overview__swatch--full"></span> Full</div>';
+    html += '</div>';
+
+    html += '<div class="vacation-year-overview__months">';
+
+    for (var k = 0; k < orderedKeys.length; k++) {
+      var key = orderedKeys[k];
+      var yyyy = key.split('-')[0];
+      var mm = key.split('-')[1];
+
+      var shortName = monthNames[mm];
+      var fullName = fullMonthNames[mm];
+      var displayName = shortName;
+      if (mmCounts[mm] > 1) {
+        var shortYear = yyyy.substring(2);
+        displayName += " \u2019" + shortYear;
+      }
+
+      var monthWeeks = monthGroups[key];
+      var countAvailable = 0;
+      var countNearlyFull = 0;
+      var countFull = 0;
+
+      var weeksHtml = '<div class="vacation-year-overview__weeks">';
+      for (var w = 0; w < monthWeeks.length; w++) {
+        var weekInfo = monthWeeks[w];
+        if (weekInfo.status === 'available') countAvailable++;
+        else if (weekInfo.status === 'nearly-full') countNearlyFull++;
+        else if (weekInfo.status === 'full') countFull++;
+
+        weeksHtml += '<span class="vacation-year-overview__week vacation-year-overview__week--' + weekInfo.status + '" aria-hidden="true">' + weekInfo.dayNum + '</span>';
+      }
+      weeksHtml += '</div>';
+
+      // Build ARIA label omitting zero categories
+      var ariaParts = [];
+      if (countFull > 0) ariaParts.push(countFull + ' full ' + (countFull === 1 ? 'week' : 'weeks'));
+      if (countNearlyFull > 0) ariaParts.push(countNearlyFull + ' ' + (countNearlyFull === 1 ? 'week' : 'weeks') + ' with one spot');
+      if (countAvailable > 0) ariaParts.push(countAvailable + ' ' + (countAvailable === 1 ? 'week' : 'weeks') + ' with two or more spots');
+
+      var ariaLabel = fullName + ': ';
+      if (ariaParts.length > 0) {
+        if (ariaParts.length === 1) {
+          ariaLabel += ariaParts[0] + '. ';
+        } else if (ariaParts.length === 2) {
+          ariaLabel += ariaParts[0] + ' and ' + ariaParts[1] + '. ';
+        } else {
+          ariaLabel += ariaParts.slice(0, -1).join(', ') + ', and ' + ariaParts[ariaParts.length - 1] + '. ';
+        }
+      } else {
+        ariaLabel += '0 weeks. ';
+      }
+      ariaLabel += 'Tap to jump to ' + fullName + ' choices.';
+
+      html += '<button type="button" class="vacation-year-overview__month" data-overview-target="' + key + '" aria-label="' + ariaLabel + '">';
+      html += '<span class="vacation-year-overview__month-name">' + displayName + '</span>';
+      html += weeksHtml;
+      html += '</button>';
+    }
+
+    html += '</div>';
+    html += '<p style="font-size: 13px; color: var(--text-muted); margin-top: 12px; margin-bottom: 0;">Tap a month to jump to its full-size week choices.</p>';
+    html += '</div>';
+
+    return html;
+  }
+
   function renderVacationPhase(container) {
     var weeks = appState.availableChoices.vacation;
     if (!weeks || weeks.length === 0) {
@@ -753,7 +902,9 @@
     var hadChristmas = (appState.participant['Had Christmas Week Last Year'] === true || appState.participant['Had Christmas Week Last Year'] === 'TRUE');
     var isEarlyRound = appState.round <= 3;
 
-    var html = '<h3>Select Vacation Weeks</h3>';
+    var html = buildVacationOverviewHtml(weeks, appState.activeYear);
+
+    html += '<h3>Select Vacation Weeks</h3>';
     html += '<div class="vacation-grid">';
 
     for (var i = 0; i < weeks.length; i++) {
@@ -787,11 +938,18 @@
         }
       }
 
-      var cardClass = 'card';
+      var cardClass = 'card vacation-choice-card';
       if (disabled) {
         cardClass += ' disabled';
       } else if (capacity > 1 && capacity - assigneesList.length === 1) {
         cardClass += ' schedule-status-nearly-full';
+      }
+
+      var overviewMonthAttr = '';
+      var normDate = normalizeDateKeyClient(w['Start Date (Monday)']);
+      if (normDate) {
+        var parts = normDate.split('-');
+        overviewMonthAttr = ' data-overview-month="' + parts[0] + '-' + parts[1] + '"';
       }
 
       var badgesHtml = '';
@@ -810,7 +968,7 @@
         assignedPills = '<span>None</span>';
       }
 
-      html += '<div class="' + cardClass + '" data-id="' + weekId + '" data-prime="' + isPrime + '" onclick="toggleSelection(this, \'vacation\')">';
+      html += '<div class="' + cardClass + '" data-id="' + weekId + '" data-prime="' + isPrime + '"' + overviewMonthAttr + ' onclick="toggleSelection(this, \'vacation\')">';
       html += '  <div class="card-content">';
       html += '    <h4 class="card-title">' + formatDateDisplay(w['Start Date (Monday)']) + '</h4>';
       html += '    <div class="badge-container">' + badgesHtml + '</div>';
@@ -827,6 +985,23 @@
     html += '</div>';
 
     container.innerHTML = html;
+
+    // Attach delegated overview listener safely
+    var overviewEl = container.querySelector('.vacation-year-overview');
+    if (overviewEl) {
+      overviewEl.addEventListener('click', function(e) {
+        var btn = e.target.closest('.vacation-year-overview__month');
+        if (!btn) return;
+        var targetMonth = btn.getAttribute('data-overview-target');
+        if (!targetMonth) return;
+
+        var targetCard = container.querySelector('.vacation-choice-card[data-overview-month="' + targetMonth + '"]');
+        if (targetCard) {
+          var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          targetCard.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' });
+        }
+      });
+    }
   }
 
   function renderWeekendPhase(container) {

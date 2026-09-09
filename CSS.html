@@ -326,4 +326,177 @@
 
   /* Hidden helper classes for headings */
   .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0; }
+
+  /* Year at a Glance Overview */
+  .vacation-year-overview {
+    margin-bottom: 24px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .vacation-year-overview__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .vacation-year-overview__title {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0;
+    color: var(--text-main);
+  }
+  .vacation-year-overview__subtitle {
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+  .vacation-year-overview__legend {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--text-muted);
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .vacation-year-overview__legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .vacation-year-overview__swatch {
+    width: 14px;
+    height: 14px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .vacation-year-overview__swatch--available {
+    background-color: #ffffff;
+  }
+  .vacation-year-overview__swatch--nearly-full {
+    background-color: #fef9c3;
+    border-color: #fde047;
+  }
+  .vacation-year-overview__swatch--nearly-full::after {
+    content: '';
+    width: 4px;
+    height: 4px;
+    background-color: #ca8a04;
+    border-radius: 50%;
+  }
+  .vacation-year-overview__swatch--full {
+    background-color: #fee2e2;
+    border-color: #fecaca;
+  }
+  .vacation-year-overview__swatch--full::after {
+    content: '';
+    width: 100%;
+    height: 1px;
+    background-color: #dc2626;
+    transform: rotate(-45deg);
+  }
+  .vacation-year-overview__months {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  @media (min-width: 600px) {
+    .vacation-year-overview__months {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+  @media (min-width: 900px) {
+    .vacation-year-overview {
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .vacation-year-overview__months {
+      grid-template-columns: repeat(6, 1fr);
+    }
+  }
+  .vacation-year-overview__month {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 4px;
+    cursor: pointer;
+    text-align: center;
+    transition: box-shadow 0.2s;
+    font-family: inherit;
+    color: inherit;
+    min-height: 44px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .vacation-year-overview__month:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+  @media (hover: hover) {
+    .vacation-year-overview__month:hover {
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      border-color: var(--primary);
+    }
+  }
+  .vacation-year-overview__month-name {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-main);
+  }
+  .vacation-year-overview__weeks {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .vacation-year-overview__week {
+    width: 20px;
+    height: 20px;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-main);
+    position: relative;
+    font-weight: 500;
+  }
+  .vacation-year-overview__week--available {
+    background-color: #ffffff;
+  }
+  .vacation-year-overview__week--nearly-full {
+    background-color: #fef9c3;
+    border-color: #fde047;
+  }
+  .vacation-year-overview__week--nearly-full::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 4px;
+    height: 4px;
+    background-color: #ca8a04;
+    border-radius: 50%;
+  }
+  .vacation-year-overview__week--full {
+    background-color: #fee2e2;
+    border-color: #fecaca;
+    color: var(--text-muted);
+    text-decoration: line-through;
+  }
+
+  /* Support for scrolling to a detailed card from the overview */
+  .vacation-choice-card {
+    scroll-margin-top: 110px;
+  }
 </style>
