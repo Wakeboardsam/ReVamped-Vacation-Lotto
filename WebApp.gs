@@ -652,10 +652,12 @@ function submitSelection(participantId, selectionData) {
         pSheet.getRange(pRowIdx, pHeaders.indexOf('Transfer Offers Submitted') + 1).setValue(true);
         // Do not advance queue for TRANSFER_OFFER_COLLECTION
         checkTransferOfferCollectionComplete_();
+        clearNotificationTracking_(participantId, phase);
         return { success: true };
       }
       // advance queue
       advanceQueueInternal_();
+      clearNotificationTracking_(participantId, phase);
       return { success: true };
     }
 
@@ -993,6 +995,7 @@ function submitSelection(participantId, selectionData) {
         pSheet.getRange(pRowIdx, pHeaders.indexOf('Transfer Offers Submitted') + 1).setValue(true);
         // Do not advance queue directly, check completion
         checkTransferOfferCollectionComplete_();
+        clearNotificationTracking_(participantId, phase);
         return { success: true };
       } else if (phase === 'TRANSFER_RECEIVER') {
         // Stage B Receivers: Claim an offer
@@ -1144,6 +1147,7 @@ function submitSelection(participantId, selectionData) {
 
       // Advance Queue after successful selection submission
       advanceQueueInternal_();
+      clearNotificationTracking_(participantId, phase);
 
       // Instead of sending under the lock, reserve the event and return data for sending outside
       var confirmationData = null;

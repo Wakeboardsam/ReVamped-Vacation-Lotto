@@ -1083,6 +1083,75 @@ function runRegressionTests() {
     assert(simulatedDOM.logoutBtn.style.display === 'none', "logoutBtn hidden after logout");
     assert(simulatedDOM.statusBadge.textContent === 'GUEST / LOG IN', "statusBadge reset to GUEST / LOG IN after logout");
 
+    // --- Testing Multiperson Active Window Notification Reset ---
+    log.push("--- Testing Multiperson Active Window Notification Reset ---");
+
+    // Setup VACATION_RANDOM window for Alice, Bob, Charlie (3 people)
+    MockSpreadsheetApp.createSheet('Config', [
+      ['Setting Name', 'Setting Value'],
+      ['Current Phase', 'VACATION_RANDOM'],
+      ['Current Round', '4'],
+      ['Current Direction', 'ASCENDING'],
+      ['Current Lead', '1'],
+      ['Active Year', '2025'] // for default cap
+    ]);
+    MockSpreadsheetApp.createSheet('Admin Options', [
+      ['Setting Name', 'Setting Value'],
+      ['Active Year', '2025'],
+      ['Vacation Week Target Default', '9'],
+      ['Vacation Active Window (participants)', '3']
+    ]);
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Currently Active', 'Active for Year', 'Vacation Phase Enabled', 'Lottery Position', 'Vacation Week Target Override', 'Skipped Turns Remaining', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Phone Number'],
+      ['Alice',   true, true, true, 1, '', '', 't1', true, false, '111'], // Lead
+      ['Bob',     true, true, true, 2, '', '', 't2', true, true,  '222'], // Submitter
+      ['Charlie', true, true, true, 3, '', '', 't3', false, true, '333']  // 3rd person
+    ]);
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants'],
+      ['W1', '2025-01-06', 4, 'Non-Prime', '', ''],
+      ['W2', '2025-01-13', 4, 'Non-Prime', '', '']
+    ]);
+    MockSpreadsheetApp.createSheet('Notification Log', [
+      ['Log Timestamp', 'Event Key', 'Participant ID', 'Participant Name', 'Masked Phone', 'Phase', 'Notification Type', 'Status', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp', 'Selection Reference', 'Sanitized Error']
+    ]);
+
+    var preLogCount = MockSpreadsheetApp._sheets['Notification Log'].getDataRange().getValues().length;
+
+    // Bob submits a selection (multi-person window because Alice is lead)
+    var bResRandom = submitSelection('Bob', { phase: 'VACATION_RANDOM', action: 'SUBMIT', selections: ['W1'] });
+    assert(bResRandom.success === true, "Bob successfully selects while Alice remains lead in Round 4.");
+
+    var pDataResetTest = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+    var pHeadersResetTest = pDataResetTest[0];
+    var bobRow = pDataResetTest.find(function(r) { return r[pHeadersResetTest.indexOf('Name')] === 'Bob'; });
+    var aliceRow = pDataResetTest.find(function(r) { return r[pHeadersResetTest.indexOf('Name')] === 'Alice'; });
+    var charlieRow = pDataResetTest.find(function(r) { return r[pHeadersResetTest.indexOf('Name')] === 'Charlie'; });
+
+    // Verify Bob's notification fields are cleared
+    assert(bobRow[pHeadersResetTest.indexOf('Entry Timestamp')] === '', "Bob's Entry Timestamp cleared.");
+    assert(bobRow[pHeadersResetTest.indexOf('Reminder Sent')] === false, "Bob's Reminder Sent cleared.");
+    assert(bobRow[pHeadersResetTest.indexOf('Admin Alert Sent')] === false, "Bob's Admin Alert Sent cleared.");
+
+    // Verify Alice's and Charlie's fields are untouched
+    assert(aliceRow[pHeadersResetTest.indexOf('Entry Timestamp')] === 't1', "Alice's Entry Timestamp untouched.");
+    assert(aliceRow[pHeadersResetTest.indexOf('Reminder Sent')] === true, "Alice's Reminder Sent untouched.");
+
+    assert(charlieRow[pHeadersResetTest.indexOf('Entry Timestamp')] === 't3', "Charlie's Entry Timestamp untouched.");
+    assert(charlieRow[pHeadersResetTest.indexOf('Admin Alert Sent')] === true, "Charlie's Admin Alert Sent untouched.");
+
+    // Verify lead didn't skip Alice
+    var configAfter = MockSpreadsheetApp._sheets['Config'].getDataRange().getValues();
+    assert(configAfter[4][1] === '1' || configAfter[4][1] === 1, "Alice remains the queue lead (Position 1).");
+
+    // Verify exactly one STATE_RESET logged for Bob
+    var postLogData = MockSpreadsheetApp._sheets['Notification Log'].getDataRange().getValues();
+    var newLogs = postLogData.slice(preLogCount);
+    var resetLogs = newLogs.filter(function(r) { return r[6] === 'STATE_RESET'; });
+    assert(resetLogs.length === 1, "Exactly one STATE_RESET logged.");
+    assert(resetLogs[0][2] === 'Bob', "STATE_RESET logged specifically for Bob.");
+
+
     // --- Simulated Weekend Selection State Reset Test ---
     log.push("--- Testing Simulated Weekend Holiday State Reset ---");
     // Simulate setting a pending holiday via confirmHolidaySelection
