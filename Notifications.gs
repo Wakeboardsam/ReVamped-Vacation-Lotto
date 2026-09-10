@@ -52,7 +52,9 @@ function notifyActiveParticipants() {
           var pHeaders = pSheet.getDataRange().getValues()[0];
           var onDeckKeyCol = pHeaders.indexOf('On Deck Event Key') + 1;
 
-          if (onDeckKeyCol > 0) {
+          if (onDeckKeyCol <= 0) {
+            console.warn("[WARN] 'On Deck Event Key' column missing. Skipping on-deck notification until schema migration is run.");
+          } else {
             // Reserve the key durably
             pSheet.getRange(onDeckParticipant._rowIndex, onDeckKeyCol).setValue(onDeckEventKey);
             SpreadsheetApp.flush();
