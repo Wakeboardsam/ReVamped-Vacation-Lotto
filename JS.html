@@ -740,69 +740,43 @@
     } catch(e) { return norm; }
   }
 
-  /**
-   * Helper for Year at a Glance Overview
-   * Builds the HTML string for the overview without mutating the weeks array.
-   */
-  function buildVacationOverviewHtml(weeks) {
-    if (!weeks || weeks.length === 0) return '';
+    function getPreviousSaturday(normDate) {
+    if (!normDate) return null;
+    var valid = normalizeDateKeyClient(normDate);
+    if (!valid) return null;
+    var parts = valid.split('-');
+    if (parts.length !== 3) return null;
+    var ms = Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    var prev = new Date(ms - 86400000);
+    return prev.toISOString().slice(0, 10);
+  }
 
-    // 1. Build a chronological map of month groups
-    var monthGroups = {}; // key: "YYYY-MM", value: array of valid week objects
+  function buildGenericOverviewHtml(items, config) {
+    if (!items || items.length === 0) return '';
+    var monthGroups = {};
     var orderedKeys = [];
-
     var validTotal = 0;
-
-    for (var i = 0; i < weeks.length; i++) {
-      var w = weeks[i];
-      var startStr = w['Start Date (Monday)'];
-      var norm = normalizeDateKeyClient(startStr);
-      if (!norm) continue; // skip malformed dates
-
-      var parts = norm.split('-');
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      if (!item.normDate) continue;
+      var parts = item.normDate.split('-');
       var yyyy = parts[0];
       var mm = parts[1];
-      var dd = parts[2];
-
       var groupKey = yyyy + '-' + mm;
-
       if (!monthGroups[groupKey]) {
         monthGroups[groupKey] = [];
         orderedKeys.push(groupKey);
       }
-
-      // Compute status for the miniature week
-      var capacity = parseInt(w['Capacity']) || 4;
-      var assigneesStr = w['Assigned Participants'] || '';
-      var assigneesList = assigneesStr ? String(assigneesStr).split(',').map(function(s){return s.trim();}) : [];
-      var remaining = capacity - assigneesList.length;
-
-      var status = 'available'; // remaining >= 2
-      if (remaining === 1) status = 'nearly-full';
-      if (remaining <= 0) status = 'full';
-
-      monthGroups[groupKey].push({
-        dayNum: parseInt(dd, 10).toString(),
-        status: status,
-        fullDate: norm
-      });
-
+      monthGroups[groupKey].push(item);
       validTotal++;
     }
-
     if (orderedKeys.length === 0) return '';
-
-    // Sort the month groups chronologically
     orderedKeys.sort();
-
-    // To determine if we need year suffixes, find all distinct months (MM)
-    // If a month appears more than once across different years, append suffix.
     var mmCounts = {};
     for (var k = 0; k < orderedKeys.length; k++) {
       var mm = orderedKeys[k].split('-')[1];
       mmCounts[mm] = (mmCounts[mm] || 0) + 1;
     }
-
     var monthNames = {
       '01': 'JAN', '02': 'FEB', '03': 'MAR', '04': 'APR',
       '05': 'MAY', '06': 'JUN', '07': 'JUL', '08': 'AUG',
@@ -813,91 +787,372 @@
       '05': 'May', '06': 'June', '07': 'July', '08': 'August',
       '09': 'September', '10': 'October', '11': 'November', '12': 'December'
     };
-
     var html = '<div class="vacation-year-overview">';
     html += '<div class="vacation-year-overview__header">';
-    html += '<h3 class="vacation-year-overview__title">Year at a Glance</h3>';
-    html += '<span class="vacation-year-overview__subtitle">' + validTotal + ' weeks</span>';
+    html += '<h3 class="vacation-year-overview__title">' + (config.title || 'Year at a Glance') + '</h3>';
+    var subtitleCount = config.subtitleCount !== undefined ? config.subtitleCount : validTotal;
+    var subtitleText = subtitleCount + ' ' + (subtitleCount === 1 ? config.subtitleSuffixSingular : config.subtitleSuffixPlural);
+    html += '<span class="vacation-year-overview__subtitle">' + subtitleText + '</span>';
     html += '</div>';
-
-    html += '<div class="vacation-year-overview__legend">';
-    html += '<div class="vacation-year-overview__legend-item"><span class="vacation-year-overview__swatch vacation-year-overview__swatch--available"></span> 2+ spots</div>';
-    html += '<div class="vacation-year-overview__legend-item"><span class="vacation-year-overview__swatch vacation-year-overview__swatch--nearly-full"></span> 1 spot</div>';
-    html += '<div class="vacation-year-overview__legend-item"><span class="vacation-year-overview__swatch vacation-year-overview__swatch--full"></span> Full</div>';
-    html += '</div>';
-
+    if (config.legendItems && config.legendItems.length > 0) {
+      html += '<div class="vacation-year-overview__legend">';
+      for (var l = 0; l < config.legendItems.length; l++) {
+        var li = config.legendItems[l];
+        html += '<div class="vacation-year-overview__legend-item"><span class="vacation-year-overview__swatch vacation-year-overview__swatch--' + li.classSuffix + '"></span> ' + li.label + '</div>';
+      }
+      html += '</div>';
+    }
     html += '<div class="vacation-year-overview__months">';
-
     for (var k = 0; k < orderedKeys.length; k++) {
       var key = orderedKeys[k];
       var yyyy = key.split('-')[0];
       var mm = key.split('-')[1];
-
       var shortName = monthNames[mm];
       var fullName = fullMonthNames[mm];
       var displayName = shortName;
       var ariaName = fullName;
       if (mmCounts[mm] > 1) {
         var shortYear = yyyy.substring(2);
-        displayName += " \u2019" + shortYear;
+        displayName += " ’" + shortYear;
         ariaName = fullName + ' ' + yyyy;
       }
-
-      var monthWeeks = monthGroups[key];
-      // Sort chronologically just before rendering
-      monthWeeks.sort(function(a, b) {
-        if (a.fullDate < b.fullDate) return -1;
-        if (a.fullDate > b.fullDate) return 1;
+      var monthItems = monthGroups[key];
+      monthItems.sort(function(a, b) {
+        if (a.normDate < b.normDate) return -1;
+        if (a.normDate > b.normDate) return 1;
         return 0;
       });
-
-      var countAvailable = 0;
-      var countNearlyFull = 0;
-      var countFull = 0;
-
+      var counts = {};
       var weeksHtml = '<div class="vacation-year-overview__weeks">';
-      for (var w = 0; w < monthWeeks.length; w++) {
-        var weekInfo = monthWeeks[w];
-        if (weekInfo.status === 'available') countAvailable++;
-        else if (weekInfo.status === 'nearly-full') countNearlyFull++;
-        else if (weekInfo.status === 'full') countFull++;
-
-        weeksHtml += '<span class="vacation-year-overview__week vacation-year-overview__week--' + weekInfo.status + '" aria-hidden="true">' + weekInfo.dayNum + '</span>';
+      for (var w = 0; w < monthItems.length; w++) {
+        var itemInfo = monthItems[w];
+        counts[itemInfo.status] = (counts[itemInfo.status] || 0) + 1;
+        weeksHtml += '<span class="vacation-year-overview__week vacation-year-overview__week--' + itemInfo.status + '" aria-hidden="true">' + itemInfo.dayNum + '</span>';
       }
       weeksHtml += '</div>';
-
-      // Build ARIA label omitting zero categories
-      var ariaParts = [];
-      if (countFull > 0) ariaParts.push(countFull + ' full ' + (countFull === 1 ? 'week' : 'weeks'));
-      if (countNearlyFull > 0) ariaParts.push(countNearlyFull + ' ' + (countNearlyFull === 1 ? 'week' : 'weeks') + ' with one spot');
-      if (countAvailable > 0) ariaParts.push(countAvailable + ' ' + (countAvailable === 1 ? 'week' : 'weeks') + ' with two or more spots');
-
-      var ariaLabel = ariaName + ': ';
-      if (ariaParts.length > 0) {
-        if (ariaParts.length === 1) {
-          ariaLabel += ariaParts[0] + '. ';
-        } else if (ariaParts.length === 2) {
-          ariaLabel += ariaParts[0] + ' and ' + ariaParts[1] + '. ';
-        } else {
-          ariaLabel += ariaParts.slice(0, -1).join(', ') + ', and ' + ariaParts[ariaParts.length - 1] + '. ';
-        }
-      } else {
-        ariaLabel += '0 weeks. ';
-      }
-      ariaLabel += 'Tap to jump to ' + ariaName + ' choices.';
-
+      var ariaLabel = config.ariaBuilder(counts, ariaName);
       html += '<button type="button" class="vacation-year-overview__month" data-overview-target="' + key + '" aria-label="' + ariaLabel + '">';
       html += '<span class="vacation-year-overview__month-name">' + displayName + '</span>';
       html += weeksHtml;
       html += '</button>';
     }
-
     html += '</div>';
-    html += '<p style="font-size: 13px; color: var(--text-muted); margin-top: 12px; margin-bottom: 0;">Tap a month to jump to its full-size week choices.</p>';
+    if (config.helperText) {
+      html += '<p style="font-size: 13px; color: var(--text-muted); margin-top: 12px; margin-bottom: 0;">' + config.helperText + '</p>';
+    }
     html += '</div>';
-
     return html;
   }
+
+  function buildVacationOverviewHtml(weeks) {
+    if (!weeks || weeks.length === 0) return '';
+    var items = [];
+    for (var i = 0; i < weeks.length; i++) {
+      var w = weeks[i];
+      var startStr = w['Start Date (Monday)'];
+      var norm = normalizeDateKeyClient(startStr);
+      if (!norm) continue;
+      var capacity = parseInt(w['Capacity']) || 4;
+      var assigneesStr = w['Assigned Participants'] || '';
+      var assigneesList = assigneesStr ? String(assigneesStr).split(',').map(function(s){return s.trim();}) : [];
+      var remaining = capacity - assigneesList.length;
+      var status = 'available';
+      if (remaining === 1) status = 'nearly-full';
+      if (remaining <= 0) status = 'full';
+      var parts = norm.split('-');
+      var dd = parts[2];
+      items.push({
+        normDate: norm,
+        dayNum: parseInt(dd, 10).toString(),
+        status: status
+      });
+    }
+    var config = {
+      title: 'Year at a Glance',
+      subtitleSuffixSingular: 'week',
+      subtitleSuffixPlural: 'weeks',
+      legendItems: [
+        { classSuffix: 'available', label: '2+ spots' },
+        { classSuffix: 'nearly-full', label: '1 spot' },
+        { classSuffix: 'full', label: 'Full' }
+      ],
+      helperText: 'Tap a month to jump to its full-size week choices.',
+      ariaBuilder: function(counts, ariaName) {
+        var ariaParts = [];
+        var countFull = counts['full'] || 0;
+        var countNearlyFull = counts['nearly-full'] || 0;
+        var countAvailable = counts['available'] || 0;
+        if (countFull > 0) ariaParts.push(countFull + ' full ' + (countFull === 1 ? 'week' : 'weeks'));
+        if (countNearlyFull > 0) ariaParts.push(countNearlyFull + ' ' + (countNearlyFull === 1 ? 'week' : 'weeks') + ' with one spot');
+        if (countAvailable > 0) ariaParts.push(countAvailable + ' ' + (countAvailable === 1 ? 'week' : 'weeks') + ' with two or more spots');
+        var ariaLabel = ariaName + ': ';
+        if (ariaParts.length > 0) {
+          if (ariaParts.length === 1) {
+            ariaLabel += ariaParts[0] + '. ';
+          } else if (ariaParts.length === 2) {
+            ariaLabel += ariaParts[0] + ' and ' + ariaParts[1] + '. ';
+          } else {
+            ariaLabel += ariaParts.slice(0, -1).join(', ') + ', and ' + ariaParts[ariaParts.length - 1] + '. ';
+          }
+        } else {
+          ariaLabel += '0 weeks. ';
+        }
+        ariaLabel += 'Tap to jump to ' + ariaName + ' choices.';
+        return ariaLabel;
+      }
+    };
+    return buildGenericOverviewHtml(items, config);
+  }
+
+  function buildWeekendOverviewHtml(weekends) {
+    if (!weekends || weekends.length === 0) return '';
+    var logicalWeekends = {};
+    for (var i = 0; i < weekends.length; i++) {
+      var w = weekends[i];
+      var rawDate = w['Date'];
+      if (typeof rawDate === 'object' && rawDate !== null && rawDate.substring) {
+         rawDate = rawDate.substring(0,10);
+      }
+      var dateStr = normalizeDateKeyClient(rawDate);
+      if (!dateStr) continue;
+      var dayOfWeek = w['Day of Week'];
+      var isSaturday = dayOfWeek === 'Saturday';
+      var isSunday = dayOfWeek === 'Sunday';
+      var logicalSaturday = dateStr;
+      if (isSunday) {
+        logicalSaturday = getPreviousSaturday(dateStr);
+      }
+      if (!logicalSaturday) continue;
+      if (!logicalWeekends[logicalSaturday]) {
+        logicalWeekends[logicalSaturday] = { unassignedCount: 0, rowsCount: 0 };
+      }
+      logicalWeekends[logicalSaturday].rowsCount++;
+      if (!w['First Call Assignee']) {
+        logicalWeekends[logicalSaturday].unassignedCount++;
+      }
+    }
+    var items = [];
+    var logicalKeys = Object.keys(logicalWeekends);
+    for (var i = 0; i < logicalKeys.length; i++) {
+      var logicalSaturday = logicalKeys[i];
+      var stats = logicalWeekends[logicalSaturday];
+      var status = 'available';
+      if (stats.unassignedCount === 1) status = 'nearly-full';
+      if (stats.unassignedCount === 0) status = 'full';
+      if (stats.unassignedCount > 1) status = 'available';
+      var parts = logicalSaturday.split('-');
+      var dd = parts[2];
+      items.push({
+        normDate: logicalSaturday,
+        dayNum: parseInt(dd, 10).toString(),
+        status: status
+      });
+    }
+    var config = {
+      title: 'Year at a Glance',
+      subtitleCount: logicalKeys.length,
+      subtitleSuffixSingular: 'weekend',
+      subtitleSuffixPlural: 'weekends',
+      legendItems: [
+        { classSuffix: 'available', label: '2 spots' },
+        { classSuffix: 'nearly-full', label: '1 spot' },
+        { classSuffix: 'full', label: 'Full' }
+      ],
+      helperText: 'Tap a month to jump to its full-size weekend choices.',
+      ariaBuilder: function(counts, ariaName) {
+        var ariaParts = [];
+        var countFull = counts['full'] || 0;
+        var countNearlyFull = counts['nearly-full'] || 0;
+        var countAvailable = counts['available'] || 0;
+        if (countFull > 0) ariaParts.push(countFull + ' full ' + (countFull === 1 ? 'weekend' : 'weekends'));
+        if (countNearlyFull > 0) ariaParts.push(countNearlyFull + ' ' + (countNearlyFull === 1 ? 'weekend' : 'weekends') + ' with one spot');
+        if (countAvailable > 0) ariaParts.push(countAvailable + ' ' + (countAvailable === 1 ? 'weekend' : 'weekends') + ' with two spots');
+        var ariaLabel = ariaName + ': ';
+        if (ariaParts.length > 0) {
+          if (ariaParts.length === 1) {
+            ariaLabel += ariaParts[0] + '. ';
+          } else if (ariaParts.length === 2) {
+            ariaLabel += ariaParts[0] + ' and ' + ariaParts[1] + '. ';
+          } else {
+            ariaLabel += ariaParts.slice(0, -1).join(', ') + ', and ' + ariaParts[ariaParts.length - 1] + '. ';
+          }
+        } else {
+          ariaLabel += '0 weekends. ';
+        }
+        ariaLabel += 'Tap to jump to ' + ariaName + ' choices.';
+        return ariaLabel;
+      }
+    };
+    return buildGenericOverviewHtml(items, config);
+  }
+
+  function buildHolidayOverviewHtml(holidays) {
+    if (!holidays || holidays.length === 0) return '';
+    var logicalHolidays = {};
+    for (var i = 0; i < holidays.length; i++) {
+      var h = holidays[i];
+      var rawDate = h['Observed Date'];
+      var dateStr = normalizeDateKeyClient(rawDate);
+      if (!dateStr) continue;
+      var holName = h['Holiday Name'];
+      var key = holName + '|' + dateStr;
+      if (!logicalHolidays[key]) {
+        logicalHolidays[key] = { unassignedCount: 0, rowsCount: 0, dateStr: dateStr };
+      }
+      logicalHolidays[key].rowsCount++;
+      if (!h['Assigned Participant']) {
+        logicalHolidays[key].unassignedCount++;
+      }
+    }
+    var items = [];
+    var keys = Object.keys(logicalHolidays);
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      var stats = logicalHolidays[key];
+      var status = 'available';
+      if (stats.unassignedCount === 1) status = 'nearly-full';
+      if (stats.unassignedCount === 0) status = 'full';
+      if (stats.unassignedCount > 1) status = 'available';
+      var parts = stats.dateStr.split('-');
+      var dd = parts[2];
+      items.push({
+        normDate: stats.dateStr,
+        dayNum: parseInt(dd, 10).toString(),
+        status: status
+      });
+    }
+    var config = {
+      title: 'Year at a Glance',
+      subtitleCount: keys.length,
+      subtitleSuffixSingular: 'holiday',
+      subtitleSuffixPlural: 'holidays',
+      legendItems: [
+        { classSuffix: 'available', label: '2 spots' },
+        { classSuffix: 'nearly-full', label: '1 spot' },
+        { classSuffix: 'full', label: 'Full' }
+      ],
+      helperText: 'Tap a month to jump to its full-size holiday choices.',
+      ariaBuilder: function(counts, ariaName) {
+        var ariaParts = [];
+        var countFull = counts['full'] || 0;
+        var countNearlyFull = counts['nearly-full'] || 0;
+        var countAvailable = counts['available'] || 0;
+        if (countFull > 0) ariaParts.push(countFull + ' full ' + (countFull === 1 ? 'holiday' : 'holidays'));
+        if (countNearlyFull > 0) ariaParts.push(countNearlyFull + ' ' + (countNearlyFull === 1 ? 'holiday' : 'holidays') + ' with one spot');
+        if (countAvailable > 0) ariaParts.push(countAvailable + ' ' + (countAvailable === 1 ? 'holiday' : 'holidays') + ' with two or more spots');
+        var ariaLabel = ariaName + ': ';
+        if (ariaParts.length > 0) {
+          if (ariaParts.length === 1) {
+            ariaLabel += ariaParts[0] + '. ';
+          } else if (ariaParts.length === 2) {
+            ariaLabel += ariaParts[0] + ' and ' + ariaParts[1] + '. ';
+          } else {
+            ariaLabel += ariaParts.slice(0, -1).join(', ') + ', and ' + ariaParts[ariaParts.length - 1] + '. ';
+          }
+        } else {
+          ariaLabel += '0 holidays. ';
+        }
+        ariaLabel += 'Tap to jump to ' + ariaName + ' choices.';
+        return ariaLabel;
+      }
+    };
+    return buildGenericOverviewHtml(items, config);
+  }
+
+  function getTransferOfferDate(o) {
+    if (o['Assignment Type'] === 'WEEKEND') {
+       return normalizeDateKeyClient(o['Date/Position']);
+    } else if (o['Assignment Type'] === 'HOLIDAY') {
+       return normalizeDateKeyClient(o['Observed Date']);
+    } else if (o.type === 'GROUPED') {
+       var earliestDate = null;
+       for (var j = 0; j < o.components.length; j++) {
+         var compDate = null;
+         if (o.components[j]['Assignment Type'] === 'WEEKEND') {
+            compDate = normalizeDateKeyClient(o.components[j]['Date/Position']);
+         } else if (o.components[j]['Assignment Type'] === 'HOLIDAY') {
+            compDate = normalizeDateKeyClient(o.components[j]['Observed Date']);
+         }
+         if (compDate) {
+           if (!earliestDate) earliestDate = compDate;
+           else if (compDate < earliestDate) earliestDate = compDate;
+         }
+       }
+       return earliestDate;
+    }
+    return null;
+  }
+
+  function buildTransferReceiverOverviewHtml(offers) {
+    if (!offers || offers.length === 0) return '';
+    var items = [];
+    var activeOffers = 0;
+    for (var i = 0; i < offers.length; i++) {
+      var o = offers[i];
+      var dateStr = getTransferOfferDate(o);
+      if (!dateStr) continue;
+      var status = o.isUnavailable ? 'full' : 'available';
+      var parts = dateStr.split('-');
+      var dd = parts[2];
+      items.push({
+        normDate: dateStr,
+        dayNum: parseInt(dd, 10).toString(),
+        status: status
+      });
+      activeOffers++;
+    }
+    var config = {
+      title: 'Transfer Pool at a Glance',
+      subtitleCount: activeOffers,
+      subtitleSuffixSingular: 'offer',
+      subtitleSuffixPlural: 'offers',
+      legendItems: [
+        { classSuffix: 'available', label: 'Available to you' },
+        { classSuffix: 'full', label: 'Unavailable to you' }
+      ],
+      helperText: 'Tap a month to jump to its full-size transfer offers.',
+      ariaBuilder: function(counts, ariaName) {
+        var ariaParts = [];
+        var countFull = counts['full'] || 0;
+        var countAvailable = counts['available'] || 0;
+        if (countAvailable > 0) ariaParts.push(countAvailable + ' available ' + (countAvailable === 1 ? 'offer' : 'offers'));
+        if (countFull > 0) ariaParts.push(countFull + ' unavailable ' + (countFull === 1 ? 'offer' : 'offers'));
+        var ariaLabel = ariaName + ': ';
+        if (ariaParts.length > 0) {
+          if (ariaParts.length === 1) {
+            ariaLabel += ariaParts[0] + '. ';
+          } else if (ariaParts.length === 2) {
+            ariaLabel += ariaParts[0] + ' and ' + ariaParts[1] + '. ';
+          } else {
+            ariaLabel += ariaParts.slice(0, -1).join(', ') + ', and ' + ariaParts[ariaParts.length - 1] + '. ';
+          }
+        } else {
+          ariaLabel += '0 offers. ';
+        }
+        ariaLabel += 'Tap to jump to ' + ariaName + ' offers.';
+        return ariaLabel;
+      }
+    };
+    return buildGenericOverviewHtml(items, config);
+  }
+
+  function attachOverviewListener(container) {
+    var overviewEl = container.querySelector('.vacation-year-overview');
+    if (overviewEl) {
+      overviewEl.addEventListener('click', function(e) {
+        var btn = e.target.closest('.vacation-year-overview__month');
+        if (!btn) return;
+        var targetMonth = btn.getAttribute('data-overview-target');
+        if (!targetMonth) return;
+        var targetCard = container.querySelector('.overview-target[data-overview-month="' + targetMonth + '"]');
+        if (targetCard) {
+          var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          targetCard.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' });
+        }
+      });
+    }
+  }
+
 
   function renderVacationPhase(container) {
     var weeks = appState.availableChoices.vacation;
@@ -948,7 +1203,7 @@
         }
       }
 
-      var cardClass = 'card vacation-choice-card';
+      var cardClass = 'card vacation-choice-card overview-target';
       if (disabled) {
         cardClass += ' disabled';
       } else if (capacity > 1 && capacity - assigneesList.length === 1) {
@@ -997,21 +1252,7 @@
     container.innerHTML = html;
 
     // Attach delegated overview listener safely
-    var overviewEl = container.querySelector('.vacation-year-overview');
-    if (overviewEl) {
-      overviewEl.addEventListener('click', function(e) {
-        var btn = e.target.closest('.vacation-year-overview__month');
-        if (!btn) return;
-        var targetMonth = btn.getAttribute('data-overview-target');
-        if (!targetMonth) return;
-
-        var targetCard = container.querySelector('.vacation-choice-card[data-overview-month="' + targetMonth + '"]');
-        if (targetCard) {
-          var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-          targetCard.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' });
-        }
-      });
-    }
+    attachOverviewListener(container);
   }
 
   function renderWeekendPhase(container) {
@@ -1021,7 +1262,8 @@
       return;
     }
 
-    var html = '<h3>Select a Weekend Position</h3>';
+    var html = buildWeekendOverviewHtml(weekends);
+    html += '<h3>Select a Weekend Position</h3>';
     html += '<div class="weekend-grid">';
 
     for (var i = 0; i < weekends.length; i++) {
@@ -1038,8 +1280,19 @@
       var assignee = w['First Call Assignee'];
 
       var disabled = assignee ? true : false;
-      var cardClass = 'card';
+      var cardClass = 'card overview-target';
       if (disabled) cardClass += ' disabled';
+
+      var isSunday = dayOfWeek === 'Sunday';
+      var logicalSaturday = dateStr;
+      if (isSunday) {
+        logicalSaturday = getPreviousSaturday(dateStr);
+      }
+      var overviewMonth = '';
+      if (logicalSaturday) {
+        var p = logicalSaturday.split('-');
+        if(p.length >= 2) overviewMonth = p[0] + '-' + p[1];
+      }
 
       var badgesHtml = '';
       // It's possible the backend didn't calculate "Consecutive Weekends Warning" explicitly,
@@ -1053,7 +1306,7 @@
 
       var displayDate = formatDateDisplay(dateStr);
 
-      html += '<div class="' + cardClass + '" data-id="' + dateStr + '" data-holwarning="' + (w['Holiday Proximity Warning']||'') + '" onclick="toggleSelection(this, \'weekend\')">';
+      html += '<div class="' + cardClass + '" data-id="' + dateStr + '" ' + (overviewMonth ? 'data-overview-month="' + overviewMonth + '" ' : '') + 'data-holwarning="' + (w['Holiday Proximity Warning']||'') + '" onclick="toggleSelection(this, \'weekend\')">';
       html += '  <div class="card-content">';
       html += '    <h4 class="card-title">' + dayOfWeek + ' - ' + displayDate + '</h4>';
       if (badgesHtml) html += '    <div style="margin-bottom:8px;">' + badgesHtml + '</div>';
@@ -1068,6 +1321,7 @@
 
     html += '</div>';
     container.innerHTML = html;
+    attachOverviewListener(container);
   }
 
   function renderHolidayPhase(container) {
@@ -1077,14 +1331,22 @@
       return;
     }
 
-    var html = '<h3>Select a Holiday Position</h3>';
+    var html = buildHolidayOverviewHtml(holidays);
+    html += '<h3>Select a Holiday Position</h3>';
     html += '<div class="holiday-grid">';
 
     for (var i = 0; i < holidays.length; i++) {
       var h = holidays[i];
       var assignee = h['Assigned Participant'];
       var disabled = assignee ? true : false;
-      var cardClass = 'card';
+      var cardClass = 'card overview-target';
+
+      var holDateStr = normalizeDateKeyClient(h['Observed Date']);
+      var overviewMonth = '';
+      if (holDateStr) {
+         var p = holDateStr.split('-');
+         if(p.length >= 2) overviewMonth = p[0] + '-' + p[1];
+      }
 
       if (h.nearWorkingWeekend) cardClass += ' card-proximity-positive';
       if (h.nearVacation) cardClass += ' card-proximity-caution';
@@ -1107,7 +1369,7 @@
 
       var displayStr = h['Holiday Name'] + ' — ' + formatDateDisplay(h['Observed Date']) + ' · ' + posLabel;
 
-      html += '<div class="' + cardClass + '" data-id="' + idStr + '" data-name="' + h['Holiday Name'] + '" data-pos="' + posLabel + '" onclick="toggleSelection(this, \'holiday\')">';
+      html += '<div class="' + cardClass + '" data-id="' + idStr + '" ' + (overviewMonth ? 'data-overview-month="' + overviewMonth + '" ' : '') + 'data-name="' + h['Holiday Name'] + '" data-pos="' + posLabel + '" onclick="toggleSelection(this, \'holiday\')">';
       html += '  <div class="card-content">';
       html += '    <h4 class="card-title">' + displayStr + '</h4>';
       if (badgesHtml) {
@@ -1124,6 +1386,7 @@
     html += '</div>';
 
     container.innerHTML = html;
+    attachOverviewListener(container);
   }
 
   function renderTransferOfferPhase(container) {
@@ -1207,7 +1470,8 @@
       return;
     }
 
-    var html = '<h3>Select a Transfer Offer to Claim</h3>';
+    var html = buildTransferReceiverOverviewHtml(offers);
+    html += '<h3>Select a Transfer Offer to Claim</h3>';
     html += '<div class="transfer-grid">';
 
     for (var i = 0; i < offers.length; i++) {
@@ -1220,7 +1484,13 @@
         badgesHtml += '<span class="badge badge-proximity-caution">' + escapeSoftHolidayText(badgeText) + '</span> ';
       }
 
-      var cardClass = o.isUnavailable ? 'card disabled' : 'card';
+      var cardClass = o.isUnavailable ? 'card overview-target disabled' : 'card overview-target';
+      var overviewMonth = '';
+      var oDateStr = getTransferOfferDate(o);
+      if (oDateStr) {
+         var p = oDateStr.split('-');
+         if(p.length >= 2) overviewMonth = p[0] + '-' + p[1];
+      }
       var clickHandler = o.isUnavailable ? '' : 'onclick="toggleSelection(this, \'transferReceiver\')"';
 
       if (o.isUnavailable) {
@@ -1250,7 +1520,7 @@
          var objStr = JSON.stringify({ type: 'GROUPED', groupId: o.groupId });
          var encodedObj = objStr.replace(/"/g, '&quot;');
 
-         html += '<div class="' + cardClass + '" data-json="' + encodedObj + '" ' + clickHandler + '>';
+         html += '<div class="' + cardClass + '" data-json="' + encodedObj + '" ' + (overviewMonth ? 'data-overview-month="' + overviewMonth + '" ' : '') + clickHandler + '>';
          html += '  <div class="card-content">';
          html += '    <h4 class="card-title">WEEKEND + HOLIDAY</h4>';
          html += '    <div class="card-subtitle">' + wDisplay + '<br>+<br>' + hDisplay + '</div>';
@@ -1281,7 +1551,7 @@
              }
          }
 
-         html += '<div class="' + cardClass + '" data-json="' + encodedObj + '" ' + clickHandler + '>';
+         html += '<div class="' + cardClass + '" data-json="' + encodedObj + '" ' + (overviewMonth ? 'data-overview-month="' + overviewMonth + '" ' : '') + clickHandler + '>';
          html += '  <div class="card-content">';
          html += '    <h4 class="card-title">' + displayTitle + '</h4>';
          if (displayVal) {
@@ -1299,6 +1569,7 @@
     html += '</div>';
 
     container.innerHTML = html;
+    attachOverviewListener(container);
   }
 
   // Selection Logic
