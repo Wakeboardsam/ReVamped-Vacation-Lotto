@@ -219,7 +219,7 @@ function getQueueWindows_(phase, state, cache) {
   }
 
   var upNextCount = 0;
-  while (upNextCount < 2 && currentIndex >= 0 && currentIndex < eligiblePool.length) {
+  while (upNextCount < 10 && currentIndex >= 0 && currentIndex < eligiblePool.length) {
     if (eligiblePool[currentIndex].isEligible) {
       upNextWindow.push(eligiblePool[currentIndex].participant);
       upNextCount++;

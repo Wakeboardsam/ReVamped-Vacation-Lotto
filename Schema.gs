@@ -32,6 +32,7 @@ function setupDatabaseSchema() {
         ['Prompt Text - Weekend', 'It is your turn to pick a weekend.', 'Message sent when weekend turn starts'],
         ['Prompt Text - Holiday', 'It is your turn to pick a holiday assignment.', 'Message sent when holiday turn starts'],
         ['Prompt Text - Transfer', 'It is your turn to select an available transfer.', 'Message sent when transfer turn starts'],
+        ['Prompt Text - On Deck', 'Hi [Name], you’re next in line for the [Phase] phase of the Vacation Lottery. Your turn should be coming soon. No action is needed yet—please watch for the notification that you may select.', 'Message sent when a participant becomes next in line'],
         ['Web App URL', '', 'The public URL for the participant web interface']
       ]
     },
@@ -52,7 +53,7 @@ function setupDatabaseSchema() {
         'Had Spring Break Last Year', 'Had Thanksgiving Week Last Year', 'Had Christmas Week Last Year',
         'Worked Any Official Holiday Last Year', 'Rules Acknowledged Year', 'Transfer Offers Submitted',
         'Skipped Turns Remaining', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent',
-        'Resend WhatsApp'
+        'Resend WhatsApp', 'On Deck Event Key'
       ]
     },
     {

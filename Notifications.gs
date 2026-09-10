@@ -16,10 +16,8 @@ function notifyActiveParticipants() {
       return;
     }
 
-    var activeParticipants = getActiveParticipants(phase);
-    if (!activeParticipants || activeParticipants.length === 0) {
-      return;
-    }
+    var queueWindows = getQueueWindows_(phase, state, {});
+    var activeParticipants = queueWindows.activeWindow;
 
     var adminOptions = getAdminOptions();
 
@@ -40,6 +38,69 @@ function notifyActiveParticipants() {
     var reminderDelayMins = parseInt(adminOptions['Reminder Delay (mins)']) || 360;
     var adminAlertDelayMins = parseInt(adminOptions['Admin Alert Delay (mins)']) || 720;
     var adminPhone = config.adminPhone;
+
+    // Process "On Deck" Notification First
+    if (phase !== 'TRANSFER_OFFER_COLLECTION' && queueWindows.upNextWindow && queueWindows.upNextWindow.length > 0) {
+      var onDeckParticipant = queueWindows.upNextWindow[0];
+      var onDeckPhone = onDeckParticipant['Phone Number'];
+      if (onDeckPhone) {
+        var onDeckEventKey = "AUTO-ON-DECK-" + (adminOptions['Active Year'] || '') + "-" + phase + "-" + state.round + "-" + state.direction + "-" + onDeckParticipant['Name'];
+        var storedKey = onDeckParticipant['On Deck Event Key'] || '';
+
+        if (storedKey !== onDeckEventKey) {
+          var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
+          var pHeaders = pSheet.getDataRange().getValues()[0];
+          var onDeckKeyCol = pHeaders.indexOf('On Deck Event Key') + 1;
+
+          if (onDeckKeyCol > 0) {
+            // Reserve the key durably
+            pSheet.getRange(onDeckParticipant._rowIndex, onDeckKeyCol).setValue(onDeckEventKey);
+            SpreadsheetApp.flush();
+
+            var onDeckTemplate = adminOptions['Prompt Text - On Deck'] || 'Hi [Name], you’re next in line for the [Phase] phase of the Vacation Lottery. Your turn should be coming soon. No action is needed yet—please watch for the notification that you may select.';
+
+            var friendlyPhase = 'Vacation';
+            if (phase === 'WEEKEND') friendlyPhase = 'Weekend';
+            else if (phase.indexOf('HOLIDAY') > -1) friendlyPhase = 'Holiday';
+            else if (phase.indexOf('TRANSFER') > -1) friendlyPhase = 'Transfer';
+
+            var onDeckText = onDeckTemplate.replace('[Name]', onDeckParticipant['Name']).replace('[Phase]', friendlyPhase);
+            var webAppUrl = adminOptions['Web App URL'];
+            if (webAppUrl && String(webAppUrl).trim() !== '') {
+              onDeckText += "\nOpen the lottery: " + String(webAppUrl).trim();
+            }
+
+            var onDeckResult = sendParticipantNotification_(onDeckPhone, onDeckText);
+
+            if (typeof logNotificationEvent !== 'undefined') {
+              logNotificationEvent({
+                timestamp: new Date(),
+                eventKey: onDeckEventKey,
+                participantId: onDeckParticipant['Name'],
+                participantName: onDeckParticipant['Name'],
+                phone: onDeckPhone,
+                phase: phase,
+                type: 'AUTO-ON-DECK',
+                status: onDeckResult.success ? 'SUCCESS' : 'FAILED',
+                entryTimestamp: '',
+                reminderSent: '',
+                alertSent: '',
+                resendWhatsApp: '',
+                error: onDeckResult.failureType ? onDeckResult.failureType : (onDeckResult.error ? 'TRANSPORT_ERROR' : '')
+              });
+            }
+            if (onDeckResult && onDeckResult.systemic === true) {
+              console.warn("[WARN] Aborting notification loop due to systemic failure during on-deck.");
+              return;
+            }
+          }
+        }
+      }
+    }
+
+    if (!activeParticipants || activeParticipants.length === 0) {
+      return;
+    }
 
     var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
     var pData = pSheet.getDataRange().getValues();
