@@ -846,6 +846,7 @@
 
   function buildVacationOverviewHtml(weeks) {
     if (!weeks || weeks.length === 0) return '';
+    var isLogged = !!appState.participantId;
     var items = [];
     for (var i = 0; i < weeks.length; i++) {
       var w = weeks[i];
@@ -855,10 +856,18 @@
       var capacity = parseInt(w['Capacity']) || 4;
       var assigneesStr = w['Assigned Participants'] || '';
       var assigneesList = assigneesStr ? String(assigneesStr).split(',').map(function(s){return s.trim();}) : [];
+
+      var isPicked = isLogged && assigneesList.indexOf(appState.participantId) !== -1;
+
       var remaining = capacity - assigneesList.length;
       var status = 'available';
       if (remaining === 1) status = 'nearly-full';
       if (remaining <= 0) status = 'full';
+
+      if (isPicked) {
+        status = 'picked';
+      }
+
       var parts = norm.split('-');
       var dd = parts[2];
       items.push({
@@ -867,21 +876,28 @@
         status: status
       });
     }
+
+    var legendItems = [];
+    if (isLogged) {
+      legendItems.push({ classSuffix: 'picked', label: 'Picked' });
+    }
+    legendItems.push({ classSuffix: 'available', label: '2+ spots' });
+    legendItems.push({ classSuffix: 'nearly-full', label: '1 spot' });
+    legendItems.push({ classSuffix: 'full', label: 'Full' });
+
     var config = {
       title: 'Year at a Glance',
       subtitleSuffixSingular: 'week',
       subtitleSuffixPlural: 'weeks',
-      legendItems: [
-        { classSuffix: 'available', label: '2+ spots' },
-        { classSuffix: 'nearly-full', label: '1 spot' },
-        { classSuffix: 'full', label: 'Full' }
-      ],
+      legendItems: legendItems,
       helperText: 'Tap a month to jump to its full-size week choices.',
       ariaBuilder: function(counts, ariaName) {
         var ariaParts = [];
+        var countPicked = counts['picked'] || 0;
         var countFull = counts['full'] || 0;
         var countNearlyFull = counts['nearly-full'] || 0;
         var countAvailable = counts['available'] || 0;
+        if (countPicked > 0) ariaParts.push(countPicked + ' picked ' + (countPicked === 1 ? 'week' : 'weeks'));
         if (countFull > 0) ariaParts.push(countFull + ' full ' + (countFull === 1 ? 'week' : 'weeks'));
         if (countNearlyFull > 0) ariaParts.push(countNearlyFull + ' ' + (countNearlyFull === 1 ? 'week' : 'weeks') + ' with one spot');
         if (countAvailable > 0) ariaParts.push(countAvailable + ' ' + (countAvailable === 1 ? 'week' : 'weeks') + ' with two or more spots');
