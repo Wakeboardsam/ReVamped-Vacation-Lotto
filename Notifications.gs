@@ -111,6 +111,11 @@ function notifyActiveParticipants() {
               error: onDeckResult.failureType ? onDeckResult.failureType : (onDeckResult.error ? 'TRANSPORT_ERROR' : '')
             });
           }
+
+          if (onDeckResult && onDeckResult.systemic === true) {
+            console.warn("[WARN] Aborting notification loop due to systemic failure during On Deck notification.");
+            return;
+          }
         }
       }
     }
