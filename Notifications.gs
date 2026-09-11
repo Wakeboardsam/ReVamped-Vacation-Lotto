@@ -16,11 +16,6 @@ function notifyActiveParticipants() {
       return;
     }
 
-    var activeParticipants = getActiveParticipants(phase);
-    if (!activeParticipants || activeParticipants.length === 0) {
-      return;
-    }
-
     var adminOptions = getAdminOptions();
 
     var isEnabled = adminOptions['Enable SMS Notifications'];
@@ -28,6 +23,10 @@ function notifyActiveParticipants() {
     if (isEnabled !== true && String(isEnabled).toUpperCase() !== 'TRUE') {
       return;
     }
+
+    var queueWindows = getQueueWindows_(phase, state, {});
+    var activeParticipants = queueWindows.activeWindow;
+    var upNextWindow = queueWindows.upNextWindow;
 
     var config = null;
     try {
@@ -48,11 +47,82 @@ function notifyActiveParticipants() {
     var entryTimeCol = pHeaders.indexOf('Entry Timestamp') + 1;
     var reminderCol = pHeaders.indexOf('Reminder Sent') + 1;
     var alertCol = pHeaders.indexOf('Admin Alert Sent') + 1;
-    var phoneCol = pHeaders.indexOf('Phone Number');
+    var onDeckCol = pHeaders.indexOf('On Deck Event Key') + 1;
 
     var now = new Date();
     var delayMs = config.messageDelayMs || 1500;
     var attemptsMade = 0;
+
+    // Process On Deck participant
+    if (phase !== 'TRANSFER_OFFER_COLLECTION' && upNextWindow && upNextWindow.length > 0) {
+      var onDeckParticipant = upNextWindow[0];
+      var activeYear = adminOptions['Active Year'];
+      var onDeckColExists = onDeckCol > 0;
+
+      if (!activeYear) {
+        console.warn("[WARN] Missing Active Year in Admin Options. Skipping On Deck notification.");
+      } else if (!onDeckColExists) {
+        console.warn("[WARN] Missing On Deck Event Key column in Participant Config. Skipping On Deck notification.");
+      } else if (onDeckParticipant['Phone Number']) {
+        var onDeckName = onDeckParticipant['Name'];
+        var dedupKey = 'AUTO-ON-DECK-' + activeYear + '-' + phase + '-' + state.round + '-' + state.direction + '-' + onDeckName;
+        var existingKey = pSheet.getRange(onDeckParticipant._rowIndex, onDeckCol).getValue();
+
+        if (existingKey !== dedupKey) {
+          var friendlyPhase = 'Vacation';
+          if (phase === 'WEEKEND') friendlyPhase = 'Weekend';
+          else if (phase.indexOf('HOLIDAY') > -1) friendlyPhase = 'Holiday';
+          else if (phase.indexOf('TRANSFER') > -1) friendlyPhase = 'Transfer';
+
+          var defaultOnDeckPrompt = 'Hi [Name], you’re next in line for the [Phase] phase of the Vacation Lottery. Your turn should be coming soon. No action is needed yet—please watch for the notification that you may select.';
+          var onDeckPrompt = adminOptions['Prompt Text - On Deck'] || defaultOnDeckPrompt;
+
+          var onDeckText = onDeckPrompt.replace('[Name]', onDeckName).replace('[Phase]', friendlyPhase);
+
+          var webAppUrl = adminOptions['Web App URL'];
+          if (webAppUrl) {
+            onDeckText += "\nOpen the lottery: " + webAppUrl;
+          }
+
+          pSheet.getRange(onDeckParticipant._rowIndex, onDeckCol).setValue(dedupKey);
+          SpreadsheetApp.flush();
+
+          if (attemptsMade > 0) {
+            Utilities.sleep(delayMs);
+          }
+          attemptsMade++;
+
+          var onDeckResult = sendParticipantNotification_(onDeckParticipant['Phone Number'], onDeckText);
+
+          if (typeof logNotificationEvent !== 'undefined') {
+            logNotificationEvent({
+              timestamp: new Date(),
+              eventKey: dedupKey,
+              participantId: onDeckName,
+              participantName: onDeckName,
+              phone: onDeckParticipant['Phone Number'],
+              phase: phase,
+              type: 'ON_DECK',
+              status: onDeckResult.success ? 'SUCCESS' : 'FAILED',
+              entryTimestamp: '',
+              reminderSent: '',
+              alertSent: '',
+              resendWhatsApp: '',
+              error: onDeckResult.failureType ? onDeckResult.failureType : (onDeckResult.error ? 'TRANSPORT_ERROR' : '')
+            });
+          }
+
+          if (onDeckResult && onDeckResult.systemic === true) {
+            console.warn("[WARN] Aborting notification loop due to systemic failure during On Deck notification.");
+            return;
+          }
+        }
+      }
+    }
+
+    if (!activeParticipants || activeParticipants.length === 0) {
+      return;
+    }
 
     for (var i = 0; i < activeParticipants.length; i++) {
       var participant = activeParticipants[i];
