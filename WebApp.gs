@@ -772,12 +772,6 @@ function submitSelection(participantId, selectionData) {
           });
         }
 
-        // If 2 non-prime weeks selected, they skip their next turn
-        if (nonPrimeCount === 2) {
-          var currentSkipped = parseInt(pData[pRowIdx-1][pHeaders.indexOf('Skipped Turns Remaining')]) || 0;
-          pSheet.getRange(pRowIdx, pHeaders.indexOf('Skipped Turns Remaining') + 1).setValue(currentSkipped + 1);
-        }
-
       } else if (phase === 'WEEKEND') {
         // Selection data format: { phase: 'WEEKEND', selections: ['DateStr'] }
         // Selections is an array of dates like '2025-01-04'
