@@ -167,8 +167,6 @@ function getQueueWindows_(phase, state, cache) {
     if (!isEligibleForPhase) continue;
 
     var actualAssignments = getParticipantAssignments(p['Name'], phase, cache);
-    var skippedTurns = parseInt(p['Skipped Turns Remaining']) || 0;
-    var effectiveAssignments = actualAssignments + skippedTurns;
 
     var isEligibleForRound = false;
     if (phase === 'TRANSFER_RECEIVER') {
@@ -176,7 +174,7 @@ function getQueueWindows_(phase, state, cache) {
       // We only check if they have claimed during the current round.
       isEligibleForRound = actualAssignments < 1;
     } else {
-      isEligibleForRound = (actualAssignments < targetCap) && (effectiveAssignments < currentRound);
+      isEligibleForRound = (actualAssignments < targetCap) && (actualAssignments < currentRound);
     }
 
     eligiblePool.push({
@@ -344,14 +342,12 @@ function advanceQueueInternal_() {
       if (!isEligibleForPhase) continue;
 
       var actualAssignments = getParticipantAssignments(p['Name'], phase, {});
-      var skippedTurns = parseInt(p['Skipped Turns Remaining']) || 0;
-      var effectiveAssignments = actualAssignments + skippedTurns;
 
       var isEligibleForRound = false;
       if (phase === 'TRANSFER_RECEIVER') {
         isEligibleForRound = actualAssignments < 1;
       } else {
-        isEligibleForRound = (actualAssignments < targetCap) && (effectiveAssignments < currentRound);
+        isEligibleForRound = (actualAssignments < targetCap) && (actualAssignments < currentRound);
       }
 
       eligiblePool.push({
@@ -458,26 +454,6 @@ function advanceQueueInternal_() {
       return; // Queue does not advance until lead completes turn
     }
 
-    // Handle skipped turns decrement logic for the Lead if they were skipped due to a manual forfeit.
-    // We only decrement if they actually skipped and their quota was fulfilled by the skip.
-    if (leadFound) {
-      var leadParticipant = eligiblePool[currentIndex].participant;
-      var leadSkippedTurns = parseInt(leadParticipant['Skipped Turns Remaining']) || 0;
-      if (leadSkippedTurns > 0) {
-        var leadActual = getParticipantAssignments(leadParticipant['Name'], phase, {});
-        if (leadActual + leadSkippedTurns >= currentRound) {
-          // They are no longer eligible because the skipped turn pushed them over the round requirement.
-          // Decrement their skipped turns and write to sheet.
-          var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
-          var headers = pSheet.getRange(1, 1, 1, pSheet.getLastColumn()).getValues()[0];
-          var skippedColIdx = headers.indexOf('Skipped Turns Remaining') + 1;
-          if (skippedColIdx > 0) {
-            pSheet.getRange(leadParticipant._rowIndex, skippedColIdx).setValue(leadSkippedTurns - 1);
-          }
-        }
-      }
-    }
-
     // Lead completed turn (or was removed), find the next eligible person in the current direction
     for (var i = currentIndex + step; i >= 0 && i < eligiblePool.length; i += step) {
       if (eligiblePool[i].isEligible) {
@@ -489,6 +465,7 @@ function advanceQueueInternal_() {
     // --- CLEAR FLAGS FOR THE FINISHED LEAD ---
     // The previous lead has completed their turn, so we reset their tracking flags.
     if (leadFound) {
+      var leadParticipant = eligiblePool[currentIndex].participant;
       var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
       var pData = pSheet.getDataRange().getValues();
       var pHeaders = pData[0];
@@ -557,8 +534,7 @@ function advanceQueueInternal_() {
            break;
         } else {
            var actual = getParticipantAssignments(p['Name'], phase, {});
-           var skipped = parseInt(p['Skipped Turns Remaining']) || 0;
-           if (actual + skipped < newRound) {
+           if (actual < newRound) {
               newLeadIdx = i;
               break;
            }

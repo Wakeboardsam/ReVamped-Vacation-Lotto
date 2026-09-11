@@ -1178,6 +1178,111 @@ function runRegressionTests() {
     toggleSelectionSimulated('weekend');
     assert(simAppState.adjacentHolidayPending === null, "Selecting a new weekend card clears existing adjacentHolidayPending");
 
+    // --- Skipped Turn Double-Count Fix Regression Tests ---
+    log.push("--- Testing Skipped Turn Double-Count Fix ---");
+    function runSkippedTurnFixTests() {
+      MockSpreadsheetApp._sheets['Config'] = undefined;
+      MockSpreadsheetApp.createSheet('Config', [
+        ['Setting Name', 'Setting Value'],
+        ['Current Phase', 'VACATION_RANDOM'],
+        ['Current Round', 6],
+        ['Current Direction', 'ASCENDING'],
+        ['Current Lead', 1]
+      ]);
+
+      MockSpreadsheetApp._sheets['Admin Options'] = undefined;
+      MockSpreadsheetApp.createSheet('Admin Options', [
+        ['Setting Name', 'Setting Value'],
+        ['Active Year', '2025'],
+        ['Vacation Week Target Default', 9],
+        ['Vacation Active Window (participants)', 2]
+      ]);
+
+      var pDataBeforeTest = [
+        ['Name', 'Active for Year', 'Vacation Phase Enabled', 'Lottery Position', 'Vacation Week Target Override', 'Skipped Turns Remaining', 'Currently Active', 'Seniority Position', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Phone Number', 'Weekend Phase Enabled', 'Weekend Assignment Maximum'],
+        ['Alice', true, true, 1, '', 1, true, 1, 't1', false, false, '111', true, ''],
+        ['Bob',   true, true, 2, '', 1, true, 2, 't2', false, false, '222', true, ''],
+        ['Charlie', true, true, 3, '', 0, true, 3, 't3', false, false, '333', true, ''],
+        ['Dave',  true, true, 4, '', 0, true, 4, 't4', false, false, '444', true, '']
+      ];
+      MockSpreadsheetApp.createSheet('Participant Config', pDataBeforeTest);
+
+      MockSpreadsheetApp.createSheet('Vacation Availability', [
+        ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants'],
+        ['W1', '2025-01-06', 4, 'Non-Prime', '', 'Alice, Alice, Alice, Alice, Alice, Bob, Bob, Bob, Bob, Bob, Bob, Charlie, Charlie, Charlie, Charlie, Dave, Dave, Dave, Dave'],
+        ['W2', '2025-01-13', 4, 'Non-Prime', '', ''],
+        ['W3', '2025-01-20', 4, 'Non-Prime', '', '']
+      ]);
+
+      var activeWindow = getQueueWindows_('VACATION_RANDOM', { round: 6, direction: 'ASCENDING', lead: 1 }, {}).activeWindow;
+      var aliceActive = activeWindow.some(function(p) { return p['Name'] === 'Alice'; });
+      var bobActive = activeWindow.some(function(p) { return p['Name'] === 'Bob'; });
+
+      assert(aliceActive, "Participant with 5 vacation assignments and stale skip 1 is eligible in Round 6.");
+      assert(!bobActive, "Participant with 6 vacation assignments and stale skip 1 is ineligible in Round 6.");
+
+      MockSpreadsheetApp._sheets['Config'].getRange(3, 2).setValue(7);
+      var activeWindowR7 = getQueueWindows_('VACATION_RANDOM', { round: 7, direction: 'ASCENDING', lead: 1 }, {}).activeWindow;
+      var bobActiveR7 = activeWindowR7.some(function(p) { return p['Name'] === 'Bob'; });
+      assert(bobActiveR7, "Participant with 6 vacation assignments and stale skip 1 is eligible in Round 7.");
+
+      MockSpreadsheetApp._sheets['Config'].getRange(3, 2).setValue(5);
+      setQueueState({ lead: 3 });
+
+      var charlieRes = submitSelection('Charlie', { phase: 'VACATION_RANDOM', action: 'SUBMIT', selections: ['W2', 'W3'] });
+      assert(charlieRes.success, "Participant makes double Non-Prime selection.");
+
+      var charlieData = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues().find(function(r) { return r[0] === 'Charlie'; });
+      assert(charlieData[5] === 0, "Double Non-Prime selection does not increment Skipped Turns Remaining.");
+
+      var charlieAssignments = getParticipantAssignments('Charlie', 'VACATION_RANDOM', {});
+      assert(charlieAssignments === 6, "Participant has 6 total assignments after double selection.");
+
+      MockSpreadsheetApp._sheets['Config'].getRange(3, 2).setValue(6);
+      var activeWindowR6 = getQueueWindows_('VACATION_RANDOM', { round: 6, direction: 'ASCENDING', lead: 3 }, {}).activeWindow;
+      var charlieActiveR6 = activeWindowR6.some(function(p) { return p['Name'] === 'Charlie'; });
+      assert(!charlieActiveR6, "Participant with 6 vacation assignments skips Round 6.");
+
+      MockSpreadsheetApp._sheets['Config'].getRange(3, 2).setValue(7);
+      var activeWindowR7Charlie = getQueueWindows_('VACATION_RANDOM', { round: 7, direction: 'ASCENDING', lead: 3 }, {}).activeWindow;
+      var charlieActiveR7 = activeWindowR7Charlie.some(function(p) { return p['Name'] === 'Charlie'; });
+      assert(charlieActiveR7, "Participant with 6 vacation assignments returns in Round 7.");
+
+      MockSpreadsheetApp._sheets['Config'].getRange(3, 2).setValue(5);
+      setQueueState({ lead: 3 });
+      var origGetActiveParticipants = getActiveParticipants;
+      getActiveParticipants = function() { return [{ Name: 'Dave' }]; }; // Mock for Dave, simulating rolling active window
+      var daveRes = submitSelection('Dave', { phase: 'VACATION_RANDOM', action: 'SUBMIT', selections: ['W2', 'W3'] });
+      assert(daveRes.success, "Non-lead participant makes double Non-Prime selection.");
+
+      var daveData = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues().find(function(r) { return r[0] === 'Dave'; });
+      assert(daveData[5] === 0, "Non-lead double Non-Prime selection does not increment Skipped Turns Remaining.");
+      getActiveParticipants = origGetActiveParticipants;
+
+      MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('WEEKEND');
+      MockSpreadsheetApp._sheets['Config'].getRange(3, 2).setValue(1);
+      MockSpreadsheetApp.createSheet('Weekend Coverage', [
+        ['Date', 'Day of Week', 'First Call Assignee', 'Vacation Adjacency Warning', 'Holiday Proximity Warning']
+      ]);
+      var weekendActive = getQueueWindows_('WEEKEND', { round: 1, direction: 'ASCENDING', lead: 1 }, {}).activeWindow;
+      var aliceWeekendActive = weekendActive.some(function(p) { return p['Name'] === 'Alice'; });
+      assert(aliceWeekendActive, "Stale vacation skip value does not exclude someone from Weekend Round 1.");
+
+      MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('HOLIDAY_VOLUNTEER');
+      var pDataWithHol = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+      pDataWithHol[0].push('Holiday Volunteer Response', 'Holiday Volunteer');
+      pDataWithHol[1].push('Yes', true);
+      MockSpreadsheetApp.createSheet('Participant Config', pDataWithHol);
+      MockSpreadsheetApp.createSheet('Holiday Coverage', [
+        ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+        ['Christmas', '2025-12-25', 'Call 1', '']
+      ]);
+      var holVolActive = getQueueWindows_('HOLIDAY_VOLUNTEER', { round: 1, direction: 'ASCENDING', lead: 1 }, {}).activeWindow;
+      var aliceHolVolActive = holVolActive.some(function(p) { return p['Name'] === 'Alice'; });
+      assert(aliceHolVolActive, "Stale vacation skip value does not exclude someone from Holiday Volunteer phase.");
+    }
+    runSkippedTurnFixTests();
+
     // --- TEST 9: sendActiveParticipantPINs Menu Action ---
     log.push("--- Testing sendActiveParticipantPINs ---");
     var originalSendWhatsAppBatch = typeof sendWhatsAppBatch !== 'undefined' ? sendWhatsAppBatch : null;
