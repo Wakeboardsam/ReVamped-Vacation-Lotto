@@ -1283,6 +1283,165 @@ function runRegressionTests() {
     }
     runSkippedTurnFixTests();
 
+    // --- On Deck Notification Tests ---
+    log.push("--- Testing On Deck Notifications ---");
+    function runOnDeckFeatureTests() {
+      // Setup Mock Data
+      MockSpreadsheetApp._sheets['Config'] = undefined;
+      MockSpreadsheetApp.createSheet('Config', [
+        ['Setting Name', 'Setting Value'],
+        ['Current Phase', 'VACATION_SENIORITY'],
+        ['Current Round', 1],
+        ['Current Direction', 'ASCENDING'],
+        ['Current Lead', 1]
+      ]);
+
+      MockSpreadsheetApp._sheets['Admin Options'] = undefined;
+      MockSpreadsheetApp.createSheet('Admin Options', [
+        ['Setting', 'Value', 'Description'],
+        ['Enable SMS Notifications', 'TRUE', ''],
+        ['Active Year', '2025', ''],
+        ['Prompt Text - On Deck', 'Hi [Name], next for [Phase].', ''],
+        ['Web App URL', 'https://mock.example.com', '']
+      ]);
+
+      // Create a large pool of participants to test limit of 10
+      var participantRows = [
+        ['Name', 'Phone Number', 'Seniority Position', 'Active for Year', 'Vacation Phase Enabled', 'Vacation Week Target Override', 'On Deck Event Key', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent']
+      ];
+      for (var i = 1; i <= 15; i++) {
+        participantRows.push(['P' + i, '11' + i, i, true, true, 2, '', '', false, false]);
+      }
+
+      MockSpreadsheetApp._sheets['Participant Config'] = undefined;
+      MockSpreadsheetApp.createSheet('Participant Config', participantRows);
+
+      MockSpreadsheetApp._sheets['Vacation Availability'] = undefined;
+      MockSpreadsheetApp.createSheet('Vacation Availability', [
+        ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants']
+      ]);
+
+      // Mock WAHA functions
+      var sentMessages = [];
+      var mockSleepTotal = 0;
+      global.getWhatsAppConfig_ = function() { return { adminPhone: '999', messageDelayMs: 1500 }; };
+      global.sendParticipantNotification_ = function(phone, text) {
+        sentMessages.push({phone: phone, text: text});
+        return { success: true };
+      };
+      global.Utilities = {
+        sleep: function(ms) { mockSleepTotal += ms; }
+      };
+
+      // Test 1: getQueueWindows_ returns up to 10 participants, excluding ACTIVE
+      var state = getQueueState();
+      var windows = getQueueWindows_('VACATION_SENIORITY', state, {});
+      assert(windows.activeWindow.length > 0, "Active window should have participants");
+      assert(windows.activeWindow[0]['Name'] === 'P1', "Active lead should be P1");
+      assert(windows.upNextWindow.length === 10, "Up Next window should return exactly 10 participants");
+      assert(windows.upNextWindow[0]['Name'] === 'P4', "On deck should be P4 (after active window of 3)");
+      assert(windows.upNextWindow[9]['Name'] === 'P13', "Last up next should be P13");
+
+      // Test 2: notifyActiveParticipants() sends the On Deck message to the first waiting person
+      notifyActiveParticipants();
+
+      assert(sentMessages.length === 2, "Should send 2 messages: 1 on-deck, 1 active");
+
+      var onDeckMsg = sentMessages[0];
+      var activeMsg = sentMessages[1];
+
+      assert(onDeckMsg.phone === '114', "On deck message goes to P4");
+      assert(onDeckMsg.text.indexOf('Hi P4, next for Vacation.') !== -1, "On deck formatting includes Name and Phase");
+      assert(onDeckMsg.text.indexOf('https://mock.example.com') !== -1, "On deck includes Web App URL");
+
+      assert(activeMsg.phone === '111', "Active message goes to P1");
+
+      assert(mockSleepTotal === 1500, "Pacing applied correctly between on-deck and active messages");
+
+      // Verify schema/dedup update
+      var pSheet = MockSpreadsheetApp._sheets['Participant Config'];
+      var p4Row = pSheet.data[4]; // Index 4 is P4
+      var dedupVal = p4Row[6]; // On Deck Event Key index
+      assert(dedupVal === 'AUTO-ON-DECK-2025-VACATION_SENIORITY-1-ASCENDING-P4', "Deduplication key is saved correctly");
+
+      // Test 2b: Idempotency (prevent repeat messages)
+      sentMessages = [];
+      mockSleepTotal = 0;
+      // Since entry time is now set for P1, we need to mock it as empty again so active sends, or we just test on-deck skipping.
+      // Let's test that on-deck skips.
+      notifyActiveParticipants();
+      assert(sentMessages.length === 0, "On deck message skipped because dedup key exists. Active skipped because entry time exists and reminder time not reached.");
+      assert(mockSleepTotal === 0, "No sleep when nothing sent");
+
+      // Test 3: Skip on-deck if Active Year is missing, but continue ACTIVE
+      // Clear dedup key, clear entry timestamp, remove Active Year
+      p4Row[6] = '';
+      pSheet.data[1][7] = ''; // clear entry timestamp for P1
+      MockSpreadsheetApp.createSheet('Admin Options', [
+        ['Setting', 'Value', 'Description'],
+        ['Enable SMS Notifications', 'TRUE', '']
+        // Active Year omitted
+      ]);
+      sentMessages = [];
+      notifyActiveParticipants();
+
+      assert(sentMessages.length === 1, "Only active message should be sent");
+      assert(sentMessages[0].phone === '111', "Active message sent to P1");
+      assert(p4Row[6] === '', "Dedup key not saved because on-deck was skipped");
+
+      // Restore Active Year
+      MockSpreadsheetApp.createSheet('Admin Options', [
+        ['Setting', 'Value', 'Description'],
+        ['Enable SMS Notifications', 'TRUE', ''],
+        ['Active Year', '2025', ''],
+        ['Prompt Text - On Deck', 'Hi [Name], next for [Phase].', '']
+      ]);
+
+      // Test 4: Skip on-deck if On Deck Event Key schema is missing, but continue ACTIVE
+      // Remove the schema column completely
+      var headers = pSheet.data[0];
+      headers[6] = 'SOME OTHER COL'; // Corrupt the schema
+      pSheet.data[1][7] = ''; // clear entry timestamp for P1
+      sentMessages = [];
+      notifyActiveParticipants();
+
+      assert(sentMessages.length === 1, "Only active message should be sent without schema");
+      assert(sentMessages[0].phone === '111', "Active message sent to P1");
+
+      // Restore schema
+      headers[6] = 'On Deck Event Key';
+
+      // Test 5: Transfer Offer Collection does not send on-deck messages
+      MockSpreadsheetApp.createSheet('Config', [
+        ['Setting Name', 'Setting Value'],
+        ['Current Phase', 'TRANSFER_OFFER_COLLECTION'],
+        ['Current Round', 1],
+        ['Current Direction', 'ASCENDING'],
+        ['Current Lead', 1]
+      ]);
+
+      // Make P1 a giver who hasn't submitted (ACTIVE window)
+      pSheet.data[1][7] = ''; // clear entry time
+      pSheet.data[1][pSheet.data[0].indexOf('Transfer Giver')] = true;
+      pSheet.data[1][pSheet.data[0].indexOf('Transfer Offers Submitted')] = false;
+
+      // P2 would normally be on-deck if this was a queued phase
+      sentMessages = [];
+      notifyActiveParticipants();
+
+      var onDeckMessages = sentMessages.filter(function(m) { return m.text.indexOf('next for') !== -1; });
+      assert(onDeckMessages.length === 0, "Transfer Offer Collection phase should not send any on-deck messages");
+      var activeMessages = sentMessages.filter(function(m) { return m.text.indexOf('next for') === -1; });
+      assert(activeMessages.length >= 1, "Transfer Offer Collection phase should send active messages");
+      assert(activeMessages[0].phone === '111', "Active message sent to P1");
+
+      // Clean up globals
+      delete global.getWhatsAppConfig_;
+      delete global.sendParticipantNotification_;
+      delete global.Utilities;
+    }
+    runOnDeckFeatureTests();
+
     // --- TEST 9: sendActiveParticipantPINs Menu Action ---
     log.push("--- Testing sendActiveParticipantPINs ---");
     var originalSendWhatsAppBatch = typeof sendWhatsAppBatch !== 'undefined' ? sendWhatsAppBatch : null;
