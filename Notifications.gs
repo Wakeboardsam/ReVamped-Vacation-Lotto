@@ -39,6 +39,9 @@ function notifyActiveParticipants() {
     var adminAlertDelayMins = parseInt(adminOptions['Admin Alert Delay (mins)']) || 720;
     var adminPhone = config.adminPhone;
 
+    var delayMs = config.messageDelayMs || 1500;
+    var attemptsMade = 0;
+
     // Process "On Deck" Notification First
     if (phase !== 'TRANSFER_OFFER_COLLECTION' && queueWindows.upNextWindow && queueWindows.upNextWindow.length > 0) {
       var onDeckParticipant = queueWindows.upNextWindow[0];
@@ -52,9 +55,7 @@ function notifyActiveParticipants() {
           var pHeaders = pSheet.getDataRange().getValues()[0];
           var onDeckKeyCol = pHeaders.indexOf('On Deck Event Key') + 1;
 
-          if (onDeckKeyCol <= 0) {
-            console.warn("[WARN] 'On Deck Event Key' column missing. Skipping on-deck notification until schema migration is run.");
-          } else {
+          if (onDeckKeyCol > 0) {
             // Reserve the key durably
             pSheet.getRange(onDeckParticipant._rowIndex, onDeckKeyCol).setValue(onDeckEventKey);
             SpreadsheetApp.flush();
@@ -71,6 +72,11 @@ function notifyActiveParticipants() {
             if (webAppUrl && String(webAppUrl).trim() !== '') {
               onDeckText += "\nOpen the lottery: " + String(webAppUrl).trim();
             }
+
+            if (attemptsMade > 0) {
+              Utilities.sleep(delayMs);
+            }
+            attemptsMade++;
 
             var onDeckResult = sendParticipantNotification_(onDeckPhone, onDeckText);
 
@@ -114,8 +120,6 @@ function notifyActiveParticipants() {
     var phoneCol = pHeaders.indexOf('Phone Number');
 
     var now = new Date();
-    var delayMs = config.messageDelayMs || 1500;
-    var attemptsMade = 0;
 
     for (var i = 0; i < activeParticipants.length; i++) {
       var participant = activeParticipants[i];

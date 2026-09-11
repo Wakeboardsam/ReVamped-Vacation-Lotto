@@ -1260,3 +1260,208 @@ function runRegressionTests() {
     Logger.log(log.join("\n"));
   }
 }
+
+// --- NEW ON-DECK FEATURE REGRESSION TESTS ---
+
+function runOnDeckFeatureTests() {
+    var log = [];
+    function assert(condition, message) {
+        if (!condition) {
+            log.push("❌ FAIL: " + message);
+            throw new Error("Test Failed: " + message);
+        } else {
+            log.push("✅ PASS: " + message);
+        }
+    }
+
+    var originalSpreadsheetApp = typeof SpreadsheetApp !== 'undefined' ? SpreadsheetApp : null;
+    var originalWithScriptLock = typeof withScriptLock !== 'undefined' ? withScriptLock : null;
+    var originalGetQueueState = typeof getQueueState !== 'undefined' ? getQueueState : null;
+    var originalSend = typeof sendWhatsAppMessage !== 'undefined' ? sendWhatsAppMessage : null;
+    var originalSleep = (typeof Utilities !== 'undefined' && Utilities.sleep) ? Utilities.sleep : function(){};
+
+    try {
+        log.push("--- Testing On Deck Feature Isolation ---");
+
+        var MockSheetEnv = {
+            _sheets: {},
+            createSheet: function(name, data) {
+                this._sheets[name] = {
+                    getName: function() { return name; },
+                    getDataRange: function() { return { getValues: function() { return data; } }; },
+                    getRange: function(row, col) {
+                        return {
+                            setValue: function(val) { if(!data[row-1]) data[row-1] = []; data[row - 1][col - 1] = val; },
+                            getValue: function() { return data[row-1] ? data[row-1][col-1] : undefined; }
+                        };
+                    },
+                    appendRow: function() {}
+                };
+            },
+            getActiveSpreadsheet: function() {
+                var self = this;
+                return {
+                    getSheetByName: function(name) { return self._sheets[name] || null; }
+                };
+            },
+            flush: function() {}
+        };
+
+        SpreadsheetApp = MockSheetEnv;
+        withScriptLock = function(cb) { return cb(); };
+
+        MockSheetEnv.createSheet('Config', [
+            ['Setting Name', 'Setting Value'],
+            ['Current Phase', 'VACATION_SENIORITY'],
+            ['Current Round', '1'],
+            ['Current Direction', 'ASCENDING'],
+            ['Current Lead', '1']
+        ]);
+        MockSheetEnv.createSheet('Vacation Availability', [
+            ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants']
+        ]);
+        MockSheetEnv.createSheet('Participant Config', [
+            ['Name', 'Active for Year', 'Vacation Phase Enabled', 'Lottery Position', 'Seniority Position', 'On Deck Event Key', 'Phone Number', 'Vacation Week Target Override', 'Skipped Turns Remaining', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent'],
+            ['Alice', true, true, 1, 1, '', '111', '', '', '', false, false], // Active (Lead) un-notified
+            ['Bob', true, true, 2, 2, '', '222', '', '', 'time', true, false],   // Active (Window 3)
+            ['Charlie', true, true, 3, 3, '', '333', '', '', 'time', true, false], // Active (Window 3)
+            ['Dave', true, true, 4, 4, '', '444', '', '', '', false, false], // On Deck 1
+            ['Eve', true, true, 5, 5, '', '555', '', '', '', false, false],
+            ['Frank', true, true, 6, 6, '', '666', '', '', '', false, false],
+            ['Grace', true, true, 7, 7, '', '777', '', '', '', false, false],
+            ['Heidi', true, true, 8, 8, '', '888', '', '', '', false, false],
+            ['Ivan', true, true, 9, 9, '', '999', '', '', '', false, false],
+            ['Judy', true, true, 10, 10, '', '1010', '', '', '', false, false],
+            ['Karl', true, true, 11, 11, '', '1111', '', '', '', false, false],
+            ['Liam', true, true, 12, 12, '', '1212', '', '', '', false, false],
+            ['Mike', true, true, 13, 13, '', '1313', '', '', '', false, false],
+            ['Nina', true, true, 14, 14, '', '1414', '', '', '', false, false], // Up Next 10 (Dave to Mike is 10)
+            ['Oscar', true, true, 15, 15, '', '1515', '', '', '', false, false] // Excluded (Limit 10)
+        ]);
+        MockSheetEnv.createSheet('Admin Options', [
+            ['Setting Name', 'Setting Value'],
+            ['Vacation Active Window (participants)', '3'],
+            ['Enable SMS Notifications', 'TRUE'],
+            ['Active Year', '2025'],
+            ['Web App URL', 'https://example.com'],
+            ['Prompt Text - On Deck', 'Hi [Name], you’re next in line for the [Phase] phase of the Vacation Lottery. Your turn should be coming soon. No action is needed yet—please watch for the notification that you may select.']
+        ]);
+        MockSheetEnv.createSheet('Notification Log', [
+            ['Log Timestamp', 'Event Key', 'Participant ID', 'Participant Name', 'Masked Phone', 'Phase', 'Notification Type', 'Status', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp', 'Selection Reference', 'Sanitized Error']
+        ]);
+
+        var ptConfigData = MockSheetEnv._sheets['Participant Config'].getDataRange().getValues();
+        var pHeadersConfig = ptConfigData[0];
+
+        var interceptedWa = [];
+        sendWhatsAppMessage = function(phone, text) { interceptedWa.push({ phone: phone, text: text }); return { success: true }; };
+        var sleepCount = 0;
+        if (typeof Utilities !== 'undefined') {
+            Utilities.sleep = function(ms) { sleepCount++; };
+        } else {
+            Utilities = { sleep: function(ms) { sleepCount++; } };
+        }
+
+        getQueueState = function() {
+           return { phase: 'VACATION_SENIORITY', round: 1, direction: 'ASCENDING', lead: 1 };
+        };
+        var qState = getQueueState();
+        var windows = getQueueWindows_('VACATION_SENIORITY', qState, {});
+        assert(windows.activeWindow.length === 3, "Active window size is 3");
+        assert(windows.upNextWindow.length === 10, "Up Next window size expanded up to 10");
+        assert(windows.upNextWindow[0]['Name'] === 'Dave', "First Up Next is Dave");
+        assert(windows.upNextWindow[9]['Name'] === 'Mike', "10th Up Next is Mike");
+
+        notifyActiveParticipants();
+
+        assert(interceptedWa.length === 2, "Both On Deck and Active notifications were sent in the same run");
+        assert(interceptedWa[0].phone === '444', "Dave (On Deck) received the first notification");
+        assert(interceptedWa[0].text.indexOf("Hi Dave") !== -1, "Dave name formatted");
+        assert(interceptedWa[0].text.indexOf("Vacation phase") !== -1, "Friendly phase name formatted");
+        assert(interceptedWa[0].text.indexOf("[Name]") === -1 && interceptedWa[0].text.indexOf("[Phase]") === -1, "Variables replaced fully");
+        assert(interceptedWa[0].text.indexOf("https://example.com") !== -1, "URL appended correctly");
+        assert(interceptedWa[1].phone === '111', "Alice (Active) received the second notification");
+        assert(sleepCount > 0, "Delay pacing was applied between the On Deck and Active messages");
+
+        var daveRow = ptConfigData[4];
+        assert(daveRow[pHeadersConfig.indexOf('On Deck Event Key')] === "AUTO-ON-DECK-2025-VACATION_SENIORITY-1-ASCENDING-Dave", "Dave's On Deck Event Key was saved durably");
+
+        // Blank out URL and re-verify absent behavior, also advance Round to trigger again
+        getQueueState = function() {
+           return { phase: 'VACATION_SENIORITY', round: 2, direction: 'DESCENDING', lead: 6 };
+        };
+        MockSheetEnv.createSheet('Config', [
+            ['Setting Name', 'Setting Value'],
+            ['Current Phase', 'VACATION_SENIORITY'],
+            ['Current Round', '2'],
+            ['Current Direction', 'DESCENDING'],
+            ['Current Lead', '6']
+        ]);
+        MockSheetEnv.createSheet('Admin Options', [
+            ['Setting Name', 'Setting Value'],
+            ['Vacation Active Window (participants)', '3'],
+            ['Enable SMS Notifications', 'TRUE'],
+            ['Active Year', '2025'],
+            ['Web App URL', ''], // Blank
+            ['Prompt Text - On Deck', 'Hi [Name], you’re next in line for the [Phase] phase of the Vacation Lottery.']
+        ]);
+
+        // Set new Active participant and keep Dave on deck for round 2
+        ptConfigData[1][pHeadersConfig.indexOf('Entry Timestamp')] = 'time'; // Alice is done
+        ptConfigData[4][pHeadersConfig.indexOf('Entry Timestamp')] = 'time'; // Dave done
+        ptConfigData[5][pHeadersConfig.indexOf('Entry Timestamp')] = 'time'; // Eve done
+        ptConfigData[6][pHeadersConfig.indexOf('Entry Timestamp')] = ''; // Frank active
+        ptConfigData[7][pHeadersConfig.indexOf('Entry Timestamp')] = 'time'; // Grace done
+
+        // Frank is now active, Charlie is on deck for round 2 DESCENDING
+        interceptedWa = [];
+        sleepCount = 0;
+
+        notifyActiveParticipants();
+
+        assert(interceptedWa.length === 2, "Charlie On Deck and Frank Active notified");
+        assert(interceptedWa[0].phone === '333', "Charlie (On Deck) received the first notification");
+        assert(interceptedWa[0].text.indexOf("https://example.com") === -1, "URL omitted when blank");
+        assert(sleepCount > 0, "Delay pacing applied");
+
+        var charlieRow = ptConfigData[3];
+        assert(charlieRow[pHeadersConfig.indexOf('On Deck Event Key')] === "AUTO-ON-DECK-2025-VACATION_SENIORITY-2-DESCENDING-Charlie", "Charlie's On Deck Event Key was saved durably with new round/direction");
+
+        // Run again, should not resend
+        interceptedWa = [];
+        notifyActiveParticipants();
+        assert(interceptedWa.length === 0, "Notifications were not resent on subsequent runs");
+
+        // Missing column handling
+        MockSheetEnv.createSheet('Participant Config', [
+            ['Name', 'Active for Year', 'Vacation Phase Enabled', 'Lottery Position', 'Seniority Position', 'Phone Number', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent'],
+            ['Alice', true, true, 1, 1, '111', '', false, false], // Active (Lead) un-notified
+            ['Bob', true, true, 2, 2, '222', '', false, false]
+        ]);
+        MockSheetEnv.createSheet('Config', [
+            ['Setting Name', 'Setting Value'],
+            ['Current Phase', 'VACATION_SENIORITY'],
+            ['Current Round', '1'],
+            ['Current Direction', 'ASCENDING'],
+            ['Current Lead', '1']
+        ]);
+        getQueueState = function() {
+           return { phase: 'VACATION_SENIORITY', round: 1, direction: 'ASCENDING', lead: 1 };
+        };
+        interceptedWa = [];
+
+        notifyActiveParticipants();
+        assert(interceptedWa.length === 2, "Active notifications sent despite missing On Deck column");
+        assert(interceptedWa[0].phone === '111', "Alice Active");
+        assert(interceptedWa[1].phone === '222', "Bob Active");
+
+    } finally {
+        if (originalSpreadsheetApp) SpreadsheetApp = originalSpreadsheetApp;
+        if (originalWithScriptLock) withScriptLock = originalWithScriptLock;
+        if (originalGetQueueState) getQueueState = originalGetQueueState;
+        if (originalSend) sendWhatsAppMessage = originalSend;
+        if (typeof Utilities !== 'undefined' && originalSleep) Utilities.sleep = originalSleep;
+    }
+
+    console.log(log.join('\n'));
+}
