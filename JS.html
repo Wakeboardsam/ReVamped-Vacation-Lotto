@@ -922,6 +922,7 @@
 
   function buildWeekendOverviewHtml(weekends) {
     if (!weekends || weekends.length === 0) return '';
+    var isLogged = !!appState.participantId;
     var logicalWeekends = {};
     for (var i = 0; i < weekends.length; i++) {
       var w = weekends[i];
@@ -940,11 +941,15 @@
       }
       if (!logicalSaturday) continue;
       if (!logicalWeekends[logicalSaturday]) {
-        logicalWeekends[logicalSaturday] = { unassignedCount: 0, rowsCount: 0 };
+        logicalWeekends[logicalSaturday] = { unassignedCount: 0, rowsCount: 0, isPicked: false };
       }
       logicalWeekends[logicalSaturday].rowsCount++;
-      if (!w['First Call Assignee']) {
+
+      var assigneeStr = w['First Call Assignee'];
+      if (!assigneeStr) {
         logicalWeekends[logicalSaturday].unassignedCount++;
+      } else if (isLogged && assigneeStr === appState.participantId) {
+        logicalWeekends[logicalSaturday].isPicked = true;
       }
     }
     var items = [];
@@ -956,6 +961,11 @@
       if (stats.unassignedCount === 1) status = 'nearly-full';
       if (stats.unassignedCount === 0) status = 'full';
       if (stats.unassignedCount > 1) status = 'available';
+
+      if (stats.isPicked) {
+        status = 'picked';
+      }
+
       var parts = logicalSaturday.split('-');
       var dd = parts[2];
       items.push({
@@ -964,22 +974,29 @@
         status: status
       });
     }
+
+    var legendItems = [];
+    if (isLogged) {
+      legendItems.push({ classSuffix: 'picked', label: 'Picked' });
+    }
+    legendItems.push({ classSuffix: 'available', label: '2 spots' });
+    legendItems.push({ classSuffix: 'nearly-full', label: '1 spot' });
+    legendItems.push({ classSuffix: 'full', label: 'Full' });
+
     var config = {
       title: 'Year at a Glance',
       subtitleCount: logicalKeys.length,
       subtitleSuffixSingular: 'weekend',
       subtitleSuffixPlural: 'weekends',
-      legendItems: [
-        { classSuffix: 'available', label: '2 spots' },
-        { classSuffix: 'nearly-full', label: '1 spot' },
-        { classSuffix: 'full', label: 'Full' }
-      ],
+      legendItems: legendItems,
       helperText: 'Tap a month to jump to its full-size weekend choices.',
       ariaBuilder: function(counts, ariaName) {
         var ariaParts = [];
+        var countPicked = counts['picked'] || 0;
         var countFull = counts['full'] || 0;
         var countNearlyFull = counts['nearly-full'] || 0;
         var countAvailable = counts['available'] || 0;
+        if (countPicked > 0) ariaParts.push(countPicked + ' picked ' + (countPicked === 1 ? 'weekend' : 'weekends'));
         if (countFull > 0) ariaParts.push(countFull + ' full ' + (countFull === 1 ? 'weekend' : 'weekends'));
         if (countNearlyFull > 0) ariaParts.push(countNearlyFull + ' ' + (countNearlyFull === 1 ? 'weekend' : 'weekends') + ' with one spot');
         if (countAvailable > 0) ariaParts.push(countAvailable + ' ' + (countAvailable === 1 ? 'weekend' : 'weekends') + ' with two spots');
@@ -1004,6 +1021,7 @@
 
   function buildHolidayOverviewHtml(holidays) {
     if (!holidays || holidays.length === 0) return '';
+    var isLogged = !!appState.participantId;
     var logicalHolidays = {};
     for (var i = 0; i < holidays.length; i++) {
       var h = holidays[i];
@@ -1013,11 +1031,15 @@
       var holName = h['Holiday Name'];
       var key = holName + '|' + dateStr;
       if (!logicalHolidays[key]) {
-        logicalHolidays[key] = { unassignedCount: 0, rowsCount: 0, dateStr: dateStr };
+        logicalHolidays[key] = { unassignedCount: 0, rowsCount: 0, dateStr: dateStr, isPicked: false };
       }
       logicalHolidays[key].rowsCount++;
-      if (!h['Assigned Participant']) {
+
+      var assigneeStr = h['Assigned Participant'];
+      if (!assigneeStr) {
         logicalHolidays[key].unassignedCount++;
+      } else if (isLogged && assigneeStr === appState.participantId) {
+        logicalHolidays[key].isPicked = true;
       }
     }
     var items = [];
@@ -1029,6 +1051,11 @@
       if (stats.unassignedCount === 1) status = 'nearly-full';
       if (stats.unassignedCount === 0) status = 'full';
       if (stats.unassignedCount > 1) status = 'available';
+
+      if (stats.isPicked) {
+        status = 'picked';
+      }
+
       var parts = stats.dateStr.split('-');
       var dd = parts[2];
       items.push({
@@ -1037,22 +1064,29 @@
         status: status
       });
     }
+
+    var legendItems = [];
+    if (isLogged) {
+      legendItems.push({ classSuffix: 'picked', label: 'Picked' });
+    }
+    legendItems.push({ classSuffix: 'available', label: '2 spots' });
+    legendItems.push({ classSuffix: 'nearly-full', label: '1 spot' });
+    legendItems.push({ classSuffix: 'full', label: 'Full' });
+
     var config = {
       title: 'Year at a Glance',
       subtitleCount: keys.length,
       subtitleSuffixSingular: 'holiday',
       subtitleSuffixPlural: 'holidays',
-      legendItems: [
-        { classSuffix: 'available', label: '2 spots' },
-        { classSuffix: 'nearly-full', label: '1 spot' },
-        { classSuffix: 'full', label: 'Full' }
-      ],
+      legendItems: legendItems,
       helperText: 'Tap a month to jump to its full-size holiday choices.',
       ariaBuilder: function(counts, ariaName) {
         var ariaParts = [];
+        var countPicked = counts['picked'] || 0;
         var countFull = counts['full'] || 0;
         var countNearlyFull = counts['nearly-full'] || 0;
         var countAvailable = counts['available'] || 0;
+        if (countPicked > 0) ariaParts.push(countPicked + ' picked ' + (countPicked === 1 ? 'holiday' : 'holidays'));
         if (countFull > 0) ariaParts.push(countFull + ' full ' + (countFull === 1 ? 'holiday' : 'holidays'));
         if (countNearlyFull > 0) ariaParts.push(countNearlyFull + ' ' + (countNearlyFull === 1 ? 'holiday' : 'holidays') + ' with one spot');
         if (countAvailable > 0) ariaParts.push(countAvailable + ' ' + (countAvailable === 1 ? 'holiday' : 'holidays') + ' with two or more spots');
