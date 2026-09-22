@@ -327,7 +327,31 @@ function runRegressionTests() {
     MockSpreadsheetApp._sheets['Participant Config'] = preMigrationPConfig; // Full restore
     MockSpreadsheetApp._sheets['Rules & Tips'] = preMigrationRTips; // Full restore
 
+    // Test Admin Options schema cleanup
+    var preMigrationAdminOptions = MockSpreadsheetApp._sheets['Admin Options'];
+    MockSpreadsheetApp.createSheet('Admin Options', [
+        ['Setting Name', 'Setting Value', 'Description']
+    ]);
+    setupDatabaseSchema();
+    var adminDataAfter = MockSpreadsheetApp._sheets['Admin Options'].getDataRange().getValues();
+    var adminKeysAfter = adminDataAfter.map(r => r[0]);
 
+    // Verify obsolete rows are not present
+    assert(adminKeysAfter.indexOf('Vacation Window Size (mins)') === -1, "Obsolete Vacation Window Size row should not be created.");
+    assert(adminKeysAfter.indexOf('Weekend Window Size (mins)') === -1, "Obsolete Weekend Window Size row should not be created.");
+    assert(adminKeysAfter.indexOf('Holiday Window Size (mins)') === -1, "Obsolete Holiday Window Size row should not be created.");
+    assert(adminKeysAfter.indexOf('Transfer Window Size (mins)') === -1, "Obsolete Transfer Window Size row should not be created.");
+    assert(adminKeysAfter.indexOf('Admin Phone Number') === -1, "Obsolete Admin Phone Number row should not be created.");
+    assert(adminKeysAfter.indexOf('Twilio Account SID') === -1, "Obsolete Twilio Account SID row should not be created.");
+    assert(adminKeysAfter.indexOf('Twilio Auth Token') === -1, "Obsolete Twilio Auth Token row should not be created.");
+    assert(adminKeysAfter.indexOf('Twilio Sender Phone') === -1, "Obsolete Twilio Sender Phone row should not be created.");
+    assert(adminKeysAfter.indexOf('WARNING') === -1, "Obsolete Twilio warning row should not be created.");
+
+    // Verify required rows are present
+    assert(adminKeysAfter.indexOf('Active Year') !== -1, "Required Active Year row should be created.");
+    assert(adminKeysAfter.indexOf('Web App URL') !== -1, "Required Web App URL row should be created.");
+
+    MockSpreadsheetApp._sheets['Admin Options'] = preMigrationAdminOptions; // Restore config
 
     // --- NARROW FIX REGRESSION TESTS ---
 
