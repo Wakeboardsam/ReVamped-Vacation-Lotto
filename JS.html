@@ -1253,7 +1253,14 @@
         }
       }
 
+      var isLogged = !!appState.participantId;
+      var isPickedByMe = isLogged && alreadySelected;
+
       var cardClass = 'card vacation-choice-card overview-target';
+      if (isPickedByMe) {
+        cardClass += ' card-picked';
+      }
+
       if (disabled) {
         cardClass += ' disabled';
       } else if (capacity > 1 && capacity - assigneesList.length === 1) {
@@ -1268,6 +1275,7 @@
       }
 
       var badgesHtml = '';
+      if (isPickedByMe) badgesHtml += '<span class="badge badge-picked">Picked</span>';
       if (isPrime) badgesHtml += '<span class="badge badge-prime">Prime</span>';
       else badgesHtml += '<span class="badge badge-nonprime">Non-Prime</span>';
       if (special && special !== 'None') badgesHtml += '<span class="badge badge-special">' + special + '</span>';
@@ -1329,8 +1337,14 @@
       var dayOfWeek = w['Day of Week'];
       var assignee = w['First Call Assignee'];
 
+      var isLogged = !!appState.participantId;
+      var assigneeStr = String(assignee || '').trim();
+      var isPickedByMe = isLogged && (assigneeStr !== '' && assigneeStr === appState.participantId);
+
       var disabled = assignee ? true : false;
       var cardClass = 'card overview-target';
+
+      if (isPickedByMe) cardClass += ' card-picked';
       if (disabled) cardClass += ' disabled';
 
       var isSunday = dayOfWeek === 'Sunday';
@@ -1345,6 +1359,7 @@
       }
 
       var badgesHtml = '';
+      if (isPickedByMe) badgesHtml += '<span class="badge badge-picked">Picked</span>';
       // It's possible the backend didn't calculate "Consecutive Weekends Warning" explicitly,
       // or we just need to add a generic badge if it exists. Assuming it might be added to the sheet later
       // or calculated on the fly. We'll add support for the column 'Consecutive Weekends Warning' just in case,
@@ -1388,6 +1403,11 @@
     for (var i = 0; i < holidays.length; i++) {
       var h = holidays[i];
       var assignee = h['Assigned Participant'];
+
+      var isLogged = !!appState.participantId;
+      var assigneeStr = String(assignee || '').trim();
+      var isPickedByMe = isLogged && (assigneeStr !== '' && assigneeStr === appState.participantId);
+
       var disabled = assignee ? true : false;
       var cardClass = 'card overview-target';
 
@@ -1398,13 +1418,17 @@
          if(p.length >= 2) overviewMonth = p[0] + '-' + p[1];
       }
 
+      if (isPickedByMe) cardClass += ' card-picked';
       if (h.nearWorkingWeekend) cardClass += ' card-proximity-positive';
       if (h.nearVacation) cardClass += ' card-proximity-caution';
       if (disabled) cardClass += ' disabled';
 
       var idStr = h['Holiday Name'] + '|' + h['Call Position (Call 1 / Call 2)'];
       var posLabel = h['Call Position (Call 1 / Call 2)'];
-      var badgesHtml = softHolidayBadgesHtml_(h.softHolidayWarnings);
+
+      var badgesHtml = '';
+      if (isPickedByMe) badgesHtml += '<span class="badge badge-picked">Picked</span>';
+      badgesHtml += softHolidayBadgesHtml_(h.softHolidayWarnings);
 
       if (h.nearWorkingWeekend) {
         var wDate = h.nearWorkingWeekendDate ? formatDateDisplay(h.nearWorkingWeekendDate) : '';
@@ -1489,14 +1513,14 @@
 
       var encodedObj = objStr.replace(/"/g, '&quot;');
 
-      var badgesHtml = '';
+      var badgesHtml = '<span class="badge badge-picked">Picked</span> ';
       if (a.nearVacation) {
         var vWeek = a.nearVacationWeek ? a.nearVacationWeek : '';
         var badgeText = vWeek ? 'Near Your Vacation' : 'Near Your Vacation';
         badgesHtml += '<span class="badge badge-proximity-caution">' + escapeSoftHolidayText(badgeText) + '</span> ';
       }
 
-      html += '<div class="card" data-json="' + encodedObj + '" onclick="toggleSelection(this, \'transferOffer\')">';
+      html += '<div class="card card-picked" data-json="' + encodedObj + '" onclick="toggleSelection(this, \'transferOffer\')">';
       html += '  <div class="card-content">';
       html += '    <h4 class="card-title">' + (a.type === 'GROUPED' ? 'WEEKEND + HOLIDAY' : a.type) + '</h4>';
       html += '    <div class="card-subtitle">' + displayStr + '</div>';
