@@ -123,6 +123,16 @@ function getInitialState(participantId, pin) {
       w['nearVacation'] = nearVacation;
       delete w['Vacation Adjacency Warning']; // Prevent names from leaking to client
 
+      // Calculate near weekend coverage
+      var wHeaders = Object.keys(rawWeekends[0] || {});
+      var wData = [wHeaders];
+      for(var k=0; k<rawWeekends.length; k++) {
+         var row = [];
+         for(var c=0; c<wHeaders.length; c++) row.push(rawWeekends[k][wHeaders[c]]);
+         wData.push(row);
+      }
+      w['nearWeekendCoverage'] = isNearWeekendCoverage_(pName, w['Date'], wData, wHeaders);
+
       processedWeekends.push(w);
     }
 
@@ -473,6 +483,27 @@ function getInitialState(participantId, pin) {
 
        o.isUnavailable = isUnavailable;
        if (isUnavailable) o.unavailableReason = unavailableReason;
+
+       // Calculate near weekend coverage
+       var nearWeekendCoverage = false;
+       if (o.type === 'GROUPED') {
+          for (var j = 0; j < o.components.length; j++) {
+             var comp = o.components[j];
+             if (comp['Assignment Type'] === 'WEEKEND') {
+                if (isNearWeekendCoverage_(sanitizedId, comp['Date/Position'], wksArray, wksHeaders)) {
+                   nearWeekendCoverage = true;
+                   break;
+                }
+             }
+          }
+       } else {
+          if (o['Assignment Type'] === 'WEEKEND') {
+             if (isNearWeekendCoverage_(sanitizedId, o['Date/Position'], wksArray, wksHeaders)) {
+                nearWeekendCoverage = true;
+             }
+          }
+       }
+       o.nearWeekendCoverage = nearWeekendCoverage;
 
        // Note: Holiday 'Date/Position' is currently "Name - Position" in Transfer Offers.
        // We need to resolve it back to the Observed Date.
