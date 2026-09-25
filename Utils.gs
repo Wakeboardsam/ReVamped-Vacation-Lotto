@@ -292,6 +292,34 @@ function getWeekendKey_(dateValue) {
 }
 
 /**
+ * Check if the participant holds a First Call assignment for the weekend
+ * immediately preceding or following the selected date's weekend.
+ */
+function isNearWeekendCoverage_(participantName, selectedDate, weekendData, weekendHeaders) {
+  var selectedWeekendKey = getWeekendKey_(selectedDate);
+  if (!selectedWeekendKey) return false;
+
+  var prevWeekendKey = addDaysToDateKey_(selectedWeekendKey, -7);
+  var nextWeekendKey = addDaysToDateKey_(selectedWeekendKey, 7);
+
+  var dateCol = weekendHeaders.indexOf('Date');
+  var assigneeCol = weekendHeaders.indexOf('First Call Assignee');
+
+  for (var i = 1; i < weekendData.length; i++) {
+    var assignee = String(weekendData[i][assigneeCol] || '').trim();
+
+    if (assignee === String(participantName).trim()) {
+      var rowWeekendKey = getWeekendKey_(weekendData[i][dateCol]);
+      if (rowWeekendKey === prevWeekendKey || rowWeekendKey === nextWeekendKey) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * Prevent one participant from holding Saturday AND Sunday
  * First Call of the same weekend.
  */

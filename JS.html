@@ -1390,12 +1390,8 @@
 
       var badgesHtml = '';
       if (isPickedByMe) badgesHtml += '<span class="badge badge-picked">Picked</span>';
-      // It's possible the backend didn't calculate "Consecutive Weekends Warning" explicitly,
-      // or we just need to add a generic badge if it exists. Assuming it might be added to the sheet later
-      // or calculated on the fly. We'll add support for the column 'Consecutive Weekends Warning' just in case,
-      // or a generic "Consecutive" badge.
-      if (w['Consecutive Weekends Warning']) badgesHtml += '<span class="badge badge-warning">Consecutive</span>';
-      if (w.nearVacation) badgesHtml += '<span class="badge badge-warning">Near Vacation</span>';
+      if (w.nearWeekendCoverage) badgesHtml += '<span class="badge badge-proximity-caution">Near Your Weekend Coverage</span>';
+      if (w.nearVacation) badgesHtml += '<span class="badge badge-proximity-caution">Near Your Vacation</span>';
       if (w['Holiday Proximity Warning']) badgesHtml += '<span class="badge badge-info">Near Holiday: ' + w['Holiday Proximity Warning'] + '</span>';
       badgesHtml += softHolidayBadgesHtml_(w.softHolidayWarnings);
 
@@ -1601,6 +1597,9 @@
       var o = sortedOffers[i];
 
       var badgesHtml = '';
+      if (o.nearWeekendCoverage) {
+         badgesHtml += '<span class="badge badge-proximity-caution">Near Your Weekend Coverage</span> ';
+      }
       if (o.nearVacation) {
         var vWeek = o.nearVacationWeek ? o.nearVacationWeek : '';
         var badgeText = vWeek ? 'Near Your Vacation' : 'Near Your Vacation';
