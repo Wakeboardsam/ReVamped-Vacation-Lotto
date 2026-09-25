@@ -1389,3 +1389,179 @@ function runRegressionTests() {
     Logger.log(log.join("\n"));
   }
 }
+
+
+/**
+ * --- Status API Tests ---
+ */
+function runPhaseStatusTests() {
+  var log = [];
+  var hasFailed = false;
+  function assert(condition, message) {
+    if (!condition) {
+      log.push("❌ FAIL: " + message);
+      hasFailed = true;
+    } else {
+      log.push("✅ PASS: " + message);
+    }
+  }
+
+  var originalSpreadsheetApp = SpreadsheetApp;
+  var originalWithScriptLock = withScriptLock;
+
+  try {
+    SpreadsheetApp = MockSpreadsheetApp;
+    withScriptLock = function(cb) { return cb(); };
+
+    // Test 1: Missing sheet setup errors
+    MockSpreadsheetApp._sheets = {}; // Clear everything
+    var vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR', "Vacation status handles missing sheets.");
+    var hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'SETUP_ERROR', "Holiday status handles missing sheets.");
+    var wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'SETUP_ERROR', "Weekend status handles missing sheets.");
+
+    // Test 2: Vacation Validation Cases
+    MockSpreadsheetApp._sheets = {};
+    MockSpreadsheetApp.createSheet('Admin Options', [
+      ['Setting Name', 'Setting Value'],
+      ['Vacation Week Target Default', '9weeks']
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR', "Malformed global vacation target -> SETUP_ERROR");
+
+    // Correct Admin Options but missing Vacation headers
+    MockSpreadsheetApp._sheets['Admin Options'] = undefined;
+    MockSpreadsheetApp.createSheet('Admin Options', [
+      ['Setting Value', 'Setting Name'],
+      ['', 'Vacation Week Target Default'] // Reverse order to test reordered headers
+    ]);
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Active for Year', 'Vacation Phase Enabled', 'Vacation Week Target Override'],
+      ['Alice', true, true, ''] // Uses default 9
+    ]);
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Start Date (Monday)', 'Week ID', 'Assigned Participants'] // Reordered headers but valid
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR', "Vacation with just headers returns SETUP_ERROR.");
+
+    MockSpreadsheetApp._sheets['Vacation Availability'] = undefined;
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Start Date (Monday)', 'Week ID', 'Assigned Participants'],
+      ['2027-01-04', 'W1', 'Alice, Alice'], // Duplicates should count as 1 week for Alice
+      ['', '', 'Bob'] // Malformed row should throw SETUP_ERROR
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR', "Malformed row without date/week ID returns SETUP_ERROR.");
+
+    // Fix malformed row and test counting
+    MockSpreadsheetApp._sheets['Vacation Availability'] = undefined;
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Start Date (Monday)', 'Week ID', 'Assigned Participants'],
+      ['2027-01-04', 'W1', 'Alice, Alice'],
+      ['2027-01-11', 'W2', 'Bob, Alice']
+    ]);
+    MockSpreadsheetApp._sheets['Participant Config'] = undefined;
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Active for Year', 'Vacation Phase Enabled', 'Vacation Week Target Override'],
+      ['Alice', true, true, 2],
+      ['Bob', true, true, 1],
+      ['', true, true, ''] // Nameless row but active should error
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR', "Active participant without a name returns SETUP_ERROR.");
+
+    // Fix nameless participant
+    MockSpreadsheetApp._sheets['Participant Config'] = undefined;
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Active for Year', 'Vacation Phase Enabled', 'Vacation Week Target Override'],
+      ['Alice', true, true, 2], // 2 assignments unique by week (W1, W2) -> 0 remaining
+      ['Bob', true, true, 1],   // 1 assignment (W2) -> 0 remaining
+      ['', '', '', '']          // Wholly blank row should be skipped
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'COMPLETE', "Alice and Bob fulfilled correctly, counting duplicates correctly.");
+
+    // Test 3: Holiday Status Validations
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-01-01', 'Call 1', 'Alice'],
+      ['New Years', '2027-01-01', 'Call 2', ''],      // Unfilled
+      ['', '', '', '']                                // Trailing blank row
+    ]);
+
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'INCOMPLETE', "Holiday is INCOMPLETE with 1 remaining");
+    assert(hStatus.remaining === 1, "Holiday remaining counts correctly");
+
+    // Fill holiday
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-01-01', 'Call 1', 'Alice'],
+      ['New Years', '2027-01-01', 'Call 2', 'Bob']
+    ]);
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'COMPLETE', "Holiday is COMPLETE");
+
+    // Malformed holiday
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-01-01', '', 'Alice']
+    ]);
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'SETUP_ERROR', "Malformed holiday row -> SETUP_ERROR");
+
+    // Test 4: Weekend Status Validations
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2027-01-02', 'Saturday', 'Alice'],
+      ['2027-01-03', 'Sunday', ''] // Unfilled
+    ]);
+    wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'INCOMPLETE', "Weekend is INCOMPLETE");
+    assert(wStatus.remaining === 1, "Weekend remaining counts correctly");
+
+    // Test not-a-date weekend
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['not-a-date', 'Tuesday', 'Alice'] // Invalid date and day
+    ]);
+    wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'SETUP_ERROR', "Weekend with bad date/day returns SETUP_ERROR.");
+
+    // Complete Weekend
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2027-01-02', 'Saturday', 'Alice'],
+      ['2027-01-03', 'Sunday', 'Bob']
+    ]);
+    wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'COMPLETE', "Weekend is COMPLETE");
+
+    // Test pure read-only with no side effects
+    wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'COMPLETE', "Second read is COMPLETE (no side effects)");
+
+    log.push("✅ All Phase Status tests processed.");
+
+  } catch (e) {
+    log.push("❌ Test execution failed: " + e.message);
+    hasFailed = true;
+  } finally {
+    SpreadsheetApp = originalSpreadsheetApp;
+    withScriptLock = originalWithScriptLock;
+  }
+
+  if (hasFailed) {
+    throw new Error("One or more tests failed:\n" + log.join("\n"));
+  }
+  return log.join('\n');
+}
