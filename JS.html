@@ -1133,6 +1133,36 @@
     return null;
   }
 
+  function getTransferOfferSortDate(o) {
+    if (o['Assignment Type'] === 'WEEKEND') {
+       return normalizeDateKeyClient(o['Date/Position']);
+    } else if (o['Assignment Type'] === 'HOLIDAY') {
+       return normalizeDateKeyClient(o['Observed Date']);
+    } else if (o.type === 'GROUPED') {
+       for (var j = 0; j < o.components.length; j++) {
+         if (o.components[j]['Assignment Type'] === 'WEEKEND') {
+            return normalizeDateKeyClient(o.components[j]['Date/Position']);
+         }
+       }
+    }
+    return '';
+  }
+
+  function getTransferOfferSortPosition(o) {
+    if (o['Assignment Type'] === 'HOLIDAY') {
+       var parts = (o['Date/Position'] || '').split(' - ');
+       return parts[1] ? parts[1].trim() : '';
+    } else if (o.type === 'GROUPED') {
+       for (var j = 0; j < o.components.length; j++) {
+         if (o.components[j]['Assignment Type'] === 'HOLIDAY') {
+            var parts = (o.components[j]['Date/Position'] || '').split(' - ');
+            return parts[1] ? parts[1].trim() : '';
+         }
+       }
+    }
+    return '';
+  }
+
   function buildTransferReceiverOverviewHtml(offers) {
     if (!offers || offers.length === 0) return '';
     var items = [];
@@ -1548,8 +1578,27 @@
     html += '<h3>Select a Transfer Offer to Claim</h3>';
     html += '<div class="transfer-grid">';
 
-    for (var i = 0; i < offers.length; i++) {
-      var o = offers[i];
+    var sortedOffers = offers.slice().sort(function(a, b) {
+      var da = getTransferOfferSortDate(a) || '';
+      var db = getTransferOfferSortDate(b) || '';
+      if (da < db) return -1;
+      if (da > db) return 1;
+
+      var pa = getTransferOfferSortPosition(a);
+      var pb = getTransferOfferSortPosition(b);
+      if (pa < pb) return -1;
+      if (pa > pb) return 1;
+
+      var idA = a['Offer ID'] || a.groupId || '';
+      var idB = b['Offer ID'] || b.groupId || '';
+      if (idA < idB) return -1;
+      if (idA > idB) return 1;
+
+      return 0;
+    });
+
+    for (var i = 0; i < sortedOffers.length; i++) {
+      var o = sortedOffers[i];
 
       var badgesHtml = '';
       if (o.nearVacation) {
