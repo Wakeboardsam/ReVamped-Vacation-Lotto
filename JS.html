@@ -1539,14 +1539,14 @@
 
       var encodedObj = objStr.replace(/"/g, '&quot;');
 
-      var badgesHtml = '<span class="badge badge-picked">Picked</span> ';
+      var badgesHtml = '<span class="badge transfer-offer-selected-badge">✓ Selected to give away.</span> ';
       if (a.nearVacation) {
         var vWeek = a.nearVacationWeek ? a.nearVacationWeek : '';
         var badgeText = vWeek ? 'Near Your Vacation' : 'Near Your Vacation';
         badgesHtml += '<span class="badge badge-proximity-caution">' + escapeSoftHolidayText(badgeText) + '</span> ';
       }
 
-      html += '<div class="card card-picked" data-json="' + encodedObj + '" onclick="toggleSelection(this, \'transferOffer\')">';
+      html += '<div class="card transfer-offer-card" data-json="' + encodedObj + '" onclick="toggleSelection(this, \'transferOffer\')">';
       html += '  <div class="card-content">';
       html += '    <h4 class="card-title">' + (a.type === 'GROUPED' ? 'WEEKEND + HOLIDAY' : a.type) + '</h4>';
       html += '    <div class="card-subtitle">' + displayStr + '</div>';
