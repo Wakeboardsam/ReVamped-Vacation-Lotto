@@ -1389,3 +1389,149 @@ function runRegressionTests() {
     Logger.log(log.join("\n"));
   }
 }
+
+/**
+ * --- Status API Tests ---
+ */
+function runPhaseStatusTests() {
+  var log = [];
+  function assert(condition, message) {
+    if (!condition) {
+      log.push("❌ FAIL: " + message);
+      throw new Error("Test Failed: " + message);
+    } else {
+      log.push("✅ PASS: " + message);
+    }
+  }
+
+  var originalSpreadsheetApp = SpreadsheetApp;
+  var originalWithScriptLock = withScriptLock;
+
+  try {
+    SpreadsheetApp = MockSpreadsheetApp;
+    withScriptLock = function(cb) { return cb(); };
+
+    // Test 1: Missing sheet setup errors
+    MockSpreadsheetApp._sheets = {}; // Clear everything
+    var vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR', "Vacation status handles missing sheets.");
+    var hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'SETUP_ERROR', "Holiday status handles missing sheets.");
+    var wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'SETUP_ERROR', "Weekend status handles missing sheets.");
+
+    // Test 2: Vacation Target Validations
+    MockSpreadsheetApp._sheets = {};
+    MockSpreadsheetApp.createSheet('Admin Options', [
+      ['Setting Name', 'Setting Value'],
+      ['Vacation Week Target Default', '9weeks'] // Malformed global
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR' && vStatus.reason.indexOf('Global') !== -1, "Malformed global vacation target -> SETUP_ERROR");
+
+    MockSpreadsheetApp._sheets['Admin Options'] = undefined;
+    MockSpreadsheetApp.createSheet('Admin Options', [
+      ['Setting Name', 'Setting Value'],
+      ['Vacation Week Target Default', ''] // Blank global -> default 9
+    ]);
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Active for Year', 'Vacation Phase Enabled', 'Vacation Week Target Override'],
+      ['Alice', true, true, ''],      // Inherits 9
+      ['Bob', true, true, 0],       // Target 0 (number)
+      ['Charlie', true, true, '9.5'], // Malformed override
+      ['Dave', false, true, ''],      // Inactive, should be skipped
+      ['Eve', true, false, '']        // Disabled, should be skipped
+    ]);
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Date', 'Assigned Participants'],
+      ['2027-01-01', '']
+    ]);
+
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR' && vStatus.reason.indexOf('Charlie') !== -1, "Malformed participant override -> SETUP_ERROR");
+
+    // Fix Charlie and test counts
+    MockSpreadsheetApp._sheets['Participant Config'] = undefined;
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Active for Year', 'Vacation Phase Enabled', 'Vacation Week Target Override'],
+      ['Alice', true, true, ''],      // Inherits 9
+      ['Bob', true, true, 0],       // Target 0 (number), complete
+      ['Charlie', true, true, '2'],   // Target 2
+      ['', false, false, '']          // Blank row should be skipped
+    ]);
+
+    MockSpreadsheetApp._sheets['Vacation Availability'] = undefined;
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Date', 'Assigned Participants'],
+      ['2027-01-01', 'Alice, Charlie'],
+      ['2027-01-08', 'Charlie']
+    ]);
+
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'INCOMPLETE', "Vacation status is INCOMPLETE");
+    assert(vStatus.remaining === 8, "Alice needs 8 (9-1), Charlie needs 0 (2-2). Total = 8.");
+
+    // Test 3: Holiday Status Validations
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Date', 'Holiday Name', 'Call Position', 'Assigned Participant'],
+      ['2027-01-01', 'New Years', 'Call 1', 'Alice'],
+      ['2027-01-01', 'New Years', 'Call 2', ''],      // Unfilled
+      ['', '', '', '']                                // Trailing blank row
+    ]);
+
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'INCOMPLETE', "Holiday is INCOMPLETE with 1 remaining");
+    assert(hStatus.remaining === 1, "Holiday remaining counts correctly");
+
+    // Fill holiday
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Date', 'Holiday Name', 'Call Position', 'Assigned Participant'],
+      ['2027-01-01', 'New Years', 'Call 1', 'Alice'],
+      ['2027-01-01', 'New Years', 'Call 2', 'Bob']
+    ]);
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'COMPLETE', "Holiday is COMPLETE");
+
+    // Malformed holiday
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Date', 'Holiday Name', 'Call Position', 'Assigned Participant'],
+      ['2027-01-01', '', 'Call 1', 'Alice']
+    ]);
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'SETUP_ERROR', "Malformed holiday row -> SETUP_ERROR");
+
+    // Test 4: Weekend Status Validations
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2027-01-02', 'Saturday', 'Alice'],
+      ['2027-01-03', 'Sunday', ''] // Unfilled
+    ]);
+    wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'INCOMPLETE', "Weekend is INCOMPLETE");
+    assert(wStatus.remaining === 1, "Weekend remaining counts correctly");
+
+    // Complete Weekend
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2027-01-02', 'Saturday', 'Alice'],
+      ['2027-01-03', 'Sunday', 'Bob']
+    ]);
+    wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'COMPLETE', "Weekend is COMPLETE");
+
+    log.push("✅ All Phase Status tests passed.");
+
+  } catch (e) {
+    log.push("❌ Test execution failed: " + e.message);
+  } finally {
+    SpreadsheetApp = originalSpreadsheetApp;
+    withScriptLock = originalWithScriptLock;
+  }
+
+  return log.join('\n');
+}
