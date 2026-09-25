@@ -42,8 +42,44 @@ function validateVacationTarget_(value, isGlobal) {
  * Calculates remaining vacation picks based on validated targets.
  */
 function getVacationPhaseStatus() {
-  var adminOptions = getAdminOptions();
-  var globalTargetRaw = adminOptions['Vacation Week Target Default'];
+  var aSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Admin Options');
+  if (!aSheet) {
+    return {
+      status: 'SETUP_ERROR',
+      remaining: null,
+      reason: "'Admin Options' sheet is missing."
+    };
+  }
+
+  var aData = aSheet.getDataRange().getValues();
+  if (aData.length < 2) {
+    return {
+      status: 'SETUP_ERROR',
+      remaining: null,
+      reason: "'Admin Options' sheet is missing data."
+    };
+  }
+
+  var aHeaders = aData[0];
+  var aNameCol = aHeaders.indexOf('Setting Name');
+  var aValueCol = aHeaders.indexOf('Setting Value');
+
+  if (aNameCol === -1 || aValueCol === -1) {
+    return {
+      status: 'SETUP_ERROR',
+      remaining: null,
+      reason: "Missing required headers in 'Admin Options'."
+    };
+  }
+
+  var globalTargetRaw = '';
+  for (var i = 1; i < aData.length; i++) {
+    if (aData[i][aNameCol] === 'Vacation Week Target Default') {
+      globalTargetRaw = aData[i][aValueCol];
+      break;
+    }
+  }
+
   var globalTarget = validateVacationTarget_(globalTargetRaw, true);
 
   if (globalTarget === null) {
@@ -104,39 +140,87 @@ function getVacationPhaseStatus() {
     };
   }
   var vHeaders = vData[0];
+  var weekIdCol = vHeaders.indexOf('Week ID');
+  var startDateCol = vHeaders.indexOf('Start Date (Monday)');
   var assigneesCol = vHeaders.indexOf('Assigned Participants');
-  if (assigneesCol === -1) {
+
+  if (assigneesCol === -1 || weekIdCol === -1 || startDateCol === -1) {
     return {
       status: 'SETUP_ERROR',
       remaining: null,
-      reason: "Missing 'Assigned Participants' header in 'Vacation Availability'."
+      reason: "Missing required headers in 'Vacation Availability'."
     };
   }
 
   var participantCounts = {};
+  var hasValidRows = false;
+
   for (var i = 1; i < vData.length; i++) {
     var assigneesStr = String(vData[i][assigneesCol] || '');
+    var weekId = String(vData[i][weekIdCol] || '').trim();
+    var startDate = vData[i][startDateCol];
+
+    // Check entirely blank row
+    if (!weekId && !startDate && !assigneesStr.trim()) {
+      continue;
+    }
+
+    if (!weekId || !startDate) {
+      return {
+        status: 'SETUP_ERROR',
+        remaining: null,
+        reason: "Malformed row in 'Vacation Availability' at row " + (i + 1) + "."
+      };
+    }
+
+    hasValidRows = true;
+
     if (assigneesStr) {
       var assignees = assigneesStr.split(',').map(function(s) { return s.trim(); });
+      var uniqueAssignees = {};
       for (var j = 0; j < assignees.length; j++) {
-        var name = assignees[j];
-        if (name) {
-          participantCounts[name] = (participantCounts[name] || 0) + 1;
+        var aName = assignees[j];
+        if (aName && !uniqueAssignees[aName]) {
+          uniqueAssignees[aName] = true;
+          participantCounts[aName] = (participantCounts[aName] || 0) + 1;
         }
       }
     }
   }
 
+  if (!hasValidRows) {
+    return {
+      status: 'SETUP_ERROR',
+      remaining: null,
+      reason: "'Vacation Availability' has no valid schedule rows."
+    };
+  }
+
   var remaining = 0;
 
   for (var i = 1; i < pData.length; i++) {
-    var name = String(pData[i][nameCol] || '').trim();
-    if (!name) continue; // Skip totally empty rows
+    // Check if it's a completely empty row
+    var isTotallyBlank = true;
+    for (var j = 0; j < pData[i].length; j++) {
+      if (String(pData[i][j] || '').trim() !== '') {
+        isTotallyBlank = false;
+        break;
+      }
+    }
+    if (isTotallyBlank) continue;
 
+    var name = String(pData[i][nameCol] || '').trim();
     var isActive = pData[i][activeCol] === true || String(pData[i][activeCol] || '').toUpperCase() === 'TRUE';
     var isEnabled = pData[i][enabledCol] === true || String(pData[i][enabledCol] || '').toUpperCase() === 'TRUE';
 
     if (isActive && isEnabled) {
+      if (!name) {
+        return {
+          status: 'SETUP_ERROR',
+          remaining: null,
+          reason: "Active and vacation-enabled participant row has no name at row " + (i + 1) + "."
+        };
+      }
       var overrideRaw = pData[i][targetOverrideCol];
       var target = validateVacationTarget_(overrideRaw, false);
 
@@ -190,9 +274,9 @@ function getHolidayPhaseStatus() {
   }
 
   var hHeaders = hData[0];
-  var dateCol = hHeaders.indexOf('Date');
+  var dateCol = hHeaders.indexOf('Observed Date');
   var nameCol = hHeaders.indexOf('Holiday Name');
-  var posCol = hHeaders.indexOf('Call Position');
+  var posCol = hHeaders.indexOf('Call Position (Call 1 / Call 2)');
   var assigneeCol = hHeaders.indexOf('Assigned Participant');
 
   if (dateCol === -1 || nameCol === -1 || posCol === -1 || assigneeCol === -1) {
@@ -296,8 +380,11 @@ function getWeekendPhaseStatus() {
       continue;
     }
 
-    // Check for malformed row (missing date or day)
-    if (!dateVal || !dayVal) {
+    // Validate date and day of week
+    var isDateValid = (dateVal instanceof Date && !isNaN(dateVal.getTime())) ||
+                      (String(dateVal).match(/^\d{4}-\d{2}-\d{2}/) && !isNaN(new Date(dateVal).getTime()));
+
+    if (!dateVal || !dayVal || !isDateValid || (dayVal !== 'Saturday' && dayVal !== 'Sunday')) {
        return {
         status: 'SETUP_ERROR',
         remaining: null,
