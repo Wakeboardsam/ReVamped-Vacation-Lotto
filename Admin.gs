@@ -719,6 +719,11 @@ function resendParticipantWhatsApp(participantId, rowIndex) {
 
     var state = getQueueState();
     var phase = state.phase;
+
+    if (getReadinessInfo(phase)) {
+      pSheet.getRange(rowIndex, resendColIdx).setValue(false);
+      return { success: false, message: 'Queue is waiting for an administrator.' };
+    }
     var adminOptions = getAdminOptions();
 
     var promptKey = 'Prompt Text - Vacation';

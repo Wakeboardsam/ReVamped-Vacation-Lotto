@@ -86,8 +86,9 @@ function getInitialState(participantId, pin) {
     phase: state ? state.phase : 'INACTIVE',
     round: state ? state.round : 1,
     direction: state ? state.direction : 'ASCENDING',
+    readiness: getReadinessInfo(state ? state.phase : ''),
     participant: participant || {},
-    isActive: isActive,
+    isActive: getReadinessInfo(state ? state.phase : '') ? false : isActive,
     availableChoices: {
       vacation: [],
       weekend: [],
@@ -635,6 +636,12 @@ function submitSelection(participantId, selectionData) {
     // 1. Verify queue and active status
     var state = getQueueState();
     var phase = state.phase;
+
+    var readiness = getReadinessInfo(phase);
+    if (readiness) {
+      throw new Error(readiness.message);
+    }
+
     var activeWindow = getActiveParticipants(phase);
 
     var isActive = false;

@@ -7,6 +7,7 @@
     phase: null,
     round: null,
     direction: null,
+    readiness: null,
     isActive: false,
     participant: null,
     availableChoices: null,
@@ -388,6 +389,7 @@
     appState.participantId = null;
     appState.name = null;
     appState.pin = null;
+    appState.readiness = null;
     appState.isActive = false;
     appState.participant = null;
     appState.availableChoices = null;
@@ -501,9 +503,17 @@
       appState.phase = state.phase;
       appState.round = state.round;
       appState.direction = state.direction;
-      appState.isActive = state.isActive;
+      appState.readiness = state.readiness || null;
+      appState.isActive = appState.readiness ? false : state.isActive;
       appState.participant = state.participant;
       appState.availableChoices = state.availableChoices;
+
+      if (appState.readiness) {
+        appState.selections = [];
+        appState.adjacentHolidayPending = null;
+        var hModal = document.getElementById('holidayPromptModal');
+        if (hModal) hModal.style.display = 'none';
+      }
 
       updateHeader();
       checkRulesAcknowledgment();
@@ -552,7 +562,7 @@
 
     document.getElementById('phaseLabel').innerText = phaseName;
 
-    if (appState.round) {
+    if (appState.round && !appState.readiness) {
       document.getElementById('roundLabel').innerText = "R" + appState.round + " (" + (appState.direction === 'ASCENDING' ? 'Forward' : 'Reverse') + ")";
     } else {
       document.getElementById('roundLabel').innerText = "";
@@ -575,7 +585,10 @@
     var badge = document.getElementById('statusBadge');
 
     if (isLogged) {
-      if (appState.isActive) {
+      if (appState.readiness) {
+        badge.className = 'status-pill status-waiting';
+        badge.innerText = 'WAITING FOR ADMIN';
+      } else if (appState.isActive) {
         badge.className = 'status-pill status-active';
         badge.innerText = 'ACTIVE - YOUR TURN';
       } else {
@@ -647,7 +660,9 @@
 
     var showDensityControl = false;
 
-    if (appState.phase === 'VACATION_SENIORITY' || appState.phase === 'VACATION_RANDOM') {
+    if (appState.readiness) {
+      container.innerHTML = '<div class="card"><div class="card-content"><p class="card-title">Waiting for Administrator</p><p>' + escapeSoftHolidayText(appState.readiness.message) + '</p></div></div>';
+    } else if (appState.phase === 'VACATION_SENIORITY' || appState.phase === 'VACATION_RANDOM') {
       renderVacationPhase(container);
       showDensityControl = true;
     } else if (appState.phase === 'WEEKEND') {
@@ -1781,7 +1796,7 @@
     bar.style.display = 'none';
     passBtn.style.display = 'none';
 
-    if (!appState.isActive) return;
+    if (!appState.isActive || appState.readiness) return;
 
     bar.style.display = 'flex';
 
@@ -1821,6 +1836,11 @@
   }
 
   function submitSelection(isPass) {
+    if (appState.readiness) {
+      showToast(appState.readiness.message);
+      return;
+    }
+
     var isActionPass = isPass === true;
     var actionType = isActionPass ? (appState.phase === 'TRANSFER_RECEIVER' ? 'NONE' : 'PASS') : 'SUBMIT';
 
@@ -2079,7 +2099,7 @@
 
     if (validActive.length === 0) {
       var p = document.createElement('p');
-      p.textContent = "No participants are currently ACTIVE.";
+      p.textContent = snapshot.readiness ? snapshot.readiness.message : "No participants are currently ACTIVE.";
       activeList.appendChild(p);
     } else {
       var ul = document.createElement('ul');
@@ -2144,7 +2164,7 @@
         if (snapshot.direction === 'ASCENDING') dirLabel = ' (Forward)';
         else if (snapshot.direction === 'DESCENDING') dirLabel = ' (Reverse)';
 
-        if (snapshot.round) {
+        if (snapshot.round && !snapshot.readiness) {
             document.getElementById('roundLabel').innerText = 'R' + snapshot.round + dirLabel;
         } else {
             document.getElementById('roundLabel').innerText = '';

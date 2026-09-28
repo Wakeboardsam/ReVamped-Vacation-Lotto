@@ -11,8 +11,8 @@ function notifyActiveParticipants() {
     var state = getQueueState();
     var phase = state.phase;
 
-    // Stop notifications if lottery is complete or setup is pending
-    if (phase === 'COMPLETE' || phase === 'SETUP_EMPTY') {
+    // Stop notifications if lottery is complete, setup is pending, or in a READY state
+    if (phase === 'COMPLETE' || phase === 'SETUP_EMPTY' || getReadinessInfo(phase)) {
       return;
     }
 

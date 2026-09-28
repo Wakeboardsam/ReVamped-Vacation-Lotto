@@ -1389,3 +1389,579 @@ function runRegressionTests() {
     Logger.log(log.join("\n"));
   }
 }
+
+
+
+/**
+ * --- Status API Tests ---
+ */
+function runPhaseStatusTests() {
+  var log = [];
+  var hasFailed = false;
+  function assert(condition, message) {
+    if (!condition) {
+      log.push("❌ FAIL: " + message);
+      hasFailed = true;
+    } else {
+      log.push("✅ PASS: " + message);
+    }
+  }
+
+  var originalSpreadsheetApp = SpreadsheetApp;
+  var originalWithScriptLock = withScriptLock;
+
+  try {
+    SpreadsheetApp = MockSpreadsheetApp;
+    withScriptLock = function(cb) { return cb(); };
+
+    // Test 1: Missing sheet setup errors
+    MockSpreadsheetApp._sheets = {}; // Clear everything
+    var vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR', "Vacation status handles missing sheets.");
+    var hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'SETUP_ERROR', "Holiday status handles missing sheets.");
+    var wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'SETUP_ERROR', "Weekend status handles missing sheets.");
+
+    // Test 2: Vacation Validation Cases
+    MockSpreadsheetApp._sheets = {};
+    MockSpreadsheetApp.createSheet('Admin Options', [
+      ['Setting Name', 'Setting Value'],
+      ['Vacation Week Target Default', '9weeks']
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR', "Malformed global vacation target -> SETUP_ERROR");
+
+    // Correct Admin Options but missing Vacation headers
+    MockSpreadsheetApp._sheets['Admin Options'] = undefined;
+    MockSpreadsheetApp.createSheet('Admin Options', [
+      ['Setting Value', 'Setting Name'],
+      ['', 'Vacation Week Target Default'] // Reverse order to test reordered headers
+    ]);
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Active for Year', 'Vacation Phase Enabled', 'Vacation Week Target Override'],
+      ['Alice', true, true, ''] // Uses default 9
+    ]);
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Start Date (Monday)', 'Week ID', 'Assigned Participants'] // Reordered headers but valid
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR', "Vacation with just headers returns SETUP_ERROR.");
+
+    MockSpreadsheetApp._sheets['Vacation Availability'] = undefined;
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Start Date (Monday)', 'Week ID', 'Assigned Participants'],
+      ['2027-01-04', 'W1', 'Alice, Alice'],
+      ['2027-02-30', 'W3', 'Alice'], // Impossible rollover date
+      ['2027-01-04garbage', 'W4', 'Bob']
+
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR' && vStatus.remaining === null, "Impossible rollover date returns SETUP_ERROR.");
+    MockSpreadsheetApp._sheets['Vacation Availability'] = undefined;
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Start Date (Monday)', 'Week ID', 'Assigned Participants'],
+      ['2027-01-04garbage', 'W4', 'Bob']
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR' && vStatus.remaining === null, "Garbage suffix string returns SETUP_ERROR.");
+
+    MockSpreadsheetApp._sheets['Vacation Availability'] = undefined;
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Start Date (Monday)', 'Week ID', 'Assigned Participants'],
+      ['2027-01-04', 'W1', 'Alice, Alice'],
+      ['2027-01-11', 'W1', 'Bob'] // Duplicate Week ID -> SETUP ERROR
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR', "Duplicate Week ID returns SETUP_ERROR.");
+
+    // Fix malformed rows and test counting
+    MockSpreadsheetApp._sheets['Vacation Availability'] = undefined;
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Start Date (Monday)', 'Week ID', 'Assigned Participants'],
+      ['2027-01-04', 'W1', 'Alice, Alice'],
+      ['2027-01-11', 'W2', 'Bob, Alice']
+    ]);
+    MockSpreadsheetApp._sheets['Participant Config'] = undefined;
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Active for Year', 'Vacation Phase Enabled', 'Vacation Week Target Override'],
+      ['Alice', true, true, 2],
+      ['Bob', true, true, 1],
+      ['', true, true, ''] // Nameless row but active should error
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR', "Active participant without a name returns SETUP_ERROR.");
+
+    // Fix nameless participant
+    MockSpreadsheetApp._sheets['Participant Config'] = undefined;
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Active for Year', 'Vacation Phase Enabled', 'Vacation Week Target Override'],
+      ['Alice', true, true, 2], // 2 assignments unique by week (W1, W2) -> 0 remaining
+      ['Bob', true, true, 1],   // 1 assignment (W2) -> 0 remaining
+      ['', '', '', '']          // Wholly blank row should be skipped
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'COMPLETE', "Alice and Bob fulfilled correctly, counting duplicates correctly.");
+
+    // Test 3: Holiday Status Validations
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-01-01', 'Call 1', 'Alice'],
+      ['New Years', '2027-01-01', 'Call 2', ''],      // Unfilled
+      ['', '', '', '']                                // Trailing blank row
+    ]);
+
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'INCOMPLETE', "Holiday is INCOMPLETE with 1 remaining");
+    assert(hStatus.remaining === 1, "Holiday remaining counts correctly");
+
+    // Fill holiday
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-01-01', 'Call 1', 'Alice'],
+      ['New Years', '2027-01-01', 'Call 2', 'Bob']
+    ]);
+    var snapshotBefore = JSON.stringify(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues());
+    hStatus = getHolidayPhaseStatus();
+    var snapshotAfter = JSON.stringify(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues());
+    assert(hStatus.status === 'COMPLETE', "Holiday is COMPLETE");
+    assert(snapshotBefore === snapshotAfter, "Holiday read-only check has no side effects (sheet snapshot unchanged).");
+
+    // Malformed holiday date
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', 'not-a-date', 'Call 1', 'Alice']
+    ]);
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'SETUP_ERROR', "Holiday with bad date -> SETUP_ERROR");
+
+    // Malformed holiday impossible date
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-02-30', 'Call 1', 'Alice'],
+      ['New Years', '2027-01-01garbage', 'Call 1', 'Alice']
+    ]);
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'SETUP_ERROR' && hStatus.remaining === null, "Holiday with impossible rollover date -> SETUP_ERROR");
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-01-01garbage', 'Call 1', 'Alice']
+    ]);
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'SETUP_ERROR' && hStatus.remaining === null, "Holiday with garbage suffix -> SETUP_ERROR");
+
+    // Malformed holiday position (CALL_1 alias unsupported)
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-01-01', 'CALL_1', 'Alice']
+    ]);
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'SETUP_ERROR', "Holiday with CALL_1 alias -> SETUP_ERROR");
+
+    // Malformed holiday position
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-01-01', 'Call 99', 'Alice']
+    ]);
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'SETUP_ERROR', "Holiday with bad position -> SETUP_ERROR");
+
+    // Test 4: Weekend Status Validations
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2027-01-02', 'Saturday', 'Alice'],
+      ['2027-01-03', 'Sunday', ''] // Unfilled
+    ]);
+    wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'INCOMPLETE', "Weekend is INCOMPLETE");
+    assert(wStatus.remaining === 1, "Weekend remaining counts correctly");
+
+    // Test not-a-date weekend
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['not-a-date', 'Tuesday', 'Alice'] // Invalid date and day
+    ]);
+    wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'SETUP_ERROR', "Weekend with bad date/day returns SETUP_ERROR.");
+
+    // Test day mismatch (Monday labeled Saturday)
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2027-01-04', 'Saturday', 'Alice']
+    ]);
+    wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'SETUP_ERROR', "Weekend with mismatched date/day returns SETUP_ERROR.");
+
+    // Test day mismatch (impossible date like Feb 30)
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2027-02-30', 'Saturday', 'Alice'],
+      ['2027-01-02garbage', 'Saturday', 'Bob']
+    ]);
+    wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'SETUP_ERROR' && wStatus.remaining === null, "Weekend with impossible rollover date returns SETUP_ERROR.");
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2027-01-02garbage', 'Saturday', 'Bob']
+    ]);
+    wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'SETUP_ERROR' && wStatus.remaining === null, "Weekend with garbage suffix returns SETUP_ERROR.");
+
+    // Complete Weekend
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2027-01-02', 'Saturday', 'Alice'],
+      ['2027-01-03', 'Sunday', 'Bob']
+    ]);
+    snapshotBefore = JSON.stringify(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues());
+    wStatus = getWeekendPhaseStatus();
+    snapshotAfter = JSON.stringify(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues());
+    assert(wStatus.status === 'COMPLETE', "Weekend is COMPLETE");
+    assert(snapshotBefore === snapshotAfter, "Weekend read-only check has no side effects (sheet snapshot unchanged).");
+
+    log.push("✅ All Phase Status tests processed.");
+
+  } catch (e) {
+    log.push("❌ Test execution failed: " + e.message);
+    hasFailed = true;
+  } finally {
+    SpreadsheetApp = originalSpreadsheetApp;
+    withScriptLock = originalWithScriptLock;
+  }
+
+  if (hasFailed) {
+    throw new Error("One or more tests failed:\n" + log.join("\n"));
+  }
+  return log.join('\n');
+}
+
+/**
+ * --- Task 2: Durable READY States Tests ---
+ */
+function runReadyStateTests() {
+  var log = [];
+  var hasFailed = false;
+  function assert(condition, message) {
+    if (!condition) {
+      log.push("❌ FAIL: " + message);
+      hasFailed = true;
+    } else {
+      log.push("✅ PASS: " + message);
+    }
+  }
+
+  var originalSpreadsheetApp = SpreadsheetApp;
+  var originalWithScriptLock = withScriptLock;
+
+  try {
+    SpreadsheetApp = MockSpreadsheetApp;
+    withScriptLock = function(cb) { return cb(); };
+
+    var readyStates = [
+      { phase: 'READY_HOLIDAY_VOLUNTEER', next: 'HOLIDAY_VOLUNTEER', msg: 'Waiting for the administrator to begin Holiday Volunteer selection.' },
+      { phase: 'READY_HOLIDAY_MANDATORY', next: 'HOLIDAY_MANDATORY', msg: 'Waiting for the administrator to begin Mandatory Holiday selection.' },
+      { phase: 'READY_WEEKEND', next: 'WEEKEND', msg: 'Waiting for the administrator to begin Weekend selection.' },
+      { phase: 'READY_TRANSFER', next: 'TRANSFER_OFFER_COLLECTION', msg: 'Waiting for the administrator to begin Transfer Giveaways.' }
+    ];
+
+    // Helper to setup a valid fixture sheet environment
+    function setupFixture() {
+      MockSpreadsheetApp._sheets = {};
+      MockSpreadsheetApp.createSheet('Config', [
+        ['Setting Name', 'Setting Value'],
+        ['Current Phase', 'READY_WEEKEND'],
+        ['Current Round', '1'],
+        ['Current Direction', 'ASCENDING'],
+        ['Current Lead', '1']
+      ]);
+      MockSpreadsheetApp.createSheet('Admin Options', [
+        ['Setting Name', 'Setting Value'],
+        ['Active Year', '2027'],
+        ['Enable SMS Notifications', 'TRUE'],
+        ['Weekend Active Window (participants)', '2'],
+        ['Vacation Active Window (participants)', '3'],
+        ['Web App URL', 'https://example.com']
+      ]);
+      MockSpreadsheetApp.createSheet('Participant Config', [
+        ['Name', 'PIN', 'Active for Year', 'Vacation Phase Enabled', 'Weekend Phase Enabled', 'Holiday Volunteer', 'Mandatory Holiday Eligible', 'Transfer Giver', 'Transfer Receiver', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Phone Number', 'Seniority Position', 'Lottery Position', 'Resend WhatsApp', 'Vacation Week Target Override'],
+        ['Alice', '1234', true, true, true, true, true, true, true, '', false, false, '1111111111', 1, 1, false, ''],
+        ['Bob',   '5678', true, true, true, true, true, true, true, '', false, false, '2222222222', 2, 2, false, '']
+      ]);
+      MockSpreadsheetApp.createSheet('Vacation Availability', [
+        ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants'],
+        ['W1', '2027-01-04', 4, 'Non-Prime', 'None', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Weekend Coverage', [
+        ['Date', 'Day of Week', 'First Call Assignee', 'Vacation Adjacency Warning', 'Holiday Proximity Warning'],
+        ['2027-01-02', 'Saturday', '', '', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Holiday Coverage', [
+        ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+        ['New Years', '2027-01-01', 'Call 1', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Transfer Offers', [
+        ['Offer ID', 'Original Assignee (Giver)', 'Assignment Type', 'Date/Position', 'Status', 'Timestamp', 'Group ID']
+      ]);
+      MockSpreadsheetApp.createSheet('Transfer History', [
+        ['Timestamp', 'Assignment Type', 'Assignment Date', 'Call Position/Day', 'Original Assignee', 'New Assignee', 'Year', 'Receiver Round', 'Claim ID']
+      ]);
+      MockSpreadsheetApp.createSheet('Notification Log', [
+        ['Log Timestamp', 'Event Key', 'Participant ID', 'Participant Name', 'Masked Phone', 'Phase', 'Notification Type', 'Status', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp', 'Selection Reference', 'Sanitized Error']
+      ]);
+    }
+
+    // 1. Shared Readiness Mapping
+    assert(getReadinessInfo('READY_HOLIDAY_VOLUNTEER').nextPhase === 'HOLIDAY_VOLUNTEER', "getReadinessInfo maps READY_HOLIDAY_VOLUNTEER correctly.");
+    assert(getReadinessInfo('READY_HOLIDAY_MANDATORY').nextPhase === 'HOLIDAY_MANDATORY', "getReadinessInfo maps READY_HOLIDAY_MANDATORY correctly.");
+    assert(getReadinessInfo('READY_WEEKEND').nextPhase === 'WEEKEND', "getReadinessInfo maps READY_WEEKEND correctly.");
+    assert(getReadinessInfo('READY_TRANSFER').nextPhase === 'TRANSFER_OFFER_COLLECTION', "getReadinessInfo maps READY_TRANSFER correctly.");
+    assert(getReadinessInfo('WEEKEND') === null, "getReadinessInfo returns null for active phase WEEKEND.");
+
+    // 2. Test Queue Readers and Advancement across all four READY states
+    for (var i = 0; i < readyStates.length; i++) {
+      var item = readyStates[i];
+      setupFixture();
+      setQueueState({ phase: item.phase, round: 1, direction: 'ASCENDING', lead: 1 });
+
+      assert(getActiveWindowSize(item.phase) === 0, "getActiveWindowSize returns 0 for " + item.phase);
+
+      var windows = getQueueWindows_(item.phase, { round: 1, direction: 'ASCENDING', lead: 1 }, {});
+      assert(windows.activeWindow.length === 0, "activeWindow is empty for " + item.phase);
+      assert(windows.upNextWindow.length === 0, "upNextWindow is empty for " + item.phase);
+      assert(windows.windowSize === 0, "windowSize is 0 for " + item.phase);
+      assert(windows.participants.length === 2, "Participants roster retained for " + item.phase);
+
+      assert(getActiveParticipants(item.phase).length === 0, "getActiveParticipants returns empty array for " + item.phase);
+
+      // Stale active-phase argument passed to getQueueWindows_ while Config is READY
+      var staleWindows = getQueueWindows_('VACATION_RANDOM', { round: 1, direction: 'ASCENDING', lead: 1 }, {});
+      assert(staleWindows.activeWindow.length === 0, "Stale active-phase argument does not override READY state in Config for " + item.phase);
+
+      // Queue advancement
+      var adv1 = advanceQueueInternal_();
+      assert(adv1.ready === true, "advanceQueueInternal_ recognizes READY state for " + item.phase);
+
+      var stateAfter = getQueueState();
+      assert(stateAfter.phase === item.phase, "Current phase unchanged after advanceQueueInternal_ for " + item.phase);
+      assert(stateAfter.lead === 1, "Current lead unchanged after advanceQueueInternal_ for " + item.phase);
+
+      // Repeated advancement
+      var adv2 = advanceQueueInternal_();
+      assert(adv2.ready === true, "Repeated advanceQueueInternal_ produces identical result for " + item.phase);
+    }
+
+    // 3. Test Reconciliation while READY
+    setupFixture();
+    setQueueState({ phase: 'READY_WEEKEND', round: 1, direction: 'ASCENDING', lead: 1 });
+    var reconRes = reconcileFromSheet();
+    assert(reconRes.success === true, "reconcileFromSheet succeeds while in READY_WEEKEND.");
+    assert(getQueueState().phase === 'READY_WEEKEND', "reconcileFromSheet does not advance queue or change phase while READY.");
+
+    // 4. Test API Responses
+    setupFixture();
+    setQueueState({ phase: 'READY_HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+
+    var initRes = getInitialState('Alice', '1234');
+    assert(initRes.success === true, "getInitialState succeeds for valid participant during READY state.");
+    assert(initRes.readiness !== null && initRes.readiness.nextPhase === 'HOLIDAY_VOLUNTEER', "getInitialState includes readiness object.");
+    assert(initRes.isActive === false, "getInitialState sets isActive to false during READY state.");
+    assert(Array.isArray(initRes.availableChoices.vacation) && initRes.availableChoices.vacation.length === 0, "availableChoices fields remain empty arrays.");
+
+    var pubRes = getPublicDisplaySnapshot();
+    assert(pubRes.success === true, "getPublicDisplaySnapshot succeeds during READY state.");
+    assert(pubRes.readiness !== null && pubRes.readiness.nextPhase === 'HOLIDAY_VOLUNTEER', "getPublicDisplaySnapshot includes readiness object.");
+    assert(pubRes.queue.activeNames.length === 0 && pubRes.queue.upNextNames.length === 0, "Public queue active and upNext names are empty.");
+    assert(pubRes.calendar.vacationWeeks.length === 1, "Public calendar data remains available.");
+    assert(pubRes.participantNames.indexOf('Alice') !== -1, "Participant filter names remain available.");
+
+    // 5. Test Server-side Submission Guard (submitSelection)
+    setupFixture();
+    setQueueState({ phase: 'READY_WEEKEND', round: 1, direction: 'ASCENDING', lead: 1 });
+
+    var actionsToTest = [
+      { action: 'SUBMIT', payload: { phase: 'WEEKEND', action: 'SUBMIT', selections: ['2027-01-02'] } },
+      { action: 'SUBMIT (Stale Active Phase)', payload: { phase: 'VACATION_RANDOM', action: 'SUBMIT', selections: ['W1'] } },
+      { action: 'SUBMIT (Missing Phase)', payload: { action: 'SUBMIT', selections: ['2027-01-02'] } },
+      { action: 'PASS', payload: { phase: 'WEEKEND', action: 'PASS' } },
+      { action: 'NONE', payload: { phase: 'TRANSFER_RECEIVER', action: 'NONE' } }
+    ];
+
+    for (var k = 0; k < actionsToTest.length; k++) {
+      var testCase = actionsToTest[k];
+      var rejected = false;
+      try {
+        submitSelection('Alice', testCase.payload);
+      } catch (err) {
+        rejected = true;
+        assert(err.message.indexOf('Waiting for the administrator') !== -1 || err.message.indexOf('waiting for the administrator') !== -1, "submitSelection rejects " + testCase.action + " with friendly waiting message: " + err.message);
+      }
+      assert(rejected, "submitSelection must throw/reject during READY state for " + testCase.action);
+    }
+
+    // Verify sheet data and turn tracking remained unchanged
+    var wDataAfter = MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues();
+    assert(wDataAfter[1][2] === '', "Weekend coverage assignee remains unassigned after rejected submissions.");
+
+    var pDataAfter = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+    assert(pDataAfter[1][9] === '', "Entry Timestamp remains empty after rejected submission.");
+
+    // 6. Test Notification Suppression
+    setupFixture();
+    setQueueState({ phase: 'READY_HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+
+    var messagesSent = 0;
+    var origSendNotif = typeof sendParticipantNotification_ !== 'undefined' ? sendParticipantNotification_ : null;
+    sendParticipantNotification_ = function(phone, text) {
+      messagesSent++;
+      return { success: true };
+    };
+
+    // Automated notifications
+    notifyActiveParticipants();
+    assert(messagesSent === 0, "notifyActiveParticipants sends zero messages during READY state.");
+
+    // Direct manual resend call
+    var resendRes = resendParticipantWhatsApp('Alice', 2);
+    assert(resendRes.success === false, "resendParticipantWhatsApp rejects during READY state.");
+    assert(messagesSent === 0, "resendParticipantWhatsApp sends zero messages during READY state.");
+
+    // Edit resend checkbox in sheet
+    MockSpreadsheetApp._sheets['Participant Config'].getRange(2, 16).setValue(true); // Row 2, Resend WhatsApp = true
+    onEdit({
+      range: {
+        getSheet: function() { return MockSpreadsheetApp._sheets['Participant Config']; },
+        getRow: function() { return 2; },
+        getColumn: function() { return 16; }
+      },
+      value: 'TRUE'
+    });
+    assert(messagesSent === 0, "onEdit resend-checkbox sends zero messages during READY state.");
+    assert(MockSpreadsheetApp._sheets['Participant Config'].getRange(2, 16).getValue() === false, "onEdit resend-checkbox resets checkbox to FALSE.");
+
+    if (origSendNotif) sendParticipantNotification_ = origSendNotif;
+
+    // 7. Test Representative Active-Phase Control Case
+    setupFixture();
+    setQueueState({ phase: 'VACATION_RANDOM', round: 1, direction: 'ASCENDING', lead: 1 });
+
+    assert(getActiveWindowSize('VACATION_RANDOM') > 0, "Active phase control: getActiveWindowSize > 0.");
+    var activeControl = getActiveParticipants('VACATION_RANDOM');
+    assert(activeControl.length > 0 && activeControl[0]['Name'] === 'Alice', "Active phase control: Alice is active in VACATION_RANDOM.");
+
+    var submitControl = submitSelection('Alice', { phase: 'VACATION_RANDOM', action: 'SUBMIT', selections: ['W1'] });
+    assert(submitControl.success === true, "Active phase control: Alice successfully submits selection in VACATION_RANDOM.");
+
+    // 8. Test Frontend UI Rendering (Active -> READY -> Active) using DOM fixture
+    setupFixture();
+
+    var mockElements = {};
+    function getMockElement(id) {
+      if (!mockElements[id]) {
+        mockElements[id] = {
+          id: id,
+          innerText: '',
+          textContent: '',
+          innerHTML: '',
+          style: {},
+          className: '',
+          value: '',
+          options: [],
+          disabled: false,
+          classList: {
+            add: function(c) { mockElements[id].className += ' ' + c; },
+            remove: function(c) { mockElements[id].className = mockElements[id].className.replace(c, '').trim(); },
+            contains: function(c) { return mockElements[id].className.indexOf(c) !== -1; }
+          },
+          setAttribute: function(k, v) { this[k] = v; },
+          getAttribute: function(k) { return this[k]; },
+          appendChild: function(child) { this.children = this.children || []; this.children.push(child); },
+          hasChildNodes: function() { return this.children && this.children.length > 0; },
+          querySelector: function() { return getMockElement('subElement'); },
+          querySelectorAll: function() { return []; },
+          addEventListener: function() {}
+        };
+      }
+      return mockElements[id];
+    }
+
+    var origDocument = typeof document !== 'undefined' ? document : null;
+    document = {
+      getElementById: function(id) { return getMockElement(id); },
+      createElement: function(tag) { return getMockElement('created_' + tag); },
+      querySelectorAll: function() { return []; },
+      addEventListener: function() {}
+    };
+
+    // A) Simulate Active Phase State Load
+    setQueueState({ phase: 'VACATION_RANDOM', round: 1, direction: 'ASCENDING', lead: 1 });
+    var activeStatePayload = getInitialState('Alice', '1234');
+    onStateLoaded(activeStatePayload);
+
+    assert(appState.isActive === true, "Frontend: appState.isActive is true during active phase.");
+    assert(appState.readiness === null, "Frontend: appState.readiness is null during active phase.");
+
+    // B) Simulate Transition into READY State
+    setQueueState({ phase: 'READY_HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+    var readyStatePayload = getInitialState('Alice', '1234');
+
+    // Pre-populate pending selection
+    appState.selections = ['W1'];
+    appState.adjacentHolidayPending = { holidayName: 'Thanksgiving', position: 'Call 1' };
+
+    onStateLoaded(readyStatePayload);
+
+    assert(appState.isActive === false, "Frontend: appState.isActive set to false on transition to READY.");
+    assert(appState.readiness !== null && appState.readiness.nextPhase === 'HOLIDAY_VOLUNTEER', "Frontend: appState.readiness populated on transition to READY.");
+    assert(appState.selections.length === 0, "Frontend: appState.selections cleared on transition to READY.");
+    assert(appState.adjacentHolidayPending === null, "Frontend: appState.adjacentHolidayPending cleared on transition to READY.");
+    assert(getMockElement('roundLabel').innerText === '', "Frontend: roundLabel hidden during READY state.");
+    assert(getMockElement('statusBadge').innerText === 'WAITING FOR ADMIN', "Frontend: statusBadge shows 'WAITING FOR ADMIN'.");
+    assert(getMockElement('viewContent').innerHTML.indexOf('Waiting for Administrator') !== -1, "Frontend: viewContent displays friendly waiting message.");
+
+    // Attempt client submitSelection while READY
+    var toastShown = false;
+    var origShowToast = typeof showToast !== 'undefined' ? showToast : null;
+    showToast = function(msg) { toastShown = true; };
+
+    submitSelection(false);
+    assert(toastShown, "Frontend: submitSelection blocks execution and shows toast while READY.");
+    if (origShowToast) showToast = origShowToast;
+
+    // C) Simulate Transition back to Active Phase
+    setQueueState({ phase: 'HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+    var activeStatePayload2 = getInitialState('Alice', '1234');
+    onStateLoaded(activeStatePayload2);
+
+    assert(appState.isActive === true, "Frontend: appState.isActive restored to true when active phase loaded.");
+    assert(appState.readiness === null, "Frontend: appState.readiness restored to null when active phase loaded.");
+
+    if (origDocument) document = origDocument;
+
+    log.push("✅ All Task 2 READY state tests passed successfully.");
+
+  } catch (e) {
+    log.push("❌ Test execution failed: " + e.message + "\n" + e.stack);
+    hasFailed = true;
+  } finally {
+    SpreadsheetApp = originalSpreadsheetApp;
+    withScriptLock = originalWithScriptLock;
+  }
+
+  if (hasFailed) {
+    throw new Error("One or more tests failed:\n" + log.join("\n"));
+  }
+  return log.join('\n');
+}

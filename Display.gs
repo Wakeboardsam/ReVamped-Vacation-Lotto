@@ -143,6 +143,7 @@ function getPublicDisplaySnapshot() {
       phase: state.phase,
       round: state.round,
       direction: state.direction,
+      readiness: getReadinessInfo(state.phase),
       queue: {
         activeWindowSize: queueWindows.windowSize,
         activeNames: activeNames,

@@ -100,7 +100,36 @@ function setQueueState(updates) {
   }
 }
 
+function getReadinessInfo(phase) {
+  if (phase === 'READY_HOLIDAY_VOLUNTEER') {
+    return {
+      nextPhase: 'HOLIDAY_VOLUNTEER',
+      message: 'Waiting for the administrator to begin Holiday Volunteer selection.'
+    };
+  } else if (phase === 'READY_HOLIDAY_MANDATORY') {
+    return {
+      nextPhase: 'HOLIDAY_MANDATORY',
+      message: 'Waiting for the administrator to begin Mandatory Holiday selection.'
+    };
+  } else if (phase === 'READY_WEEKEND') {
+    return {
+      nextPhase: 'WEEKEND',
+      message: 'Waiting for the administrator to begin Weekend selection.'
+    };
+  } else if (phase === 'READY_TRANSFER') {
+    return {
+      nextPhase: 'TRANSFER_OFFER_COLLECTION',
+      message: 'Waiting for the administrator to begin Transfer Giveaways.'
+    };
+  }
+  return null;
+}
+
 function getActiveWindowSize(phase) {
+  if (getReadinessInfo(phase)) {
+    return 0;
+  }
+
   var adminOptions = getAdminOptions();
 
   if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
