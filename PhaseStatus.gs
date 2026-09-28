@@ -9,6 +9,28 @@
  */
 
 /**
+ * Helper to validate calendar dates and strictly prevent rollovers (e.g., 2027-02-30).
+ * @param {Date|string} dateVal
+ * @returns {Date|null} The parsed Date object or null if invalid
+ */
+function getStrictCalendarDate_(dateVal) {
+  if (dateVal instanceof Date && !isNaN(dateVal.getTime())) {
+    return dateVal;
+  }
+  if (String(dateVal).match(/^\d{4}-\d{2}-\d{2}/)) {
+    var parts = String(dateVal).split('-');
+    var y = parseInt(parts[0], 10);
+    var m = parseInt(parts[1], 10) - 1;
+    var d = parseInt(parts[2], 10);
+    var parsedDate = new Date(y, m, d);
+    if (parsedDate.getFullYear() === y && parsedDate.getMonth() === m && parsedDate.getDate() === d) {
+      return parsedDate;
+    }
+  }
+  return null;
+}
+
+/**
  * Helper to validate a vacation target (global or override).
  * Blank participant override means inherit.
  * Blank global means default of 9.
@@ -154,6 +176,7 @@ function getVacationPhaseStatus() {
 
   var participantCounts = {};
   var hasValidRows = false;
+  var seenWeekIds = {};
 
   for (var i = 1; i < vData.length; i++) {
     var assigneesStr = String(vData[i][assigneesCol] || '');
@@ -165,13 +188,24 @@ function getVacationPhaseStatus() {
       continue;
     }
 
-    if (!weekId || !startDate) {
+    var parsedStartDate = getStrictCalendarDate_(startDate);
+
+    if (!weekId || !startDate || parsedStartDate === null) {
       return {
         status: 'SETUP_ERROR',
         remaining: null,
         reason: "Malformed row in 'Vacation Availability' at row " + (i + 1) + "."
       };
     }
+
+    if (seenWeekIds[weekId]) {
+      return {
+        status: 'SETUP_ERROR',
+        remaining: null,
+        reason: "Duplicate Week ID '" + weekId + "' found in 'Vacation Availability'."
+      };
+    }
+    seenWeekIds[weekId] = true;
 
     hasValidRows = true;
 
@@ -302,7 +336,10 @@ function getHolidayPhaseStatus() {
     }
 
     // Evaluate validity of the row
-    if (!dateVal || !nameVal || !posVal) {
+    var parsedDate = getStrictCalendarDate_(dateVal);
+
+    var isPosValid = (posVal === 'Call 1' || posVal === 'Call 2');
+    if (!dateVal || !nameVal || !posVal || parsedDate === null || !isPosValid) {
       return {
         status: 'SETUP_ERROR',
         remaining: null,
@@ -380,11 +417,17 @@ function getWeekendPhaseStatus() {
       continue;
     }
 
-    // Validate date and day of week
-    var isDateValid = (dateVal instanceof Date && !isNaN(dateVal.getTime())) ||
-                      (String(dateVal).match(/^\d{4}-\d{2}-\d{2}/) && !isNaN(new Date(dateVal).getTime()));
+    // Validate strict date matching
+    var parsedDate = getStrictCalendarDate_(dateVal);
 
-    if (!dateVal || !dayVal || !isDateValid || (dayVal !== 'Saturday' && dayVal !== 'Sunday')) {
+    var isDateValid = parsedDate !== null;
+    var dayMatches = false;
+    if (isDateValid) {
+       var dayOfWeekStr = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][parsedDate.getDay()];
+       dayMatches = (dayOfWeekStr === dayVal);
+    }
+
+    if (!dateVal || !dayVal || !isDateValid || !dayMatches || (dayVal !== 'Saturday' && dayVal !== 'Sunday')) {
        return {
         status: 'SETUP_ERROR',
         remaining: null,

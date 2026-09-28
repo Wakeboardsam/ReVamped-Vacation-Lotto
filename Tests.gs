@@ -1391,6 +1391,7 @@ function runRegressionTests() {
 }
 
 
+
 /**
  * --- Status API Tests ---
  */
@@ -1450,13 +1451,23 @@ function runPhaseStatusTests() {
     MockSpreadsheetApp._sheets['Vacation Availability'] = undefined;
     MockSpreadsheetApp.createSheet('Vacation Availability', [
       ['Start Date (Monday)', 'Week ID', 'Assigned Participants'],
-      ['2027-01-04', 'W1', 'Alice, Alice'], // Duplicates should count as 1 week for Alice
-      ['', '', 'Bob'] // Malformed row should throw SETUP_ERROR
+      ['2027-01-04', 'W1', 'Alice, Alice'],
+      ['2027-02-30', 'W3', 'Alice'], // Impossible rollover date
+
     ]);
     vStatus = getVacationPhaseStatus();
-    assert(vStatus.status === 'SETUP_ERROR', "Malformed row without date/week ID returns SETUP_ERROR.");
+    assert(vStatus.status === 'SETUP_ERROR', "Malformed or impossible rollover date returns SETUP_ERROR.");
 
-    // Fix malformed row and test counting
+    MockSpreadsheetApp._sheets['Vacation Availability'] = undefined;
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Start Date (Monday)', 'Week ID', 'Assigned Participants'],
+      ['2027-01-04', 'W1', 'Alice, Alice'],
+      ['2027-01-11', 'W1', 'Bob'] // Duplicate Week ID -> SETUP ERROR
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR', "Duplicate Week ID returns SETUP_ERROR.");
+
+    // Fix malformed rows and test counting
     MockSpreadsheetApp._sheets['Vacation Availability'] = undefined;
     MockSpreadsheetApp.createSheet('Vacation Availability', [
       ['Start Date (Monday)', 'Week ID', 'Assigned Participants'],
@@ -1504,17 +1515,47 @@ function runPhaseStatusTests() {
       ['New Years', '2027-01-01', 'Call 1', 'Alice'],
       ['New Years', '2027-01-01', 'Call 2', 'Bob']
     ]);
+    var snapshotBefore = JSON.stringify(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues());
     hStatus = getHolidayPhaseStatus();
+    var snapshotAfter = JSON.stringify(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues());
     assert(hStatus.status === 'COMPLETE', "Holiday is COMPLETE");
+    assert(snapshotBefore === snapshotAfter, "Holiday read-only check has no side effects (sheet snapshot unchanged).");
 
-    // Malformed holiday
+    // Malformed holiday date
     MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
     MockSpreadsheetApp.createSheet('Holiday Coverage', [
       ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
-      ['New Years', '2027-01-01', '', 'Alice']
+      ['New Years', 'not-a-date', 'Call 1', 'Alice']
     ]);
     hStatus = getHolidayPhaseStatus();
-    assert(hStatus.status === 'SETUP_ERROR', "Malformed holiday row -> SETUP_ERROR");
+    assert(hStatus.status === 'SETUP_ERROR', "Holiday with bad date -> SETUP_ERROR");
+
+    // Malformed holiday impossible date
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-02-30', 'Call 1', 'Alice']
+    ]);
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'SETUP_ERROR', "Holiday with impossible rollover date -> SETUP_ERROR");
+
+    // Malformed holiday position (CALL_1 alias unsupported)
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-01-01', 'CALL_1', 'Alice']
+    ]);
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'SETUP_ERROR', "Holiday with CALL_1 alias -> SETUP_ERROR");
+
+    // Malformed holiday position
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-01-01', 'Call 99', 'Alice']
+    ]);
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'SETUP_ERROR', "Holiday with bad position -> SETUP_ERROR");
 
     // Test 4: Weekend Status Validations
     MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
@@ -1536,6 +1577,24 @@ function runPhaseStatusTests() {
     wStatus = getWeekendPhaseStatus();
     assert(wStatus.status === 'SETUP_ERROR', "Weekend with bad date/day returns SETUP_ERROR.");
 
+    // Test day mismatch (Monday labeled Saturday)
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2027-01-04', 'Saturday', 'Alice']
+    ]);
+    wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'SETUP_ERROR', "Weekend with mismatched date/day returns SETUP_ERROR.");
+
+    // Test day mismatch (impossible date like Feb 30)
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2027-02-30', 'Saturday', 'Alice']
+    ]);
+    wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'SETUP_ERROR', "Weekend with impossible rollover date returns SETUP_ERROR.");
+
     // Complete Weekend
     MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
     MockSpreadsheetApp.createSheet('Weekend Coverage', [
@@ -1543,12 +1602,11 @@ function runPhaseStatusTests() {
       ['2027-01-02', 'Saturday', 'Alice'],
       ['2027-01-03', 'Sunday', 'Bob']
     ]);
+    snapshotBefore = JSON.stringify(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues());
     wStatus = getWeekendPhaseStatus();
+    snapshotAfter = JSON.stringify(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues());
     assert(wStatus.status === 'COMPLETE', "Weekend is COMPLETE");
-
-    // Test pure read-only with no side effects
-    wStatus = getWeekendPhaseStatus();
-    assert(wStatus.status === 'COMPLETE', "Second read is COMPLETE (no side effects)");
+    assert(snapshotBefore === snapshotAfter, "Weekend read-only check has no side effects (sheet snapshot unchanged).");
 
     log.push("✅ All Phase Status tests processed.");
 

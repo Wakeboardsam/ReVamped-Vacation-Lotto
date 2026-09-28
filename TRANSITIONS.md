@@ -6,19 +6,24 @@
 
 | Triggering Condition / Action | Caller / Function | Next State | Fields Changed (Config Sheet) |
 | :--- | :--- | :--- | :--- |
-| Initial Setup | Generic script/setup | `SETUP_EMPTY` or `SETUP` | Current Phase |
 | Admin begins Seniority Round manually | `Admin.gs` -> `beginSeniorityRound()` | `VACATION_SENIORITY` | Current Phase: `VACATION_SENIORITY`<br>Current Round: 1<br>Current Direction: `ASCENDING`<br>Current Lead: 1 |
 | Queue advances to Vacation round 2 | `Queue.gs` -> `advanceQueueInternal_()` | `VACATION_RANDOM` | Current Phase: `VACATION_RANDOM`<br>Current Round: 2<br>Current Direction: `ASCENDING`<br>Current Lead: 1 |
 | Admin begins Holiday Phase manually | `Admin.gs` -> `beginHolidayPhase()` | `HOLIDAY_VOLUNTEER` | Current Phase: `HOLIDAY_VOLUNTEER`<br>Current Round: 1<br>Current Direction: `ASCENDING`<br>Current Lead: 1 |
 | Holiday Volunteer empty pool, spots open | `Queue.gs` -> `advanceQueueInternal_()` | `HOLIDAY_MANDATORY` | Current Phase: `HOLIDAY_MANDATORY`<br>Current Round: 1<br>Current Direction: `ASCENDING`<br>Current Lead: 1 |
+| All holiday positions filled | `Queue.gs` -> `advanceQueueInternal_()` | `TRANSFER_OFFER_COLLECTION` | Current Phase: `TRANSFER_OFFER_COLLECTION`<br>Current Round: 1<br>Current Direction: `ASCENDING`<br>Current Lead: 1 |
 | Admin begins Weekend Phase manually | `Admin.gs` -> `beginWeekendPhase()` | `WEEKEND` | Current Phase: `WEEKEND`<br>Current Round: 1<br>Current Direction: `ASCENDING`<br>Current Lead: 1 |
 | Admin begins Transfer Phase manually | `Admin.gs` -> `beginTransferPhase()` | `TRANSFER_OFFER_COLLECTION` | Current Phase: `TRANSFER_OFFER_COLLECTION`<br>Current Round: 1<br>Current Direction: `ASCENDING`<br>Current Lead: 1 |
 | Transfer Offer Collection complete | `WebApp.gs` -> `checkTransferOfferCollectionComplete_()` | `TRANSFER_RECEIVER` | Current Phase: `TRANSFER_RECEIVER`<br>Current Round: 1<br>Current Direction: `ASCENDING`<br>Current Lead: 1 |
+| No active transferable offers remain | `Queue.gs` -> `advanceQueueInternal_()` | `COMPLETE` | Current Phase: `COMPLETE` |
+| Transfer Receiver phase exhausted | `Queue.gs` -> `advanceQueueInternal_()` | `COMPLETE` | Current Phase: `COMPLETE` |
+| Queue advancement exhausts valid receivers for round | `Queue.gs` -> `advanceQueueInternal_()` | `COMPLETE` | Current Phase: `COMPLETE` |
+| Queue advancement starts with entirely empty eligible pool | `Queue.gs` -> `advanceQueueInternal_()` | `COMPLETE` | Current Phase: `COMPLETE` |
 
 ### Queue Advancement Triggers & Reconciliation
 - **Participant Submits Selection**: `WebApp.gs` -> `submitSelection()` invokes `advanceQueueInternal_()`.
-- **Admin Action / WebApp**: Notifications, resolving stalled states, or missing participants directly use `advanceQueueInternal_()`.
-- **Transfers Complete**: Note that there is no generic `COMPLETE` phase state currently set when `TRANSFER_RECEIVER` exhausts receivers; it simply stalls until admin intervention.
+- **Admin Action / WebApp**: `advanceQueueInternal_()` is called via `reconcileFromSheet()` -> `advanceQueue()` or UI triggers when notifications or selections push the queue.
+- **Completion States**: `Queue.gs` proactively sets `COMPLETE` if the Transfer Receiver queue runs out of valid participants, if there are strictly zero transferable offers, or if a generic phase pool empties without fallback options.
+- **Holiday to Transfer**: When `advanceQueueInternal_()` detects that `hasOpenHolidayPositions_()` is false in `HOLIDAY_VOLUNTEER` or `HOLIDAY_MANDATORY`, it automatically stages `TRANSFER_OFFER_COLLECTION` (Round 1, ASCENDING, Lead 1).
 
 ---
 
