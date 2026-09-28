@@ -17,8 +17,9 @@ function getStrictCalendarDate_(dateVal) {
   if (dateVal instanceof Date && !isNaN(dateVal.getTime())) {
     return dateVal;
   }
-  if (String(dateVal).match(/^\d{4}-\d{2}-\d{2}/)) {
-    var parts = String(dateVal).split('-');
+  var strDate = String(dateVal).trim();
+  if (strDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    var parts = strDate.split('-');
     var y = parseInt(parts[0], 10);
     var m = parseInt(parts[1], 10) - 1;
     var d = parseInt(parts[2], 10);

@@ -16,13 +16,15 @@
 | Transfer Offer Collection complete | `WebApp.gs` -> `checkTransferOfferCollectionComplete_()` | `TRANSFER_RECEIVER` | Current Phase: `TRANSFER_RECEIVER`<br>Current Round: 1<br>Current Direction: `ASCENDING`<br>Current Lead: 1 |
 | No active transferable offers remain | `Queue.gs` -> `advanceQueueInternal_()` | `COMPLETE` | Current Phase: `COMPLETE` |
 | Transfer Receiver phase exhausted | `Queue.gs` -> `advanceQueueInternal_()` | `COMPLETE` | Current Phase: `COMPLETE` |
-| Queue advancement exhausts valid receivers for round | `Queue.gs` -> `advanceQueueInternal_()` | `COMPLETE` | Current Phase: `COMPLETE` |
-| Queue advancement starts with entirely empty eligible pool | `Queue.gs` -> `advanceQueueInternal_()` | `COMPLETE` | Current Phase: `COMPLETE` |
+| Queue advancement exhausts eligible participants finding next lead | `Queue.gs` -> `advanceQueueInternal_()` | `COMPLETE` | Current Phase: `COMPLETE` (after holiday checks) |
+| Queue advancement starts with empty pool for TRANSFER_RECEIVER | `Queue.gs` -> `advanceQueueInternal_()` | `COMPLETE` | Current Phase: `COMPLETE` |
+
+| Queue advancement starts with initially empty eligible pool (Vacation/Weekend) | `Queue.gs` -> `advanceQueueInternal_()` | (No Change) | Function returns without advancing queue |
 
 ### Queue Advancement Triggers & Reconciliation
 - **Participant Submits Selection**: `WebApp.gs` -> `submitSelection()` invokes `advanceQueueInternal_()`.
 - **Admin Action / WebApp**: `advanceQueueInternal_()` is called via `reconcileFromSheet()` -> `advanceQueue()` or UI triggers when notifications or selections push the queue.
-- **Completion States**: `Queue.gs` proactively sets `COMPLETE` if the Transfer Receiver queue runs out of valid participants, if there are strictly zero transferable offers, or if a generic phase pool empties without fallback options.
+- **Completion States**: `Queue.gs` proactively sets `COMPLETE` if the Transfer Receiver phase encounters an empty initial pool, if there are strictly zero transferable offers, or if finding the next eligible lead exhausts the pool during round advancement (outside of Holiday fallbacks). Note that if an initial pool for Vacation or Weekend is empty, the function simply returns without changing the phase.
 - **Holiday to Transfer**: When `advanceQueueInternal_()` detects that `hasOpenHolidayPositions_()` is false in `HOLIDAY_VOLUNTEER` or `HOLIDAY_MANDATORY`, it automatically stages `TRANSFER_OFFER_COLLECTION` (Round 1, ASCENDING, Lead 1).
 
 ---

@@ -1453,10 +1453,18 @@ function runPhaseStatusTests() {
       ['Start Date (Monday)', 'Week ID', 'Assigned Participants'],
       ['2027-01-04', 'W1', 'Alice, Alice'],
       ['2027-02-30', 'W3', 'Alice'], // Impossible rollover date
+      ['2027-01-04garbage', 'W4', 'Bob']
 
     ]);
     vStatus = getVacationPhaseStatus();
-    assert(vStatus.status === 'SETUP_ERROR', "Malformed or impossible rollover date returns SETUP_ERROR.");
+    assert(vStatus.status === 'SETUP_ERROR' && vStatus.remaining === null, "Impossible rollover date returns SETUP_ERROR.");
+    MockSpreadsheetApp._sheets['Vacation Availability'] = undefined;
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Start Date (Monday)', 'Week ID', 'Assigned Participants'],
+      ['2027-01-04garbage', 'W4', 'Bob']
+    ]);
+    vStatus = getVacationPhaseStatus();
+    assert(vStatus.status === 'SETUP_ERROR' && vStatus.remaining === null, "Garbage suffix string returns SETUP_ERROR.");
 
     MockSpreadsheetApp._sheets['Vacation Availability'] = undefined;
     MockSpreadsheetApp.createSheet('Vacation Availability', [
@@ -1534,10 +1542,18 @@ function runPhaseStatusTests() {
     MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
     MockSpreadsheetApp.createSheet('Holiday Coverage', [
       ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
-      ['New Years', '2027-02-30', 'Call 1', 'Alice']
+      ['New Years', '2027-02-30', 'Call 1', 'Alice'],
+      ['New Years', '2027-01-01garbage', 'Call 1', 'Alice']
     ]);
     hStatus = getHolidayPhaseStatus();
-    assert(hStatus.status === 'SETUP_ERROR', "Holiday with impossible rollover date -> SETUP_ERROR");
+    assert(hStatus.status === 'SETUP_ERROR' && hStatus.remaining === null, "Holiday with impossible rollover date -> SETUP_ERROR");
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-01-01garbage', 'Call 1', 'Alice']
+    ]);
+    hStatus = getHolidayPhaseStatus();
+    assert(hStatus.status === 'SETUP_ERROR' && hStatus.remaining === null, "Holiday with garbage suffix -> SETUP_ERROR");
 
     // Malformed holiday position (CALL_1 alias unsupported)
     MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
@@ -1590,10 +1606,18 @@ function runPhaseStatusTests() {
     MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
     MockSpreadsheetApp.createSheet('Weekend Coverage', [
       ['Date', 'Day of Week', 'First Call Assignee'],
-      ['2027-02-30', 'Saturday', 'Alice']
+      ['2027-02-30', 'Saturday', 'Alice'],
+      ['2027-01-02garbage', 'Saturday', 'Bob']
     ]);
     wStatus = getWeekendPhaseStatus();
-    assert(wStatus.status === 'SETUP_ERROR', "Weekend with impossible rollover date returns SETUP_ERROR.");
+    assert(wStatus.status === 'SETUP_ERROR' && wStatus.remaining === null, "Weekend with impossible rollover date returns SETUP_ERROR.");
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2027-01-02garbage', 'Saturday', 'Bob']
+    ]);
+    wStatus = getWeekendPhaseStatus();
+    assert(wStatus.status === 'SETUP_ERROR' && wStatus.remaining === null, "Weekend with garbage suffix returns SETUP_ERROR.");
 
     // Complete Weekend
     MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
