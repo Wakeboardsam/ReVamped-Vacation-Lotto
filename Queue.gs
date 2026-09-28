@@ -96,9 +96,13 @@ function getParticipantAssignments(participantName, phase, cache) {
  */
 function getQueueWindows_(phase, state, cache) {
   var currentState = getQueueState();
-  var effectivePhase = (getReadinessInfo(currentState.phase) || getReadinessInfo(phase)) ? currentState.phase : phase;
+  var suppliedPhase = (state && state.phase) ? state.phase : phase;
 
-  if (getReadinessInfo(effectivePhase)) {
+  // Check if either current Config state OR supplied phase is in a READY state
+  var isCurrentReady = getReadinessInfo(currentState.phase);
+  var isSuppliedReady = getReadinessInfo(suppliedPhase);
+
+  if (isCurrentReady || isSuppliedReady) {
     return {
       activeWindow: [],
       upNextWindow: [],
@@ -106,6 +110,8 @@ function getQueueWindows_(phase, state, cache) {
       participants: getSheetDataAsObjects('Participant Config', cache)
     };
   }
+
+  var effectivePhase = suppliedPhase;
 
   if (
     (effectivePhase === 'HOLIDAY_VOLUNTEER' || effectivePhase === 'HOLIDAY_MANDATORY') &&

@@ -2152,11 +2152,21 @@
         }
 
         var phaseLabel = snapshot.phase || 'LOADING';
-        if (phaseLabel === 'VACATION_SENIORITY') phaseLabel = 'VACATION SENIORITY';
-        else if (phaseLabel === 'VACATION_RANDOM') phaseLabel = 'VACATION LOTTERY';
-        else if (phaseLabel === 'WEEKEND') phaseLabel = 'WEEKEND COVERAGE';
-        else if (phaseLabel === 'HOLIDAY_VOLUNTEER') phaseLabel = 'HOLIDAY VOLUNTEER';
-        else if (phaseLabel === 'HOLIDAY_MANDATORY') phaseLabel = 'HOLIDAY MANDATORY';
+        if (snapshot.readiness) {
+            phaseLabel = 'WAITING FOR ADMIN';
+        } else if (phaseLabel === 'VACATION_SENIORITY') {
+            phaseLabel = 'VACATION SENIORITY';
+        } else if (phaseLabel === 'VACATION_RANDOM') {
+            phaseLabel = 'VACATION LOTTERY';
+        } else if (phaseLabel === 'WEEKEND') {
+            phaseLabel = 'WEEKEND COVERAGE';
+        } else if (phaseLabel === 'HOLIDAY_VOLUNTEER') {
+            phaseLabel = 'HOLIDAY VOLUNTEER';
+        } else if (phaseLabel === 'HOLIDAY_MANDATORY') {
+            phaseLabel = 'HOLIDAY MANDATORY';
+        } else {
+            phaseLabel = phaseLabel.replace(/_/g, ' ');
+        }
 
         document.getElementById('phaseLabel').innerText = phaseLabel;
 
