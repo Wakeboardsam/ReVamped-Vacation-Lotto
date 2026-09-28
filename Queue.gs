@@ -95,14 +95,7 @@ function getParticipantAssignments(participantName, phase, cache) {
  * Does not read state internally to ensure consistency.
  */
 function getQueueWindows_(phase, state, cache) {
-  var currentState = getQueueState();
-  var suppliedPhase = (state && state.phase) ? state.phase : phase;
-
-  // Check if either current Config state OR supplied phase is in a READY state
-  var isCurrentReady = getReadinessInfo(currentState.phase);
-  var isSuppliedReady = getReadinessInfo(suppliedPhase);
-
-  if (isCurrentReady || isSuppliedReady) {
+  if (getReadinessInfo(phase) || getReadinessInfo(state && state.phase)) {
     return {
       activeWindow: [],
       upNextWindow: [],
@@ -111,7 +104,7 @@ function getQueueWindows_(phase, state, cache) {
     };
   }
 
-  var effectivePhase = suppliedPhase;
+  var effectivePhase = (state && state.phase) ? state.phase : phase;
 
   if (
     (effectivePhase === 'HOLIDAY_VOLUNTEER' || effectivePhase === 'HOLIDAY_MANDATORY') &&
