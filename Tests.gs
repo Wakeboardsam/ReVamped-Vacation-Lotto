@@ -1746,9 +1746,15 @@ function runReadyStateTests() {
 
       assert(getActiveParticipants(item.phase).length === 0, "getActiveParticipants returns empty array for " + item.phase);
 
-      // Stale active-phase argument passed to getQueueWindows_ while Config is READY
-      var staleWindows = getQueueWindows_('VACATION_RANDOM', { round: 1, direction: 'ASCENDING', lead: 1 }, {});
-      assert(staleWindows.activeWindow.length === 0, "Stale active-phase argument does not override READY state in Config for " + item.phase);
+      // 1. Active phase argument with READY state.phase in snapshot
+      var staleWindows1 = getQueueWindows_('VACATION_RANDOM', { phase: item.phase, round: 1, direction: 'ASCENDING', lead: 1 }, {});
+      assert(staleWindows1.activeWindow.length === 0, "Active phase argument with READY state.phase returns empty activeWindow for " + item.phase);
+      assert(staleWindows1.windowSize === 0, "Active phase argument with READY state.phase returns windowSize 0 for " + item.phase);
+
+      // 2. READY phase argument with active state.phase in snapshot
+      var staleWindows2 = getQueueWindows_(item.phase, { phase: 'VACATION_RANDOM', round: 1, direction: 'ASCENDING', lead: 1 }, {});
+      assert(staleWindows2.activeWindow.length === 0, "READY phase argument with active state.phase returns empty activeWindow for " + item.phase);
+      assert(staleWindows2.windowSize === 0, "READY phase argument with active state.phase returns windowSize 0 for " + item.phase);
 
       // Queue advancement
       var adv1 = advanceQueueInternal_();
