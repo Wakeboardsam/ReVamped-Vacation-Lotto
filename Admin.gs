@@ -14,9 +14,11 @@ function onOpen(e) {
       .addItem('🎲 Auto-Fill & Randomize Roster', 'runAutoFillFromMenu')
       .addSeparator()
       .addItem('▶️ Begin Seniority Round', 'beginSeniorityRound')
+      .addItem('⏹️ End Vacation Early', 'endVacationEarly')
+      .addItem('▶️ Begin Holiday Volunteer', 'beginHolidayPhase')
+      .addItem('▶️ Begin Mandatory Holiday', 'beginMandatoryHolidayPhase')
       .addItem('▶️ Begin Weekend Phase', 'beginWeekendPhase')
-      .addItem('▶️ Begin Holiday Phase', 'beginHolidayPhase')
-      .addItem('▶️ Begin Transfer Phase', 'beginTransferPhase')
+      .addItem('▶️ Begin Transfer Giveaways', 'beginTransferPhase')
       .addSeparator()
       .addItem('✉️ Send Active Participant PINs', 'sendActiveParticipantPINs')
       .addToUi();
@@ -54,19 +56,255 @@ function runAutoFillFromMenu() {
 }
 
 /**
- * Transitions phase state to VACATION_SENIORITY and opens Round 1.
+ * Helper to reset notification tracking fields for all participants when a new active phase starts.
  */
-function beginSeniorityRound() {
-  setQueueState({ phase: 'VACATION_SENIORITY', round: 1, direction: 'ASCENDING', lead: 1 });
-  advanceQueue();
-  SpreadsheetApp.getUi().alert('Lottery state changed to VACATION_SENIORITY. Seniority Round 1 is now active!');
+function resetParticipantTrackingFields_(ss, phaseName) {
+  var pSheet = ss.getSheetByName('Participant Config');
+  if (!pSheet) return;
+  var pData = pSheet.getDataRange().getValues();
+  if (pData.length < 2) return;
+  var pHeaders = pData[0];
+
+  var nameCol = pHeaders.indexOf('Name');
+  if (nameCol === -1) return;
+
+  for (var i = 1; i < pData.length; i++) {
+    var pName = pData[i][nameCol];
+    if (pName) {
+      clearNotificationTracking_(pName, phaseName);
+    }
+  }
 }
 
 /**
- * Transitions phase state to WEEKEND.
+ * Transitions phase state to VACATION_SENIORITY and opens Round 1.
+ * Requires initial prepared setup state and valid prepared setup data.
+ */
+function beginSeniorityRound() {
+  return withScriptLock(function() {
+    var state = getQueueState();
+    var allowedSetupStates = ['SETUP', 'SETUP_EMPTY', 'PREPARED'];
+    if (allowedSetupStates.indexOf(state.phase) === -1) {
+      throw new Error("Cannot begin Vacation Seniority round: Lottery is currently in state '" + state.phase + "'. Initial Seniority start requires initial setup state.");
+    }
+
+    var vStatus = getVacationPhaseStatus();
+    if (vStatus.status === 'SETUP_ERROR') {
+      throw new Error("Cannot begin Vacation Seniority round: " + (vStatus.reason || "Setup error in vacation configuration."));
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    resetParticipantTrackingFields_(ss, 'VACATION_SENIORITY');
+
+    setQueueState({ phase: 'VACATION_SENIORITY', round: 1, direction: 'ASCENDING', lead: 1 });
+    advanceQueueInternal_();
+
+    var activeParticipants = getActiveParticipants('VACATION_SENIORITY');
+    var activeNames = activeParticipants.map(function(p) { return p['Name']; }).join(', ');
+
+    var summary = 'Vacation Seniority Phase started successfully.\n\n' +
+                  '- Phase: VACATION_SENIORITY\n' +
+                  '- Round: 1\n' +
+                  '- Direction: ASCENDING\n' +
+                  '- Current Lead: 1\n' +
+                  '- Participants currently ACTIVE: ' + (activeNames || 'None');
+
+    SpreadsheetApp.getUi().alert(summary);
+  });
+}
+
+/**
+ * Explicitly ends Vacation selection early after administrator confirmation.
+ */
+function endVacationEarly() {
+  var state = getQueueState();
+  if (state.phase !== 'VACATION_SENIORITY' && state.phase !== 'VACATION_RANDOM') {
+    SpreadsheetApp.getUi().alert("Cannot end Vacation early: Current phase is '" + state.phase + "'. Action allowed only during active Vacation selection.");
+    return;
+  }
+
+  var vStatus = getVacationPhaseStatus();
+  if (vStatus.status === 'SETUP_ERROR') {
+    SpreadsheetApp.getUi().alert("Cannot end Vacation early: " + (vStatus.reason || "Setup error detected."));
+    return;
+  }
+
+  var remaining = vStatus.remaining || 0;
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.alert(
+    "End Vacation Phase Early",
+    "Are you sure you want to end Vacation selection early?\n\n" +
+    "Remaining unselected vacation target picks across participants: " + remaining + "\n\n" +
+    "Ending early will proceed to the next phase without meeting these targets. Unmet targets will remain recorded.",
+    ui.ButtonSet.YES_NO
+  );
+
+  if (response !== ui.Button.YES) {
+    return;
+  }
+
+  return withScriptLock(function() {
+    var stateCheck = getQueueState();
+    if (stateCheck.phase !== 'VACATION_SENIORITY' && stateCheck.phase !== 'VACATION_RANDOM') {
+      throw new Error("Vacation phase state changed concurrently before ending early.");
+    }
+
+    var freshStatus = getVacationPhaseStatus();
+    if (freshStatus.status === 'SETUP_ERROR') {
+      throw new Error("Cannot end Vacation early: " + (freshStatus.reason || "Setup error detected."));
+    }
+
+    var nextInfo = getNextReadyStateFromVacation();
+    if (nextInfo.setupError) {
+      throw new Error("Cannot end Vacation early: " + nextInfo.setupError);
+    }
+
+    setQueueState({ phase: nextInfo.readyPhase, round: 1, direction: 'ASCENDING', lead: 1 });
+
+    var summary = "Vacation selection ended early by administrator.\n\n" +
+                  "- Remaining unmet vacation targets recorded: " + (freshStatus.remaining || 0) + "\n" +
+                  "- Staged State: " + nextInfo.readyPhase;
+    if (nextInfo.skippedPhases.length > 0) {
+      summary += "\n- Skipped completed coverage: " + nextInfo.skippedPhases.join(', ');
+    }
+
+    SpreadsheetApp.getUi().alert(summary);
+  });
+}
+
+/**
+ * Starts the Holiday Volunteer Phase from READY_HOLIDAY_VOLUNTEER.
+ */
+function beginHolidayPhase() {
+  return withScriptLock(function() {
+    var state = getQueueState();
+    if (state.phase !== 'READY_HOLIDAY_VOLUNTEER') {
+      throw new Error("Cannot begin Holiday Volunteer selection: Current state is '" + state.phase + "'. Action requires READY_HOLIDAY_VOLUNTEER.");
+    }
+
+    var hStatus = getHolidayPhaseStatus();
+    if (hStatus.status === 'SETUP_ERROR') {
+      throw new Error("Cannot begin Holiday Volunteer selection: " + (hStatus.reason || "Setup error in holiday configuration."));
+    }
+
+    if (hStatus.status === 'COMPLETE') {
+      var nextInfo = getNextReadyStateFromHoliday();
+      if (nextInfo.setupError) {
+        throw new Error("Cannot begin Holiday Volunteer selection: " + nextInfo.setupError);
+      }
+      setQueueState({ phase: nextInfo.readyPhase, round: 1, direction: 'ASCENDING', lead: 1 });
+      var skipSummary = "Holiday coverage is already COMPLETE!\n\n" +
+                        "Skipped Holiday selection stage and staged state: " + nextInfo.readyPhase;
+      if (nextInfo.skippedPhases.length > 0) {
+        skipSummary += "\nSkipped completed coverage: " + nextInfo.skippedPhases.join(', ');
+      }
+      SpreadsheetApp.getUi().alert(skipSummary);
+      return;
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    resetParticipantTrackingFields_(ss, 'HOLIDAY_VOLUNTEER');
+
+    setQueueState({
+      phase: 'HOLIDAY_VOLUNTEER',
+      round: 1,
+      direction: 'ASCENDING',
+      lead: 1
+    });
+
+    advanceQueueInternal_();
+
+    var activeParticipants = getActiveParticipants('HOLIDAY_VOLUNTEER');
+    var activeNames = activeParticipants.map(function(p) { return p['Name']; }).join(', ');
+
+    var summary = 'Holiday Volunteer Phase started successfully.\n\n' +
+                  '- Phase: HOLIDAY_VOLUNTEER\n' +
+                  '- Round: 1\n' +
+                  '- Direction: ASCENDING\n' +
+                  '- Current Lead: 1\n' +
+                  '- Participants currently ACTIVE: ' + (activeNames || 'None');
+
+    SpreadsheetApp.getUi().alert(summary);
+  });
+}
+
+/**
+ * Starts the Mandatory Holiday Phase from READY_HOLIDAY_MANDATORY.
+ */
+function beginMandatoryHolidayPhase() {
+  return withScriptLock(function() {
+    var state = getQueueState();
+    if (state.phase !== 'READY_HOLIDAY_MANDATORY') {
+      throw new Error("Cannot begin Mandatory Holiday selection: Current state is '" + state.phase + "'. Action requires READY_HOLIDAY_MANDATORY.");
+    }
+
+    var hStatus = getHolidayPhaseStatus();
+    if (hStatus.status === 'SETUP_ERROR') {
+      throw new Error("Cannot begin Mandatory Holiday selection: " + (hStatus.reason || "Setup error in holiday configuration."));
+    }
+
+    if (hStatus.status === 'COMPLETE') {
+      var nextInfo = getNextReadyStateFromHoliday();
+      if (nextInfo.setupError) {
+        throw new Error("Cannot begin Mandatory Holiday selection: " + nextInfo.setupError);
+      }
+      setQueueState({ phase: nextInfo.readyPhase, round: 1, direction: 'ASCENDING', lead: 1 });
+      var skipSummary = "Holiday coverage is already COMPLETE!\n\n" +
+                        "Skipped Mandatory Holiday stage and staged state: " + nextInfo.readyPhase;
+      if (nextInfo.skippedPhases.length > 0) {
+        skipSummary += "\nSkipped completed coverage: " + nextInfo.skippedPhases.join(', ');
+      }
+      SpreadsheetApp.getUi().alert(skipSummary);
+      return;
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    resetParticipantTrackingFields_(ss, 'HOLIDAY_MANDATORY');
+
+    setQueueState({
+      phase: 'HOLIDAY_MANDATORY',
+      round: 1,
+      direction: 'ASCENDING',
+      lead: 1
+    });
+
+    advanceQueueInternal_();
+
+    var activeParticipants = getActiveParticipants('HOLIDAY_MANDATORY');
+    var activeNames = activeParticipants.map(function(p) { return p['Name']; }).join(', ');
+
+    var summary = 'Mandatory Holiday Phase started successfully.\n\n' +
+                  '- Phase: HOLIDAY_MANDATORY\n' +
+                  '- Round: 1\n' +
+                  '- Direction: ASCENDING\n' +
+                  '- Current Lead: 1\n' +
+                  '- Participants currently ACTIVE: ' + (activeNames || 'None');
+
+    SpreadsheetApp.getUi().alert(summary);
+  });
+}
+
+/**
+ * Transitions phase state to WEEKEND from READY_WEEKEND.
  */
 function beginWeekendPhase() {
   return withScriptLock(function() {
+    var state = getQueueState();
+    if (state.phase !== 'READY_WEEKEND') {
+      throw new Error("Cannot begin Weekend selection: Current state is '" + state.phase + "'. Action requires READY_WEEKEND.");
+    }
+
+    var wStatus = getWeekendPhaseStatus();
+    if (wStatus.status === 'SETUP_ERROR') {
+      throw new Error("Cannot begin Weekend selection: " + (wStatus.reason || "Setup error in weekend configuration."));
+    }
+
+    if (wStatus.status === 'COMPLETE') {
+      setQueueState({ phase: 'READY_TRANSFER', round: 1, direction: 'ASCENDING', lead: 1 });
+      SpreadsheetApp.getUi().alert("Weekend coverage is already COMPLETE!\n\nSkipped Weekend selection stage and staged READY_TRANSFER.");
+      return;
+    }
+
     var ss = SpreadsheetApp.getActiveSpreadsheet();
 
     // -- VALIDATION PHASE --
@@ -187,21 +425,7 @@ function beginWeekendPhase() {
     // -- WRITE PHASE --
 
     // 1. Reset Participant Config tracking fields
-    for (var i = 1; i < pData.length; i++) {
-      var row = i + 1;
-
-      if (typeof logStateReset !== 'undefined') {
-        var participantObj = {};
-        for (var c = 0; c < pHeaders.length; c++) {
-           participantObj[pHeaders[c]] = pData[i][c];
-        }
-        logStateReset(participantObj, 'WEEKEND');
-      }
-
-      pSheet.getRange(row, entryColIdx).clearContent();
-      pSheet.getRange(row, reminderColIdx).setValue(false);
-      pSheet.getRange(row, alertColIdx).setValue(false);
-    }
+    resetParticipantTrackingFields_(ss, 'WEEKEND');
 
     // 2. Write Weekend Adjacency warnings
     var totalAffectedRows = 0;
@@ -255,46 +479,37 @@ function beginWeekendPhase() {
   });
 }
 
-/**
- * Starts the Holiday Phase from Lottery Position 1.
- */
-function beginHolidayPhase() {
-  setQueueState({
-    phase: 'HOLIDAY_VOLUNTEER',
-    round: 1,
-    direction: 'ASCENDING',
-    lead: 1
-  });
-
-  advanceQueue();
-
-  SpreadsheetApp.getUi().alert(
-    'Holiday Phase started.\n\n' +
-    'Round: 1\n' +
-    'Direction: ASCENDING\n' +
-    'Current Lead: 1'
-  );
-}
 
 /**
- * Starts the Transfer Phase from Lottery Position 1.
+ * Starts the Transfer Phase from READY_TRANSFER.
  */
 function beginTransferPhase() {
-  setQueueState({
-    phase: 'TRANSFER_OFFER_COLLECTION',
-    round: 1,
-    direction: 'ASCENDING',
-    lead: 1
+  return withScriptLock(function() {
+    var state = getQueueState();
+    if (state.phase !== 'READY_TRANSFER') {
+      throw new Error("Cannot begin Transfer Giveaways: Current state is '" + state.phase + "'. Action requires READY_TRANSFER.");
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    resetParticipantTrackingFields_(ss, 'TRANSFER_OFFER_COLLECTION');
+
+    setQueueState({
+      phase: 'TRANSFER_OFFER_COLLECTION',
+      round: 1,
+      direction: 'ASCENDING',
+      lead: 1
+    });
+
+    advanceQueueInternal_();
+
+    SpreadsheetApp.getUi().alert(
+      'Transfer Giveaways started.\n\n' +
+      'Phase: TRANSFER_OFFER_COLLECTION\n' +
+      'Round: 1\n' +
+      'Direction: ASCENDING\n' +
+      'Current Lead: 1'
+    );
   });
-
-  advanceQueue();
-
-  SpreadsheetApp.getUi().alert(
-    'Transfer Phase started.\n\n' +
-    'Round: 1\n' +
-    'Direction: ASCENDING\n' +
-    'Current Lead: 1'
-  );
 }
 
 /**

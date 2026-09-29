@@ -90,10 +90,6 @@ function getParticipantAssignments(participantName, phase, cache) {
 /**
  * Gets the active window of participants based on phase, round, direction, and lead.
  */
-/**
- * Shared logic for evaluating eligibility and determining the active window and up next participants.
- * Does not read state internally to ensure consistency.
- */
 function getQueueWindows_(phase, state, cache) {
   if (getReadinessInfo(phase) || getReadinessInfo(state && state.phase)) {
     return {
@@ -181,8 +177,6 @@ function getQueueWindows_(phase, state, cache) {
 
     var isEligibleForRound = false;
     if (effectivePhase === 'TRANSFER_RECEIVER') {
-      // For TRANSFER_RECEIVER, skipped turns, assignment maximums, etc. do not apply.
-      // We only check if they have claimed during the current round.
       isEligibleForRound = actualAssignments < 1;
     } else {
       isEligibleForRound = (actualAssignments < targetCap) && (actualAssignments < currentRound);
@@ -244,15 +238,6 @@ function getActiveParticipants(phase) {
   return getQueueWindows_(phase, state, {}).activeWindow;
 }
 
-/**
- * Validates if the queue can advance and advances the 'Lead' correctly.
- *
- * Re-calculates eligibility and finds the next valid lead.
- * If all eligible participants in the current direction have completed their turns,
- * it waits for any remaining participants in the directional window to finish.
- * Once all are finished, it reverses the direction and optionally increments the round.
- */
-
 function advanceQueue() {
   return withScriptLock(function() {
     return advanceQueueInternal_();
@@ -260,147 +245,201 @@ function advanceQueue() {
 }
 
 function advanceQueueInternal_() {
-    var state = getQueueState();
-    var phase = state.phase;
+  var state = getQueueState();
+  var phase = state.phase;
 
-    if (getReadinessInfo(phase)) {
-      return { success: true, ready: true, message: 'Queue is waiting for an administrator.' };
-    }
+  if (getReadinessInfo(phase)) {
+    return { success: true, ready: true, message: 'Queue is waiting for an administrator.' };
+  }
 
-    if (phase === 'TRANSFER_OFFER_COLLECTION') {
-      return { success: true, message: 'Transfer offer collection does not advance like a queue.' };
-    }
+  if (phase === 'TRANSFER_OFFER_COLLECTION') {
+    return { success: true, message: 'Transfer offer collection does not advance like a queue.' };
+  }
 
-    if (phase === 'TRANSFER_RECEIVER') {
-      var offers = getSheetDataAsObjects('Transfer Offers', {});
-      var activeOffers = 0;
-      for (var i = 0; i < offers.length; i++) {
-        if (offers[i]['Status'] !== 'Claimed' && offers[i]['Assignment Type'] !== 'VACATION') {
-          activeOffers++;
-        }
-      }
-      if (activeOffers === 0) {
-        setQueueState({ phase: 'COMPLETE' });
-        return { success: true, complete: true, message: 'No active transferable offers remain.' };
+  if (phase === 'TRANSFER_RECEIVER') {
+    var offers = getSheetDataAsObjects('Transfer Offers', {});
+    var activeOffers = 0;
+    for (var i = 0; i < offers.length; i++) {
+      if (offers[i]['Status'] !== 'Claimed' && offers[i]['Assignment Type'] !== 'VACATION') {
+        activeOffers++;
       }
     }
+    if (activeOffers === 0) {
+      setQueueState({ phase: 'COMPLETE' });
+      return { success: true, complete: true, message: 'No active transferable offers remain.' };
+    }
+  }
 
-    if (
-      phase === 'HOLIDAY_VOLUNTEER' ||
-      phase === 'HOLIDAY_MANDATORY'
-    ) {
-      if (!hasOpenHolidayPositions_()) {
-        // Coverage is complete. Do not expose additional ACTIVE participants.
+  if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
+    var hStatus = getHolidayPhaseStatus();
+    if (hStatus.status === 'SETUP_ERROR') {
+      return { success: false, setupError: true, error: hStatus.reason || 'Holiday setup error.' };
+    }
+    if (hStatus.status === 'COMPLETE') {
+      var nextInfo = getNextReadyStateFromHoliday();
+      if (nextInfo.setupError) {
+        return { success: false, setupError: true, error: nextInfo.setupError };
+      }
+      if (nextInfo.readyPhase) {
         setQueueState({
-          phase: 'TRANSFER_OFFER_COLLECTION',
+          phase: nextInfo.readyPhase,
           round: 1,
           direction: 'ASCENDING',
           lead: 1
         });
-
         return {
           success: true,
           complete: true,
-          message: 'All holiday call positions are filled.'
+          message: 'All holiday call positions are filled. Staged ' + nextInfo.readyPhase + '.'
         };
       }
     }
+  }
 
-    var currentRound = state.round;
-    var direction = state.direction;
-    var lead = state.lead;
-
-    var participants = getSheetDataAsObjects('Participant Config');
-
-    // Default target caps
-    var defaultVacationCap = getSystemTarget('Vacation Week Target Default', 9);
-
-    var eligiblePool = [];
-
-    for (var i = 0; i < participants.length; i++) {
-      var p = participants[i];
-      if (p['Active for Year'] !== true && p['Active for Year'] !== 'TRUE') continue;
-
-      var isEligibleForPhase = false;
-      var targetCap = 999;
-
-      if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
-        if (p['Vacation Phase Enabled'] === true || p['Vacation Phase Enabled'] === 'TRUE') {
-          isEligibleForPhase = true;
-          targetCap = p['Vacation Week Target Override'] !== '' ? parseInt(p['Vacation Week Target Override']) : defaultVacationCap;
-        }
-      } else if (phase === 'WEEKEND') {
-        if (p['Weekend Phase Enabled'] === true || p['Weekend Phase Enabled'] === 'TRUE') {
-          isEligibleForPhase = true;
-          targetCap = p['Weekend Assignment Maximum'] !== '' ? parseInt(p['Weekend Assignment Maximum']) : 999;
-        }
-      } else if (phase === 'HOLIDAY_VOLUNTEER') {
-        var volResp = String(p['Holiday Volunteer Response'] || '').toLowerCase();
-        var volFlag = (p['Holiday Volunteer'] === true || p['Holiday Volunteer'] === 'TRUE');
-        if ((volResp === 'yes' || volFlag) && volResp !== 'pass') {
-          isEligibleForPhase = true;
-        }
-      } else if (phase === 'HOLIDAY_MANDATORY') {
-        if (p['Mandatory Holiday Eligible'] === true || p['Mandatory Holiday Eligible'] === 'TRUE') {
-          isEligibleForPhase = true;
-        }
-      } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
-        if (p['Transfer Giver'] === true || p['Transfer Giver'] === 'TRUE') {
-          isEligibleForPhase = true;
-        }
-      } else if (phase === 'TRANSFER_RECEIVER') {
-        if ((p['Transfer Receiver'] === true || p['Transfer Receiver'] === 'TRUE') && p['Transfer Receiver'] !== false && p['Transfer Receiver'] !== 'FALSE') {
-          isEligibleForPhase = true;
-        }
+  if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
+    var vStatus = getVacationPhaseStatus();
+    if (vStatus.status === 'SETUP_ERROR') {
+      return { success: false, setupError: true, error: vStatus.reason || 'Vacation setup error.' };
+    }
+    if (vStatus.status === 'COMPLETE') {
+      var nextInfo = getNextReadyStateFromVacation();
+      if (nextInfo.setupError) {
+        return { success: false, setupError: true, error: nextInfo.setupError };
       }
-
-      if (!isEligibleForPhase) continue;
-
-      var actualAssignments = getParticipantAssignments(p['Name'], phase, {});
-
-      var isEligibleForRound = false;
-      if (phase === 'TRANSFER_RECEIVER') {
-        isEligibleForRound = actualAssignments < 1;
-      } else {
-        isEligibleForRound = (actualAssignments < targetCap) && (actualAssignments < currentRound);
+      if (nextInfo.readyPhase) {
+        setQueueState({
+          phase: nextInfo.readyPhase,
+          round: 1,
+          direction: 'ASCENDING',
+          lead: 1
+        });
+        return {
+          success: true,
+          complete: true,
+          message: 'All vacation targets are met. Staged ' + nextInfo.readyPhase + '.'
+        };
       }
+    }
+  }
 
-      eligiblePool.push({
-        participant: p,
-        isEligible: isEligibleForRound,
-        sortPosition: phase === 'VACATION_SENIORITY' ? parseInt(p['Seniority Position']) : parseInt(p['Lottery Position'])
+  if (phase === 'WEEKEND') {
+    var wStatus = getWeekendPhaseStatus();
+    if (wStatus.status === 'SETUP_ERROR') {
+      return { success: false, setupError: true, error: wStatus.reason || 'Weekend setup error.' };
+    }
+    if (wStatus.status === 'COMPLETE') {
+      setQueueState({
+        phase: 'READY_TRANSFER',
+        round: 1,
+        direction: 'ASCENDING',
+        lead: 1
       });
+      return {
+        success: true,
+        complete: true,
+        message: 'All weekend positions are filled. Staged READY_TRANSFER.'
+      };
+    }
+  }
+
+  var currentRound = state.round;
+  var direction = state.direction;
+  var lead = state.lead;
+
+  var participants = getSheetDataAsObjects('Participant Config');
+  var defaultVacationCap = getSystemTarget('Vacation Week Target Default', 9);
+
+  var eligiblePool = [];
+
+  for (var i = 0; i < participants.length; i++) {
+    var p = participants[i];
+    if (p['Active for Year'] !== true && p['Active for Year'] !== 'TRUE') continue;
+
+    var isEligibleForPhase = false;
+    var targetCap = 999;
+
+    if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
+      if (p['Vacation Phase Enabled'] === true || p['Vacation Phase Enabled'] === 'TRUE') {
+        isEligibleForPhase = true;
+        targetCap = p['Vacation Week Target Override'] !== '' ? parseInt(p['Vacation Week Target Override']) : defaultVacationCap;
+      }
+    } else if (phase === 'WEEKEND') {
+      if (p['Weekend Phase Enabled'] === true || p['Weekend Phase Enabled'] === 'TRUE') {
+        isEligibleForPhase = true;
+        targetCap = p['Weekend Assignment Maximum'] !== '' ? parseInt(p['Weekend Assignment Maximum']) : 999;
+      }
+    } else if (phase === 'HOLIDAY_VOLUNTEER') {
+      var volResp = String(p['Holiday Volunteer Response'] || '').toLowerCase();
+      var volFlag = (p['Holiday Volunteer'] === true || p['Holiday Volunteer'] === 'TRUE');
+      if ((volResp === 'yes' || volFlag) && volResp !== 'pass') {
+        isEligibleForPhase = true;
+      }
+    } else if (phase === 'HOLIDAY_MANDATORY') {
+      if (p['Mandatory Holiday Eligible'] === true || p['Mandatory Holiday Eligible'] === 'TRUE') {
+        isEligibleForPhase = true;
+      }
+    } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
+      if (p['Transfer Giver'] === true || p['Transfer Giver'] === 'TRUE') {
+        isEligibleForPhase = true;
+      }
+    } else if (phase === 'TRANSFER_RECEIVER') {
+      if ((p['Transfer Receiver'] === true || p['Transfer Receiver'] === 'TRUE') && p['Transfer Receiver'] !== false && p['Transfer Receiver'] !== 'FALSE') {
+        isEligibleForPhase = true;
+      }
     }
 
-    eligiblePool.sort(function(a, b) {
-      return a.sortPosition - b.sortPosition;
-    });
+    if (!isEligibleForPhase) continue;
 
-    if (eligiblePool.length === 0) {
-      if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
-        var hols = getSheetDataAsObjects('Holiday Coverage', {});
-        var unfilled = false;
-        for (var i = 0; i < hols.length; i++) {
-          if (!hols[i]['Assigned Participant']) {
-            unfilled = true;
-            break;
-          }
-        }
-        if (unfilled) {
-          if (phase === 'HOLIDAY_VOLUNTEER') {
-            setQueueState({
-              phase: 'HOLIDAY_MANDATORY',
-              round: 1,
-              direction: 'ASCENDING',
-              lead: 1
-            });
-            return advanceQueueInternal_();
-          } else {
-            return { error: 'No eligible participants remain for Mandatory Holiday, but holiday positions are still unfilled.' };
-          }
-        } else {
+    var actualAssignments = getParticipantAssignments(p['Name'], phase, {});
+
+    var isEligibleForRound = false;
+    if (phase === 'TRANSFER_RECEIVER') {
+      isEligibleForRound = actualAssignments < 1;
+    } else {
+      isEligibleForRound = (actualAssignments < targetCap) && (actualAssignments < currentRound);
+    }
+
+    eligiblePool.push({
+      participant: p,
+      isEligible: isEligibleForRound,
+      sortPosition: phase === 'VACATION_SENIORITY' ? parseInt(p['Seniority Position']) : parseInt(p['Lottery Position'])
+    });
+  }
+
+  eligiblePool.sort(function(a, b) {
+    return a.sortPosition - b.sortPosition;
+  });
+
+  if (eligiblePool.length === 0) {
+    if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
+      var hStatus = getHolidayPhaseStatus();
+      if (hStatus.status === 'SETUP_ERROR') {
+        return { success: false, setupError: true, error: hStatus.reason || 'Holiday setup error.' };
+      }
+      if (hStatus.status === 'INCOMPLETE') {
+        if (phase === 'HOLIDAY_VOLUNTEER') {
           setQueueState({
-            phase: 'TRANSFER_OFFER_COLLECTION',
+            phase: 'READY_HOLIDAY_MANDATORY',
+            round: 1,
+            direction: 'ASCENDING',
+            lead: 1
+          });
+          return {
+            success: true,
+            ready: true,
+            message: 'Holiday volunteer participation is exhausted. Staged READY_HOLIDAY_MANDATORY.'
+          };
+        } else {
+          return { error: 'No eligible participants remain for Mandatory Holiday, but holiday positions are still unfilled.' };
+        }
+      } else if (hStatus.status === 'COMPLETE') {
+        var nextInfo = getNextReadyStateFromHoliday();
+        if (nextInfo.setupError) {
+          return { success: false, setupError: true, error: nextInfo.setupError };
+        }
+        if (nextInfo.readyPhase) {
+          setQueueState({
+            phase: nextInfo.readyPhase,
             round: 1,
             direction: 'ASCENDING',
             lead: 1
@@ -408,189 +447,174 @@ function advanceQueueInternal_() {
           return {
             success: true,
             complete: true,
-            message: 'All holiday call positions are filled.'
+            message: 'All holiday call positions are filled. Staged ' + nextInfo.readyPhase + '.'
           };
         }
-      } else if (phase === 'TRANSFER_RECEIVER') {
-        setQueueState({ phase: 'COMPLETE' });
-        return { success: true, complete: true, message: 'Transfer Receiver phase complete.' };
       }
-      return; // Queue does not advance
+    } else if (phase === 'TRANSFER_RECEIVER') {
+      setQueueState({ phase: 'COMPLETE' });
+      return { success: true, complete: true, message: 'Transfer Receiver phase complete.' };
     }
+    return; // Queue does not advance
+  }
 
-    // Determine bounds and find next eligible lead in the current direction
-    var currentIndex = -1;
-    for (var i = 0; i < eligiblePool.length; i++) {
-      if (eligiblePool[i].sortPosition === lead) {
-        currentIndex = i;
-        break;
-      }
+  // Determine bounds and find next eligible lead in the current direction
+  var currentIndex = -1;
+  for (var i = 0; i < eligiblePool.length; i++) {
+    if (eligiblePool[i].sortPosition === lead) {
+      currentIndex = i;
+      break;
     }
+  }
 
-    var step = direction === 'ASCENDING' ? 1 : -1;
-    var nextEligibleIndex = -1;
+  var step = direction === 'ASCENDING' ? 1 : -1;
+  var nextEligibleIndex = -1;
 
-    var leadFound = (currentIndex !== -1);
+  var leadFound = (currentIndex !== -1);
 
-    if (!leadFound) {
-      // The current lead is completely gone from the eligible pool.
-      // This happens typically in HOLIDAY_VOLUNTEER when someone hits Pass.
-      // We need to mathematically find where they *would* have been,
-      // or simply resume from the closest valid person.
-      // We'll walk through the pool and find the index *just before* where the lead would be.
-      if (direction === 'ASCENDING') {
-        currentIndex = -1;
-        for (var i = 0; i < eligiblePool.length; i++) {
-          if (eligiblePool[i].sortPosition > lead) {
-            currentIndex = i - 1; // Start searching from here (next step will be +1)
-            break;
-          }
-        }
-        if (currentIndex === -1 && eligiblePool.length > 0 && eligiblePool[eligiblePool.length - 1].sortPosition < lead) {
-           currentIndex = eligiblePool.length - 1;
-        }
-      } else {
-        currentIndex = eligiblePool.length;
-        for (var i = eligiblePool.length - 1; i >= 0; i--) {
-          if (eligiblePool[i].sortPosition < lead) {
-            currentIndex = i + 1; // Start searching from here (next step will be -1)
-            break;
-          }
-        }
-        if (currentIndex === eligiblePool.length && eligiblePool.length > 0 && eligiblePool[0].sortPosition > lead) {
-           currentIndex = 0;
+  if (!leadFound) {
+    if (direction === 'ASCENDING') {
+      currentIndex = -1;
+      for (var i = 0; i < eligiblePool.length; i++) {
+        if (eligiblePool[i].sortPosition > lead) {
+          currentIndex = i - 1;
+          break;
         }
       }
-    }
-
-    // Starting from CURRENT index (if found), check if the CURRENT lead is still eligible.
-    // The head-of-queue priority rule: if lead is still eligible, queue doesn't advance.
-    if (leadFound && eligiblePool[currentIndex].isEligible) {
-      return; // Queue does not advance until lead completes turn
-    }
-
-    // Lead completed turn (or was removed), find the next eligible person in the current direction
-    for (var i = currentIndex + step; i >= 0 && i < eligiblePool.length; i += step) {
-      if (eligiblePool[i].isEligible) {
-        nextEligibleIndex = i;
-        break;
+      if (currentIndex === -1 && eligiblePool.length > 0 && eligiblePool[eligiblePool.length - 1].sortPosition < lead) {
+         currentIndex = eligiblePool.length - 1;
       }
-    }
-
-    // --- CLEAR FLAGS FOR THE FINISHED LEAD ---
-    // The previous lead has completed their turn, so we reset their tracking flags.
-    if (leadFound) {
-      var leadParticipant = eligiblePool[currentIndex].participant;
-      var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
-      var pData = pSheet.getDataRange().getValues();
-      var pHeaders = pData[0];
-
-      var entryCol = pHeaders.indexOf('Entry Timestamp') + 1;
-      var remCol = pHeaders.indexOf('Reminder Sent') + 1;
-      var alertCol = pHeaders.indexOf('Admin Alert Sent') + 1;
-
-      if (entryCol > 0) {
-        if (typeof logStateReset !== 'undefined') {
-           logStateReset(leadParticipant, phase);
+    } else {
+      currentIndex = eligiblePool.length;
+      for (var i = eligiblePool.length - 1; i >= 0; i--) {
+        if (eligiblePool[i].sortPosition < lead) {
+          currentIndex = i + 1;
+          break;
         }
-        pSheet.getRange(leadParticipant._rowIndex, entryCol).clearContent();
-        pSheet.getRange(leadParticipant._rowIndex, remCol).setValue(false);
-        pSheet.getRange(leadParticipant._rowIndex, alertCol).setValue(false);
+      }
+      if (currentIndex === eligiblePool.length && eligiblePool.length > 0 && eligiblePool[0].sortPosition > lead) {
+         currentIndex = 0;
       }
     }
+  }
 
-    if (nextEligibleIndex !== -1) {
-      // Simple advancement in current direction
+  if (leadFound && eligiblePool[currentIndex].isEligible) {
+    return; // Queue does not advance until lead completes turn
+  }
+
+  for (var i = currentIndex + step; i >= 0 && i < eligiblePool.length; i += step) {
+    if (eligiblePool[i].isEligible) {
+      nextEligibleIndex = i;
+      break;
+    }
+  }
+
+  if (leadFound) {
+    var leadParticipant = eligiblePool[currentIndex].participant;
+    var pSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Participant Config');
+    var pData = pSheet.getDataRange().getValues();
+    var pHeaders = pData[0];
+
+    var entryCol = pHeaders.indexOf('Entry Timestamp') + 1;
+    var remCol = pHeaders.indexOf('Reminder Sent') + 1;
+    var alertCol = pHeaders.indexOf('Admin Alert Sent') + 1;
+
+    if (entryCol > 0) {
+      if (typeof logStateReset !== 'undefined') {
+         logStateReset(leadParticipant, phase);
+      }
+      pSheet.getRange(leadParticipant._rowIndex, entryCol).clearContent();
+      pSheet.getRange(leadParticipant._rowIndex, remCol).setValue(false);
+      pSheet.getRange(leadParticipant._rowIndex, alertCol).setValue(false);
+    }
+  }
+
+  if (nextEligibleIndex !== -1) {
+    setQueueState({
+      lead: eligiblePool[nextEligibleIndex].sortPosition
+    });
+  } else {
+    var newDirection = direction === 'ASCENDING' ? 'DESCENDING' : 'ASCENDING';
+    var newRound = currentRound + 1;
+
+    if (phase === 'VACATION_SENIORITY' && newRound === 2) {
+      var vStatus = getVacationPhaseStatus();
+      if (vStatus.status === 'COMPLETE') {
+        var nextInfo = getNextReadyStateFromVacation();
+        if (!nextInfo.setupError && nextInfo.readyPhase) {
+          setQueueState({
+            phase: nextInfo.readyPhase,
+            round: 1,
+            direction: 'ASCENDING',
+            lead: 1
+          });
+          return;
+        }
+      }
+
       setQueueState({
-        lead: eligiblePool[nextEligibleIndex].sortPosition
+        phase: 'VACATION_RANDOM',
+        round: 2,
+        direction: 'ASCENDING',
+        lead: 1
+      });
+      return;
+    }
+
+    var newStep = newDirection === 'ASCENDING' ? 1 : -1;
+    var startIdx = newDirection === 'ASCENDING' ? 0 : eligiblePool.length - 1;
+    var newLeadIdx = -1;
+
+    for (var i = startIdx; i >= 0 && i < eligiblePool.length; i += newStep) {
+      var p = eligiblePool[i].participant;
+      if (phase === 'TRANSFER_RECEIVER') {
+         newLeadIdx = i;
+         break;
+      } else {
+         var actual = getParticipantAssignments(p['Name'], phase, {});
+         if (actual < newRound) {
+            newLeadIdx = i;
+            break;
+         }
+      }
+    }
+
+    if (newLeadIdx !== -1) {
+      setQueueState({
+        direction: newDirection,
+        round: newRound,
+        lead: eligiblePool[newLeadIdx].sortPosition
       });
     } else {
-      // Reached the end of the directional list (Reversal Boundary)
-      // Since the Lead was the last eligible person and they just finished their turn,
-      // and there are no more eligible people forward in the current direction,
-      // the directional window is officially closed. Everyone has completed their turn.
-      // We can safely reverse direction and increment the round.
-
-      var newDirection = direction === 'ASCENDING' ? 'DESCENDING' : 'ASCENDING';
-      var newRound = currentRound + 1;
-
-      if (phase === 'VACATION_SENIORITY' && newRound === 2) {
-        setQueueState({
-          phase: 'VACATION_RANDOM',
-          round: 2,
-          direction: 'ASCENDING',
-          lead: 1
-        });
-        return;
-      }
-
-      // Find the first eligible person in the NEW direction for the NEW round
-      var newStep = newDirection === 'ASCENDING' ? 1 : -1;
-      var startIdx = newDirection === 'ASCENDING' ? 0 : eligiblePool.length - 1;
-      var newLeadIdx = -1;
-
-      // Re-evaluate eligibility for the new round
-      for (var i = startIdx; i >= 0 && i < eligiblePool.length; i += newStep) {
-        var p = eligiblePool[i].participant;
-        // Mock the new round in state for getParticipantAssignments logic if it's TRANSFER_RECEIVER
-        var prevRoundObj = { round: currentRound };
-        if (phase === 'TRANSFER_RECEIVER') {
-           // We temporarily fake the queue state so getParticipantAssignments checks the new round's claims
-           var sysConfig = getSystemConfig();
-           sysConfig['Current Round'] = newRound;
-           // NOTE: Since getParticipantAssignments fetches actual state using getQueueState(),
-           // let's pass a mock cache or override it? Actually we can just do:
-           // getParticipantAssignments queries getQueueState() directly.
-           // To be perfectly clean without modifying the database, let's query history manually here
-           // or we can just assume `actual < 1` for the *new* round is always true if they are in eligiblePool,
-           // because they haven't had a chance to claim in the new round yet!
-           // For TRANSFER_RECEIVER, everyone in eligiblePool (who hasn't selected NONE) starts with 0 claims in the new round.
-           newLeadIdx = i;
-           break;
-        } else {
-           var actual = getParticipantAssignments(p['Name'], phase, {});
-           if (actual < newRound) {
-              newLeadIdx = i;
-              break;
-           }
+      if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
+        var hStatus = getHolidayPhaseStatus();
+        if (hStatus.status === 'SETUP_ERROR') {
+          return { success: false, setupError: true, error: hStatus.reason || 'Holiday setup error.' };
         }
-      }
-
-      if (newLeadIdx !== -1) {
-        setQueueState({
-          direction: newDirection,
-          round: newRound,
-          lead: eligiblePool[newLeadIdx].sortPosition
-        });
-      } else {
-        // If no one is eligible in the new round, the phase is complete!
-        // We handle phase transitions in the main controller, but setting state to COMPLETE
-        // allows the system to recognize the end of the current phase.
-
-        if (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') {
-          var hols = getSheetDataAsObjects('Holiday Coverage', {});
-          var unfilled = false;
-          for (var j = 0; j < hols.length; j++) {
-            if (!hols[j]['Assigned Participant']) {
-              unfilled = true;
-              break;
-            }
-          }
-          if (unfilled) {
-            if (phase === 'HOLIDAY_VOLUNTEER') {
-              setQueueState({
-                phase: 'HOLIDAY_MANDATORY',
-                round: 1,
-                direction: 'ASCENDING',
-                lead: 1
-              });
-              return advanceQueueInternal_();
-            } else {
-              return { error: 'No eligible participants remain for Mandatory Holiday, but holiday positions are still unfilled.' };
-            }
-          } else {
+        if (hStatus.status === 'INCOMPLETE') {
+          if (phase === 'HOLIDAY_VOLUNTEER') {
             setQueueState({
-              phase: 'TRANSFER_OFFER_COLLECTION',
+              phase: 'READY_HOLIDAY_MANDATORY',
+              round: 1,
+              direction: 'ASCENDING',
+              lead: 1
+            });
+            return {
+              success: true,
+              ready: true,
+              message: 'Holiday volunteer participation is exhausted. Staged READY_HOLIDAY_MANDATORY.'
+            };
+          } else {
+            return { error: 'No eligible participants remain for Mandatory Holiday, but holiday positions are still unfilled.' };
+          }
+        } else if (hStatus.status === 'COMPLETE') {
+          var nextInfo = getNextReadyStateFromHoliday();
+          if (nextInfo.setupError) {
+            return { success: false, setupError: true, error: nextInfo.setupError };
+          }
+          if (nextInfo.readyPhase) {
+            setQueueState({
+              phase: nextInfo.readyPhase,
               round: 1,
               direction: 'ASCENDING',
               lead: 1
@@ -598,14 +622,56 @@ function advanceQueueInternal_() {
             return {
               success: true,
               complete: true,
-              message: 'All holiday call positions are filled.'
+              message: 'All holiday call positions are filled. Staged ' + nextInfo.readyPhase + '.'
             };
           }
         }
-
-        setQueueState({
-          phase: 'COMPLETE'
-        });
+      } else if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
+        var vStatus = getVacationPhaseStatus();
+        if (vStatus.status === 'SETUP_ERROR') {
+          return { success: false, setupError: true, error: vStatus.reason || 'Vacation setup error.' };
+        }
+        if (vStatus.status === 'COMPLETE') {
+          var nextInfo = getNextReadyStateFromVacation();
+          if (nextInfo.setupError) {
+            return { success: false, setupError: true, error: nextInfo.setupError };
+          }
+          if (nextInfo.readyPhase) {
+            setQueueState({
+              phase: nextInfo.readyPhase,
+              round: 1,
+              direction: 'ASCENDING',
+              lead: 1
+            });
+            return {
+              success: true,
+              complete: true,
+              message: 'All vacation targets are met. Staged ' + nextInfo.readyPhase + '.'
+            };
+          }
+        }
+      } else if (phase === 'WEEKEND') {
+        var wStatus = getWeekendPhaseStatus();
+        if (wStatus.status === 'SETUP_ERROR') {
+          return { success: false, setupError: true, error: wStatus.reason || 'Weekend setup error.' };
+        }
+        if (wStatus.status === 'COMPLETE') {
+          setQueueState({
+            phase: 'READY_TRANSFER',
+            round: 1,
+            direction: 'ASCENDING',
+            lead: 1
+          });
+          return {
+            success: true,
+            complete: true,
+            message: 'All weekend positions are filled. Staged READY_TRANSFER.'
+          };
+        }
+      } else if (phase === 'TRANSFER_RECEIVER') {
+        setQueueState({ phase: 'COMPLETE' });
+        return { success: true, complete: true, message: 'Transfer Receiver phase complete.' };
       }
     }
+  }
 }

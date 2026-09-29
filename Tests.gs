@@ -1937,3 +1937,289 @@ function runReadyStateTests() {
   }
   return log.join('\n');
 }
+
+/**
+ * Task 3: Phase Transitions and Guarded Admin Controls Tests
+ */
+function runTask3TransitionTests() {
+  var log = [];
+  var hasFailed = false;
+  function assert(condition, message) {
+    if (!condition) {
+      log.push("❌ FAIL: " + message);
+      hasFailed = true;
+    } else {
+      log.push("✅ PASS: " + message);
+    }
+  }
+
+  var originalSpreadsheetApp = SpreadsheetApp;
+  var originalWithScriptLock = withScriptLock;
+
+  try {
+    SpreadsheetApp = MockSpreadsheetApp;
+    withScriptLock = function(cb) { return cb(); };
+
+    function setupTask3Fixture() {
+      MockSpreadsheetApp._sheets = {};
+      MockSpreadsheetApp.createSheet('Config', [
+        ['Setting Name', 'Setting Value'],
+        ['Current Phase', 'SETUP'],
+        ['Current Round', '0'],
+        ['Current Direction', 'NONE'],
+        ['Current Lead', '0']
+      ]);
+      MockSpreadsheetApp.createSheet('Admin Options', [
+        ['Setting Name', 'Setting Value'],
+        ['Active Year', '2027'],
+        ['Vacation Week Target Default', '1'],
+        ['Vacation Active Window (participants)', '2'],
+        ['Weekend Active Window (participants)', '2'],
+        ['Holiday Active Window (participants)', '2'],
+        ['Transfer Active Window (participants)', '2'],
+        ['Web App URL', 'https://example.com']
+      ]);
+      MockSpreadsheetApp.createSheet('Participant Config', [
+        ['Name', 'PIN', 'Active for Year', 'Vacation Phase Enabled', 'Weekend Phase Enabled', 'Holiday Volunteer', 'Holiday Volunteer Response', 'Mandatory Holiday Eligible', 'Transfer Giver', 'Transfer Receiver', 'Transfer Offers Submitted', 'Seniority Position', 'Lottery Position', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Phone Number', 'Resend WhatsApp', 'Vacation Week Target Override', 'Weekend Assignment Maximum'],
+        ['Alice', '1234', true, true, true, true, 'Yes', true, true, true, false, 1, 1, '', false, false, '1111111111', false, '', '', ''],
+        ['Bob',   '5678', true, true, true, true, 'Pass', true, true, true, false, 2, 2, '', false, false, '2222222222', false, '', '', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Vacation Availability', [
+        ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants'],
+        ['W1', '2027-01-04', 2, 'Non-Prime', 'None', ''],
+        ['W2', '2027-01-11', 2, 'Non-Prime', 'None', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Weekend Coverage', [
+        ['Date', 'Day of Week', 'First Call Assignee', 'Vacation Adjacency Warning', 'Holiday Proximity Warning'],
+        ['2027-01-02', 'Saturday', '', '', ''],
+        ['2027-01-03', 'Sunday', '', '', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Holiday Coverage', [
+        ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+        ['New Years', '2027-01-01', 'Call 1', ''],
+        ['New Years', '2027-01-01', 'Call 2', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Transfer Offers', [
+        ['Offer ID', 'Original Assignee (Giver)', 'Assignment Type', 'Date/Position', 'Status', 'Timestamp', 'Group ID']
+      ]);
+      MockSpreadsheetApp.createSheet('Transfer History', [
+        ['Timestamp', 'Assignment Type', 'Assignment Date', 'Call Position/Day', 'Original Assignee', 'New Assignee', 'Year', 'Receiver Round', 'Claim ID']
+      ]);
+      MockSpreadsheetApp.createSheet('Notification Log', [
+        ['Log Timestamp', 'Event Key', 'Participant ID', 'Participant Name', 'Masked Phone', 'Phase', 'Notification Type', 'Status', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp', 'Selection Reference', 'Sanitized Error']
+      ]);
+
+      // Mock UI alert
+      SpreadsheetApp.getUi = function() { return { alert: function(){} }; };
+    }
+
+    // 1. Seniority Start & Guard
+    setupTask3Fixture();
+    beginSeniorityRound();
+    assert(getQueueState().phase === 'VACATION_SENIORITY', "beginSeniorityRound sets state to VACATION_SENIORITY.");
+    assert(getQueueState().round === 1, "beginSeniorityRound sets round 1.");
+
+    // Wrong-order Seniority call rejected
+    var seniorityErr = false;
+    try {
+      beginSeniorityRound();
+    } catch (e) {
+      seniorityErr = true;
+      assert(e.message.indexOf("Lottery is currently in state 'VACATION_SENIORITY'") !== -1, "Seniority start rejected from active phase.");
+    }
+    assert(seniorityErr, "beginSeniorityRound throws error when not in setup state.");
+
+    // 2. Seniority -> Vacation Random transition at round 2
+    setupTask3Fixture();
+    var pSheet = MockSpreadsheetApp._sheets['Participant Config'];
+    var pHeaders = pSheet.getDataRange().getValues()[0];
+    var targetColIdx = pHeaders.indexOf('Vacation Week Target Override') + 1;
+    pSheet.getRange(2, targetColIdx).setValue(2); // Alice target 2
+    pSheet.getRange(3, targetColIdx).setValue(2); // Bob target 2
+
+    beginSeniorityRound();
+    submitSelection('Alice', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W1'] });
+    submitSelection('Bob', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W2'] });
+
+    var stateAfterRound1 = getQueueState();
+    assert(stateAfterRound1.phase === 'VACATION_RANDOM', "Seniority Round 1 completion with remaining targets transitions to VACATION_RANDOM.");
+    assert(stateAfterRound1.round === 2, "VACATION_RANDOM starts at round 2.");
+    assert(stateAfterRound1.direction === 'ASCENDING', "VACATION_RANDOM starts ASCENDING.");
+    assert(stateAfterRound1.lead === 1, "VACATION_RANDOM starts at Lottery Position 1.");
+
+    // 3. Vacation completion during Seniority skips VACATION_RANDOM -> READY_HOLIDAY_VOLUNTEER
+    setupTask3Fixture();
+    beginSeniorityRound();
+    submitSelection('Alice', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W1'] });
+    submitSelection('Bob', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W2'] });
+    var stateAfterVacComplete = getQueueState();
+    assert(stateAfterVacComplete.phase === 'READY_HOLIDAY_VOLUNTEER', "Vacation targets met during Seniority skips RANDOM and stages READY_HOLIDAY_VOLUNTEER.");
+
+    // 4. Guarded Begin Holiday Phase & Volunteer Exhaustion -> READY_HOLIDAY_MANDATORY
+    var beginHolErr = false;
+    try {
+      setQueueState({ phase: 'VACATION_RANDOM', round: 2, direction: 'ASCENDING', lead: 1 });
+      beginHolidayPhase();
+    } catch (e) {
+      beginHolErr = true;
+      assert(e.message.indexOf("requires READY_HOLIDAY_VOLUNTEER") !== -1, "beginHolidayPhase rejected when state is not READY_HOLIDAY_VOLUNTEER.");
+    }
+    assert(beginHolErr, "beginHolidayPhase guarded against wrong phase.");
+
+    // Valid Begin Holiday Phase from READY_HOLIDAY_VOLUNTEER
+    setQueueState({ phase: 'READY_HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+    beginHolidayPhase();
+    assert(getQueueState().phase === 'HOLIDAY_VOLUNTEER', "beginHolidayPhase transitions state to HOLIDAY_VOLUNTEER.");
+
+    pSheet = MockSpreadsheetApp._sheets['Participant Config'];
+    pHeaders = pSheet.getDataRange().getValues()[0];
+    var volRespIdx = pHeaders.indexOf('Holiday Volunteer Response') + 1;
+    pSheet.getRange(3, volRespIdx).setValue('Pass');
+
+    // Alice selects Call 1 in Round 1
+    submitSelection('Alice', { phase: 'HOLIDAY_VOLUNTEER', action: 'SUBMIT', selections: [{ name: 'New Years', position: 'Call 1' }] });
+    // Alice passes in Round 2 (volunteer participation exhausted)
+    submitSelection('Alice', { phase: 'HOLIDAY_VOLUNTEER', action: 'PASS' });
+    var stateAfterVolExhaust = getQueueState();
+    assert(stateAfterVolExhaust.phase === 'READY_HOLIDAY_MANDATORY', "Holiday Volunteer exhaustion with open positions stages READY_HOLIDAY_MANDATORY.");
+
+    // 5. End-to-end natural submission progression: Volunteer Exhaustion -> READY_HOLIDAY_MANDATORY -> Mandatory Completion -> READY_WEEKEND -> Weekend Completion -> READY_TRANSFER
+    // Continuing from stateAfterVolExhaust above (which is READY_HOLIDAY_MANDATORY naturally reached via Alice PASS):
+    assert(getQueueState().phase === 'READY_HOLIDAY_MANDATORY', "Queue naturally reached READY_HOLIDAY_MANDATORY via volunteer pass.");
+
+    beginMandatoryHolidayPhase();
+    assert(getQueueState().phase === 'HOLIDAY_MANDATORY', "beginMandatoryHolidayPhase transitions to HOLIDAY_MANDATORY.");
+
+    // Bob (who is active lead 2 after Alice passed) completes remaining Call 2 position in Mandatory Holiday
+    submitSelection('Bob', { phase: 'HOLIDAY_MANDATORY', action: 'SUBMIT', selections: [{ name: 'New Years', position: 'Call 2' }] });
+    assert(getQueueState().phase === 'READY_WEEKEND', "Holiday Mandatory completion naturally stages READY_WEEKEND.");
+
+    beginWeekendPhase();
+    assert(getQueueState().phase === 'WEEKEND', "beginWeekendPhase transitions to WEEKEND.");
+
+    // Alice and Bob fill weekend coverage
+    submitSelection('Alice', { phase: 'WEEKEND', action: 'SUBMIT', selections: ['2027-01-02'] });
+    submitSelection('Bob', { phase: 'WEEKEND', action: 'SUBMIT', selections: ['2027-01-03'] });
+    assert(getQueueState().phase === 'READY_TRANSFER', "Weekend completion naturally stages READY_TRANSFER.");
+
+    // 7. Guarded Begin Transfer Giveaways & Terminal COMPLETE
+    setQueueState({ phase: 'READY_TRANSFER', round: 1, direction: 'ASCENDING', lead: 1 });
+    beginTransferPhase();
+    assert(getQueueState().phase === 'TRANSFER_OFFER_COLLECTION', "beginTransferPhase transitions to TRANSFER_OFFER_COLLECTION.");
+
+    submitSelection('Alice', { phase: 'TRANSFER_OFFER_COLLECTION', action: 'SUBMIT', selections: [{ type: 'WEEKEND', datePos: '2027-01-02' }] });
+    submitSelection('Bob', { phase: 'TRANSFER_OFFER_COLLECTION', action: 'SUBMIT', selections: [{ type: 'WEEKEND', datePos: '2027-01-03' }] });
+    checkTransferOfferCollectionComplete_();
+    assert(getQueueState().phase === 'TRANSFER_RECEIVER', "TRANSFER_OFFER_COLLECTION complete transitions to TRANSFER_RECEIVER.");
+
+    setQueueState({ phase: 'TRANSFER_RECEIVER', round: 1, direction: 'ASCENDING', lead: 1 });
+    var tSheet = MockSpreadsheetApp._sheets['Transfer Offers'];
+    var tData = tSheet.getDataRange().getValues();
+    for (var i = 1; i < tData.length; i++) {
+      tSheet.getRange(i + 1, 5).setValue('Claimed');
+    }
+    advanceQueueInternal_();
+    assert(getQueueState().phase === 'COMPLETE', "TRANSFER_RECEIVER with no active offers reaches terminal COMPLETE.");
+
+    // 8. Already-complete coverage skipping during Vacation close
+    setupTask3Fixture();
+    var hSheet = MockSpreadsheetApp._sheets['Holiday Coverage'];
+    hSheet.getRange(2, 4).setValue('Alice');
+    hSheet.getRange(3, 4).setValue('Bob');
+    var wSheet = MockSpreadsheetApp._sheets['Weekend Coverage'];
+    wSheet.getRange(2, 3).setValue('Alice');
+    wSheet.getRange(3, 3).setValue('Bob');
+
+    beginSeniorityRound();
+    submitSelection('Alice', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W1'] });
+    submitSelection('Bob', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W2'] });
+    assert(getQueueState().phase === 'READY_TRANSFER', "Vacation completion skips completed Holiday and Weekend coverage, staging READY_TRANSFER.");
+
+    // 9. Recheck coverage status on admin Begin and report skipped phase
+    setQueueState({ phase: 'READY_HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+    beginHolidayPhase();
+    assert(getQueueState().phase === 'READY_TRANSFER', "beginHolidayPhase detects already-complete holiday & weekend coverage, advancing state to READY_TRANSFER.");
+
+    // 10. Explicit Early Close test
+    setupTask3Fixture();
+    beginSeniorityRound();
+    SpreadsheetApp.getUi = function() {
+      return {
+        alert: function() { return 'YES'; },
+        ButtonSet: { YES_NO: 'YES_NO' },
+        Button: { YES: 'YES', NO: 'NO' }
+      };
+    };
+
+    endVacationEarly();
+    assert(getQueueState().phase === 'READY_HOLIDAY_VOLUNTEER', "endVacationEarly stages READY_HOLIDAY_VOLUNTEER.");
+
+    beginHolidayPhase();
+    assert(getQueueState().phase === 'HOLIDAY_VOLUNTEER', "beginHolidayPhase succeeds from early-closed READY_HOLIDAY_VOLUNTEER state.");
+
+    // 11. SETUP_ERROR fallthrough prevention
+    setupTask3Fixture();
+    setQueueState({ phase: 'HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+    pSheet = MockSpreadsheetApp._sheets['Participant Config'];
+    pHeaders = pSheet.getDataRange().getValues()[0];
+    pSheet.getRange(2, pHeaders.indexOf('Holiday Volunteer Response') + 1).setValue('Pass');
+    pSheet.getRange(3, pHeaders.indexOf('Holiday Volunteer Response') + 1).setValue('Pass');
+    MockSpreadsheetApp._sheets['Holiday Coverage'].getRange(2, 2).setValue('not-a-date'); // Malformed date
+    var snapHolBefore = JSON.stringify(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues());
+    var snapConfigBefore = JSON.stringify(MockSpreadsheetApp._sheets['Config'].getDataRange().getValues());
+    var setupErrRes = advanceQueueInternal_();
+    var snapHolAfter = JSON.stringify(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues());
+    var snapConfigAfter = JSON.stringify(MockSpreadsheetApp._sheets['Config'].getDataRange().getValues());
+    assert(setupErrRes && setupErrRes.setupError === true, "advanceQueueInternal_ handles SETUP_ERROR explicitly without fallthrough.");
+    assert(getQueueState().phase === 'HOLIDAY_VOLUNTEER', "HOLIDAY_VOLUNTEER phase retained on SETUP_ERROR.");
+    assert(snapHolBefore === snapHolAfter, "Holiday coverage sheet snapshot unchanged on SETUP_ERROR.");
+    assert(snapConfigBefore === snapConfigAfter, "Config sheet snapshot unchanged on SETUP_ERROR.");
+
+    // 12. Turn tracking reset verification
+    setupTask3Fixture();
+    pSheet = MockSpreadsheetApp._sheets['Participant Config'];
+    pHeaders = pSheet.getDataRange().getValues()[0];
+    var entryIdx = pHeaders.indexOf('Entry Timestamp') + 1;
+    var remIdx = pHeaders.indexOf('Reminder Sent') + 1;
+    var alertIdx = pHeaders.indexOf('Admin Alert Sent') + 1;
+
+    pSheet.getRange(2, entryIdx).setValue('2027-01-01');
+    pSheet.getRange(2, remIdx).setValue(true);
+    pSheet.getRange(2, alertIdx).setValue(true);
+
+    var rejectedStartErr = false;
+    try {
+      beginWeekendPhase(); // State is SETUP, requires READY_WEEKEND
+    } catch (e) {
+      rejectedStartErr = true;
+    }
+    assert(rejectedStartErr, "Rejected beginWeekendPhase throws error.");
+    assert(pSheet.getRange(2, remIdx).getValue() === true, "Rejected phase start preserves Reminder Sent field.");
+
+    setQueueState({ phase: 'READY_WEEKEND', round: 1, direction: 'ASCENDING', lead: 1 });
+    beginWeekendPhase();
+    var pDataFresh = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+    var pHeadersFresh = pDataFresh[0];
+    var freshEntryVal = pDataFresh[1][pHeadersFresh.indexOf('Entry Timestamp')];
+    var freshRemVal = pDataFresh[1][pHeadersFresh.indexOf('Reminder Sent')];
+    var freshAlertVal = pDataFresh[1][pHeadersFresh.indexOf('Admin Alert Sent')];
+
+    assert(freshEntryVal === '', "Successful phase start clears Entry Timestamp.");
+    assert(freshRemVal === false, "Successful phase start clears Reminder Sent.");
+    assert(freshAlertVal === false, "Successful phase start clears Admin Alert Sent.");
+
+    log.push("✅ All Task 3 Transition tests passed successfully.");
+
+  } catch (e) {
+    log.push("❌ Test execution failed: " + e.message + "\n" + e.stack);
+    hasFailed = true;
+  } finally {
+    SpreadsheetApp = originalSpreadsheetApp;
+    withScriptLock = originalWithScriptLock;
+  }
+
+  if (hasFailed) {
+    throw new Error("One or more tests failed:\n" + log.join("\n"));
+  }
+  return log.join('\n');
+}

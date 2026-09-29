@@ -287,6 +287,47 @@ function getVacationPhaseStatus() {
 }
 
 /**
+ * Determines the next READY state after Vacation phase ends, skipping already-complete coverage.
+ * Returns { readyPhase: string|null, skippedPhases: string[], setupError: string|null }
+ */
+function getNextReadyStateFromVacation() {
+  var hStatus = getHolidayPhaseStatus();
+  if (hStatus.status === 'SETUP_ERROR') {
+    return { readyPhase: null, skippedPhases: [], setupError: hStatus.reason || 'Holiday setup error.' };
+  }
+  if (hStatus.status === 'INCOMPLETE') {
+    return { readyPhase: 'READY_HOLIDAY_VOLUNTEER', skippedPhases: [], setupError: null };
+  }
+
+  // Holiday coverage is COMPLETE. Evaluate Weekend status.
+  var wStatus = getWeekendPhaseStatus();
+  if (wStatus.status === 'SETUP_ERROR') {
+    return { readyPhase: null, skippedPhases: ['Holiday (already complete)'], setupError: wStatus.reason || 'Weekend setup error.' };
+  }
+  if (wStatus.status === 'INCOMPLETE') {
+    return { readyPhase: 'READY_WEEKEND', skippedPhases: ['Holiday (already complete)'], setupError: null };
+  }
+
+  // Both Holiday and Weekend coverages are COMPLETE.
+  return { readyPhase: 'READY_TRANSFER', skippedPhases: ['Holiday (already complete)', 'Weekend (already complete)'], setupError: null };
+}
+
+/**
+ * Determines the next READY state after Holiday coverage completes, skipping already-complete weekend coverage.
+ * Returns { readyPhase: string|null, skippedPhases: string[], setupError: string|null }
+ */
+function getNextReadyStateFromHoliday() {
+  var wStatus = getWeekendPhaseStatus();
+  if (wStatus.status === 'SETUP_ERROR') {
+    return { readyPhase: null, skippedPhases: [], setupError: wStatus.reason || 'Weekend setup error.' };
+  }
+  if (wStatus.status === 'INCOMPLETE') {
+    return { readyPhase: 'READY_WEEKEND', skippedPhases: [], setupError: null };
+  }
+  return { readyPhase: 'READY_TRANSFER', skippedPhases: ['Weekend (already complete)'], setupError: null };
+}
+
+/**
  * Calculates remaining unfilled official holidays.
  */
 function getHolidayPhaseStatus() {
