@@ -688,27 +688,18 @@ function advanceQueueInternal_() {
           lead: eligiblePool[newLeadIdx].sortPosition
         });
       } else {
-        // If no one is eligible in the new round, the phase is complete!
-        // We handle phase transitions in the main controller, but setting state to COMPLETE
-        // allows the system to recognize the end of the current phase.
-
+        // Round boundary reached with no participant eligible for newRound under normal assignment caps.
         if (phase === 'HOLIDAY_VOLUNTEER') {
           var hStatus = getHolidayPhaseStatus();
-          if (hStatus.status === 'INCOMPLETE') {
-            setQueueState({
-              phase: 'READY_HOLIDAY_MANDATORY',
-              round: 1,
-              direction: 'ASCENDING',
-              lead: 1
-            });
-            return {
-              success: true,
-              ready: true,
-              message: 'Holiday volunteer participation is exhausted. Staged READY_HOLIDAY_MANDATORY.'
-            };
-          } else if (hStatus.status === 'COMPLETE') {
+          if (hStatus.status === 'SETUP_ERROR') {
+            return { success: false, setupError: true, error: hStatus.reason || 'Holiday setup error.' };
+          }
+          if (hStatus.status === 'COMPLETE') {
             var nextInfo = getNextReadyStateFromHoliday();
-            if (!nextInfo.setupError && nextInfo.readyPhase) {
+            if (nextInfo.setupError) {
+              return { success: false, setupError: true, error: nextInfo.setupError };
+            }
+            if (nextInfo.readyPhase) {
               setQueueState({
                 phase: nextInfo.readyPhase,
                 round: 1,
