@@ -225,7 +225,7 @@ try {
 
     // Pre-populate selections, pending holiday, and open selection modal
     appState.selections = ['W1'];
-    appState.adjacentHolidayPending = { holidayName: 'Thanksgiving', position: 'Call 1' };
+    appState.adjacentWeekendPending = { date: '2027-11-27' };
     mockDocument.getElementById('holidayPromptModal').style.display = 'flex';
     assert(mockDocument.getElementById('holidayPromptModal').style.display === 'flex', `${item.phase} pre-check: holidayPromptModal is open`);
 
@@ -262,7 +262,7 @@ try {
 
     // Assert pending selections and selection modal cleared/closed
     assert(appState.selections.length === 0, `${item.phase}: appState.selections cleared`);
-    assert(appState.adjacentHolidayPending === null, `${item.phase}: appState.adjacentHolidayPending cleared`);
+    assert(appState.adjacentWeekendPending === null, `${item.phase}: appState.adjacentWeekendPending cleared`);
     assert(mockDocument.getElementById('holidayPromptModal').style.display === 'none', `${item.phase}: holidayPromptModal display is none`);
 
     // Assert client submission handler produces zero RPC calls

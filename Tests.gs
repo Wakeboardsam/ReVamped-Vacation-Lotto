@@ -507,51 +507,57 @@ function runRegressionTests() {
     assert(holSubmit3, "Participant may select call positions on different holidays.");
 
     // 10. Nearby-holiday weekend selection enforces the same holiday duplicate restriction.
+    // 10a. Weekend selection ignores stale adjacentHoliday field without assigning any holiday
     MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('WEEKEND');
     MockSpreadsheetApp.createSheet('Weekend Coverage', [
       ['Date', 'First Call Assignee'],
-      ['2025-11-29', ''], // Saturday after Thanksgiving
-      ['2025-11-30', '']  // Sunday after Thanksgiving
+      ['2027-11-27', ''], // Saturday after Thanksgiving
+      ['2027-11-28', '']  // Sunday after Thanksgiving
     ]);
     MockSpreadsheetApp.createSheet('Holiday Coverage', [
-      ['Holiday Name', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
-      ['Thanksgiving', 'Call 1', 'Alice'],
-      ['Thanksgiving', 'Call 2', '']
+      ['Holiday Name', 'Call Position (Call 1 / Call 2)', 'Assigned Participant', 'Observed Date'],
+      ['Thanksgiving', 'Call 1', '', '2027-11-25'],
+      ['Thanksgiving', 'Call 2', '', '2027-11-25']
     ]);
-    var weekendHolSubmit = submitSelection('Alice', { action: 'SUBMIT', selections: ['2025-11-29'], adjacentHoliday: { holidayName: 'Thanksgiving', position: 'Call 2' } });
-    assert(weekendHolSubmit && weekendHolSubmit.success === true && weekendHolSubmit.message && weekendHolSubmit.message.indexOf('was not added because you already hold') !== -1, "Nearby-holiday weekend selection enforces duplicate restriction and returns partial success.");
-    assert(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()[1][1] === 'Alice', "Weekend is assigned despite adjacent holiday rejection.");
-
-
-    // 10b. Nearby-holiday weekend selection handles concurrently taken adjacent holiday correctly.
-    MockSpreadsheetApp._sheets['Weekend Coverage'].getRange(2, 2).setValue(''); // Open again
-    // Bob takes the Call 2 spot
-    MockSpreadsheetApp._sheets['Holiday Coverage'].getRange(3, 3).setValue('Bob');
-    // Ensure Charlie is in Participant Config so submitSelection finds him
-    var pSheetData = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
-    var charlieExists = pSheetData.some(row => row[0] === 'Charlie');
-    if (!charlieExists) { MockSpreadsheetApp._sheets['Participant Config'].appendRow(['Charlie', true, true, '', false, false, true, 3, '2']); }
-
-    // Since Alice already holds Thanksgiving Call 1, she hits the FIRST condition before checking if Call 2 is taken.
-    // We need to test with a participant who does not hold the holiday.
-    getActiveParticipants = function(p) { return [{ Name: 'Charlie' }]; };
-    var weekendHolSubmitConcurrent = submitSelection('Charlie', { action: 'SUBMIT', selections: ['2025-11-29'], adjacentHoliday: { holidayName: 'Thanksgiving', position: 'Call 2' } });
-    assert(weekendHolSubmitConcurrent.success === true && weekendHolSubmitConcurrent.message && weekendHolSubmitConcurrent.message.indexOf('was just selected by another participant') !== -1, "Valid weekend + already-taken adjacent holiday saves weekend and returns partial success.");
-    assert(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()[1][1] === 'Charlie', "Weekend is assigned despite concurrent adjacent holiday loss.");
-
-    // 10c. Unavailable weekend => no write.
-    // Make weekend unavailable
-    MockSpreadsheetApp._sheets['Weekend Coverage'].getRange(2, 2).setValue('Charlie');
-    var weekendHolSubmitUnavailable = false;
     getActiveParticipants = function(p) { return [{ Name: 'Alice' }]; };
+    var weekendStaleHolSubmit = submitSelection('Alice', { action: 'SUBMIT', selections: ['2027-11-27'], adjacentHoliday: { holidayName: 'Thanksgiving', position: 'Call 2' } });
+    assert(weekendStaleHolSubmit && weekendStaleHolSubmit.success === true, "Weekend selection with stale adjacentHoliday succeeds for weekend.");
+    assert(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()[1][1] === 'Alice', "Weekend is assigned to Alice.");
+    assert(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues()[2][2] === '', "Holiday Call 2 is NOT assigned via Weekend submission.");
+
+    // 10b. Holiday selection with optional adjacent weekend
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('HOLIDAY_VOLUNTEER');
+    MockSpreadsheetApp._sheets['Weekend Coverage'].getRange(2, 2).setValue(''); // Re-open weekend
+
+    var holWithWkndSubmit = submitSelection('Alice', { action: 'SUBMIT', selections: [{ name: 'Thanksgiving', position: 'Call 1' }], adjacentWeekend: { date: '2027-11-27' } });
+    assert(holWithWkndSubmit && holWithWkndSubmit.success === true, "Holiday selection with valid optional adjacent weekend succeeds.");
+    assert(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues()[1][2] === 'Alice', "Holiday Thanksgiving Call 1 assigned to Alice.");
+    assert(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()[1][1] === 'Alice', "Optional adjacent weekend assigned to Alice.");
+
+    // 10c. Holiday selection with occupied optional weekend returns partial success
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('HOLIDAY_VOLUNTEER');
+    // Ensure Bob is in Participant Config
+    var pSheetData = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+    var bobExists = pSheetData.some(row => row[0] === 'Bob');
+    if (!bobExists) { MockSpreadsheetApp._sheets['Participant Config'].appendRow(['Bob', true, true, '', false, false, true, 3, '2']); }
+    // Bob occupies the weekend
+    MockSpreadsheetApp._sheets['Weekend Coverage'].getRange(2, 2).setValue('Bob');
+
+    getActiveParticipants = function(p) { return [{ Name: 'Alice' }]; };
+    var holOccupiedWkndSubmit = submitSelection('Alice', { action: 'SUBMIT', selections: [{ name: 'Thanksgiving', position: 'Call 2' }], adjacentWeekend: { date: '2027-11-27' } });
+    assert(holOccupiedWkndSubmit.success === true && holOccupiedWkndSubmit.message && holOccupiedWkndSubmit.message.indexOf('was not added because it was just selected by another participant') !== -1, "Holiday saved with partial success message when optional weekend occupied.");
+    assert(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues()[2][2] === 'Alice', "Holiday Thanksgiving Call 2 saved to Alice.");
+    assert(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()[1][1] === 'Bob', "Weekend remains assigned to Bob.");
+
+    // 10d. Nonadjacent or malformed optional weekend rejected without writes
+    var nonAdjacentFailed = false;
     try {
-      submitSelection('Alice', { action: 'SUBMIT', selections: ['2025-11-29'], adjacentHoliday: { holidayName: 'Thanksgiving', position: 'Call 2' } });
-      weekendHolSubmitUnavailable = true;
+      submitSelection('Alice', { action: 'SUBMIT', selections: [{ name: 'Thanksgiving', position: 'Call 1' }], adjacentWeekend: { date: '2027-01-02' } });
+      nonAdjacentFailed = true;
     } catch (e) {
-      assert(e.message.indexOf('That position was just selected by another participant') !== -1, "Unavailable weekend correctly rejected.");
+      assert(e.message.indexOf('not within the holiday proximity range') !== -1, "Nonadjacent weekend date correctly rejected.");
     }
-    assert(!weekendHolSubmitUnavailable, "Unavailable weekend is rejected and no write occurs.");
-    assert(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()[1][1] === 'Charlie', "Unavailable weekend remains assigned to Charlie.");
+    assert(!nonAdjacentFailed, "Nonadjacent weekend submission rejected.");
 
     // 11. HOLIDAY_VOLUNTEER Pass still works.
     MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('HOLIDAY_VOLUNTEER');
@@ -1016,7 +1022,7 @@ function runRegressionTests() {
     };
 
     var simScheduleFilters = { type: 'ALL', availability: 'ALL', month: 'ALL', person: '', myChoices: false };
-    var simAppState = { participantId: null, name: null, pin: null, isActive: false, participant: null, availableChoices: null, selections: [], adjacentHolidayPending: null };
+    var simAppState = { participantId: null, name: null, pin: null, isActive: false, participant: null, availableChoices: null, selections: [], adjacentWeekendPending: null };
 
     function resetToGuestStateSimulated() {
       simScheduleFilters.type = 'ALL';
@@ -1035,7 +1041,7 @@ function runRegressionTests() {
       simAppState.participant = null;
       simAppState.availableChoices = null;
       simAppState.selections = [];
-      simAppState.adjacentHolidayPending = null;
+      simAppState.adjacentWeekendPending = null;
 
       simulatedDOM.mainScreen.style.display = 'none';
       simulatedDOM.userNameLabel.style.display = 'none';
@@ -1181,26 +1187,24 @@ function runRegressionTests() {
     assert(resetLogs[0][2] === 'Bob', "STATE_RESET logged specifically for Bob.");
 
 
-    // --- Simulated Weekend Selection State Reset Test ---
-    log.push("--- Testing Simulated Weekend Holiday State Reset ---");
-    // Simulate setting a pending holiday via confirmHolidaySelection
-    simAppState.adjacentHolidayPending = { holidayName: 'Thanksgiving', position: 'Call 2' };
+    // --- Simulated Holiday Selection State Reset Test ---
+    log.push("--- Testing Simulated Holiday Optional Weekend State Reset ---");
+    simAppState.adjacentWeekendPending = { date: '2027-11-27' };
 
     // Test 1: fetchInitialState behavior clears it
     resetToGuestStateSimulated(); // analogous to the resets in fetchInitialState
-    assert(simAppState.adjacentHolidayPending === null, "fetchInitialState-like reset clears adjacentHolidayPending");
+    assert(simAppState.adjacentWeekendPending === null, "fetchInitialState-like reset clears adjacentWeekendPending");
 
-    // Test 2: toggleSelection behavior clears it for new weekend selection
-    simAppState.adjacentHolidayPending = { holidayName: 'Christmas', position: 'Call 1' };
+    // Test 2: toggleSelection behavior clears it for new holiday selection
+    simAppState.adjacentWeekendPending = { date: '2027-12-25' };
     function toggleSelectionSimulated(type) {
-      // Simulate branch when idx = -1
-      if (type === 'weekend') {
-        simAppState.adjacentHolidayPending = null;
+      if (type === 'holiday') {
+        simAppState.adjacentWeekendPending = null;
       }
-      simAppState.selections.push('fake-date');
+      simAppState.selections.push('fake-id');
     }
-    toggleSelectionSimulated('weekend');
-    assert(simAppState.adjacentHolidayPending === null, "Selecting a new weekend card clears existing adjacentHolidayPending");
+    toggleSelectionSimulated('holiday');
+    assert(simAppState.adjacentWeekendPending === null, "Selecting a new holiday card clears existing adjacentWeekendPending");
 
     // --- Skipped Turn Double-Count Fix Regression Tests ---
     log.push("--- Testing Skipped Turn Double-Count Fix ---");
@@ -1894,14 +1898,14 @@ function runReadyStateTests() {
 
       // Pre-populate pending selection
       browserCtx.appState.selections = ['W1'];
-      browserCtx.appState.adjacentHolidayPending = { holidayName: 'Thanksgiving', position: 'Call 1' };
+      browserCtx.appState.adjacentWeekendPending = { date: '2027-11-27' };
 
       browserCtx.onStateLoaded(readyStatePayload);
 
       assert(browserCtx.appState.isActive === false, "Frontend: appState.isActive set to false on transition to READY.");
       assert(browserCtx.appState.readiness !== null && browserCtx.appState.readiness.nextPhase === 'HOLIDAY_VOLUNTEER', "Frontend: appState.readiness populated on transition to READY.");
       assert(browserCtx.appState.selections.length === 0, "Frontend: appState.selections cleared on transition to READY.");
-      assert(browserCtx.appState.adjacentHolidayPending === null, "Frontend: appState.adjacentHolidayPending cleared on transition to READY.");
+      assert(browserCtx.appState.adjacentWeekendPending === null, "Frontend: appState.adjacentWeekendPending cleared on transition to READY.");
 
       // Test public heading guest view
       var pubSnapshot = getPublicDisplaySnapshot();
