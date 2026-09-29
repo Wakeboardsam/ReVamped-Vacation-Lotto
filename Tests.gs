@@ -1632,6 +1632,44 @@ function runPhaseStatusTests() {
     assert(wStatus.status === 'COMPLETE', "Weekend is COMPLETE");
     assert(snapshotBefore === snapshotAfter, "Weekend read-only check has no side effects (sheet snapshot unchanged).");
 
+    // Test 5: Next READY Routing Helpers
+    MockSpreadsheetApp._sheets['Holiday Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-01-01', 'Call 1', 'Alice'],
+      ['New Years', '2027-01-01', 'Call 2', ''] // INCOMPLETE
+    ]);
+    MockSpreadsheetApp._sheets['Weekend Coverage'] = undefined;
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee'],
+      ['2027-01-02', 'Saturday', 'Alice'],
+      ['2027-01-03', 'Sunday', ''] // INCOMPLETE
+    ]);
+
+    var rVac = getNextReadyStateFromVacation();
+    assert(rVac.readyPhase === 'READY_HOLIDAY_VOLUNTEER' && rVac.skippedPhases.length === 0 && rVac.setupError === null, "getNextReadyStateFromVacation routes to READY_HOLIDAY_VOLUNTEER when Holiday is incomplete.");
+
+    // Complete Holiday, Weekend remains incomplete
+    MockSpreadsheetApp._sheets['Holiday Coverage'].getRange(3, 4).setValue('Bob');
+    rVac = getNextReadyStateFromVacation();
+    assert(rVac.readyPhase === 'READY_WEEKEND' && rVac.skippedPhases.length === 1 && rVac.skippedPhases[0] === 'Holiday (already complete)', "getNextReadyStateFromVacation skips Holiday and routes to READY_WEEKEND when Holiday is complete.");
+
+    var rHol = getNextReadyStateFromHoliday();
+    assert(rHol.readyPhase === 'READY_WEEKEND' && rHol.skippedPhases.length === 0 && rHol.setupError === null, "getNextReadyStateFromHoliday routes to READY_WEEKEND when Weekend is incomplete.");
+
+    // Complete Weekend as well
+    MockSpreadsheetApp._sheets['Weekend Coverage'].getRange(3, 3).setValue('Bob');
+    rVac = getNextReadyStateFromVacation();
+    assert(rVac.readyPhase === 'READY_TRANSFER' && rVac.skippedPhases.length === 2, "getNextReadyStateFromVacation skips Holiday & Weekend, routing to READY_TRANSFER when both complete.");
+
+    rHol = getNextReadyStateFromHoliday();
+    assert(rHol.readyPhase === 'READY_TRANSFER' && rHol.skippedPhases.length === 1 && rHol.skippedPhases[0] === 'Weekend (already complete)', "getNextReadyStateFromHoliday skips Weekend and routes to READY_TRANSFER when Weekend is complete.");
+
+    // SETUP_ERROR handling in routing helpers
+    MockSpreadsheetApp._sheets['Holiday Coverage'].getRange(2, 2).setValue('not-a-date');
+    rVac = getNextReadyStateFromVacation();
+    assert(rVac.readyPhase === null && rVac.setupError !== null, "getNextReadyStateFromVacation propagates Holiday SETUP_ERROR.");
+
     log.push("✅ All Phase Status tests processed.");
 
   } catch (e) {
