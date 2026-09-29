@@ -73,16 +73,23 @@ function resetParticipantTrackingFields_(ss, phaseName) {
   if (entryColIdx > 0 && reminderColIdx > 0 && alertColIdx > 0) {
     for (var i = 1; i < pData.length; i++) {
       var row = i + 1;
-      if (typeof logStateReset !== 'undefined') {
-        var participantObj = {};
-        for (var c = 0; c < pHeaders.length; c++) {
-          participantObj[pHeaders[c]] = pData[i][c];
+      if (typeof clearNotificationTracking_ !== 'undefined') {
+        var pName = pData[i][pHeaders.indexOf('Name')];
+        if (pName) {
+          clearNotificationTracking_(pName, phaseName);
         }
-        logStateReset(participantObj, phaseName);
+      } else {
+        if (typeof logStateReset !== 'undefined') {
+          var participantObj = {};
+          for (var c = 0; c < pHeaders.length; c++) {
+            participantObj[pHeaders[c]] = pData[i][c];
+          }
+          logStateReset(participantObj, phaseName);
+        }
+        pSheet.getRange(row, entryColIdx).clearContent();
+        pSheet.getRange(row, reminderColIdx).setValue(false);
+        pSheet.getRange(row, alertColIdx).setValue(false);
       }
-      pSheet.getRange(row, entryColIdx).clearContent();
-      pSheet.getRange(row, reminderColIdx).setValue(false);
-      pSheet.getRange(row, alertColIdx).setValue(false);
     }
   }
 }
@@ -160,6 +167,11 @@ function endVacationEarly() {
       throw new Error("Vacation phase state changed concurrently before ending early.");
     }
 
+    var freshStatus = getVacationPhaseStatus();
+    if (freshStatus.status === 'SETUP_ERROR') {
+      throw new Error("Cannot end Vacation early: " + (freshStatus.reason || "Setup error detected."));
+    }
+
     var nextInfo = getNextReadyStateFromVacation();
     if (nextInfo.setupError) {
       throw new Error("Cannot end Vacation early: " + nextInfo.setupError);
@@ -168,7 +180,7 @@ function endVacationEarly() {
     setQueueState({ phase: nextInfo.readyPhase, round: 1, direction: 'ASCENDING', lead: 1 });
 
     var summary = "Vacation selection ended early by administrator.\n\n" +
-                  "- Remaining unmet vacation targets recorded: " + remaining + "\n" +
+                  "- Remaining unmet vacation targets recorded: " + (freshStatus.remaining || 0) + "\n" +
                   "- Staged State: " + nextInfo.readyPhase;
     if (nextInfo.skippedPhases.length > 0) {
       summary += "\n- Skipped completed coverage: " + nextInfo.skippedPhases.join(', ');
@@ -521,10 +533,15 @@ function endWeekendEarly() {
       throw new Error("Weekend phase state changed concurrently before ending early.");
     }
 
+    var freshStatus = getWeekendPhaseStatus();
+    if (freshStatus.status === 'SETUP_ERROR') {
+      throw new Error("Cannot end Weekend early: " + (freshStatus.reason || "Setup error detected."));
+    }
+
     setQueueState({ phase: 'READY_TRANSFER', round: 1, direction: 'ASCENDING', lead: 1 });
 
     var summary = "Weekend selection ended early by administrator.\n\n" +
-                  "- Remaining unfilled weekend dates: " + remaining + "\n" +
+                  "- Remaining unfilled weekend dates: " + (freshStatus.remaining || 0) + "\n" +
                   "- Staged State: READY_TRANSFER";
 
     SpreadsheetApp.getUi().alert(summary);

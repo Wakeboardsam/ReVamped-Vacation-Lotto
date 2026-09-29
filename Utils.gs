@@ -238,6 +238,46 @@ function hasOpenHolidayPositions_() {
 }
 
 /**
+ * Returns true if at least one eligible volunteer can legally select an open holiday position.
+ */
+function hasLegalHolidayChoices_() {
+  var holidays = getSheetDataAsObjects('Holiday Coverage');
+  var openHolidays = [];
+  for (var i = 0; i < holidays.length; i++) {
+    if (!String(holidays[i]['Assigned Participant'] || '').trim()) {
+      openHolidays.push(holidays[i]['Holiday Name']);
+    }
+  }
+  if (openHolidays.length === 0) return false;
+
+  var participants = getSheetDataAsObjects('Participant Config');
+  for (var p = 0; p < participants.length; p++) {
+    var part = participants[p];
+    if (part['Active for Year'] !== true && part['Active for Year'] !== 'TRUE') continue;
+    var volResp = String(part['Holiday Volunteer Response'] || '').toLowerCase();
+    var volFlag = (part['Holiday Volunteer'] === true || part['Holiday Volunteer'] === 'TRUE');
+    if ((volResp === 'yes' || volFlag) && volResp !== 'pass') {
+      var name = part['Name'];
+      for (var h = 0; h < openHolidays.length; h++) {
+        var hName = openHolidays[h];
+        var holdsPosition = false;
+        for (var k = 0; k < holidays.length; k++) {
+          if (holidays[k]['Holiday Name'] === hName && String(holidays[k]['Assigned Participant'] || '').trim() === name) {
+            holdsPosition = true;
+            break;
+          }
+        }
+        if (!holdsPosition) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * Prevent one participant from holding both Call 1 and Call 2
  * for the same holiday.
  */
