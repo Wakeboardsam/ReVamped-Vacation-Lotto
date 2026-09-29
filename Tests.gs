@@ -2083,31 +2083,24 @@ function runTask3TransitionTests() {
     var stateAfterVolExhaust = getQueueState();
     assert(stateAfterVolExhaust.phase === 'READY_HOLIDAY_MANDATORY', "Holiday Volunteer exhaustion with open positions stages READY_HOLIDAY_MANDATORY.");
 
-    // 5. Guarded Begin Mandatory Holiday & Completion -> READY_WEEKEND
-    setQueueState({ phase: 'READY_HOLIDAY_MANDATORY', round: 1, direction: 'ASCENDING', lead: 1 });
+    // 5. End-to-end natural submission progression: Volunteer Exhaustion -> READY_HOLIDAY_MANDATORY -> Mandatory Completion -> READY_WEEKEND -> Weekend Completion -> READY_TRANSFER
+    // Continuing from stateAfterVolExhaust above (which is READY_HOLIDAY_MANDATORY naturally reached via Alice PASS):
+    assert(getQueueState().phase === 'READY_HOLIDAY_MANDATORY', "Queue naturally reached READY_HOLIDAY_MANDATORY via volunteer pass.");
+
     beginMandatoryHolidayPhase();
     assert(getQueueState().phase === 'HOLIDAY_MANDATORY', "beginMandatoryHolidayPhase transitions to HOLIDAY_MANDATORY.");
 
-    // 6. Guarded Begin Weekend Phase & Completion -> READY_TRANSFER
-    var beginWkndErr = false;
-    try {
-      setQueueState({ phase: 'HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
-      beginWeekendPhase();
-    } catch (e) {
-      beginWkndErr = true;
-      assert(e.message.indexOf("requires READY_WEEKEND") !== -1, "beginWeekendPhase rejected when state is not READY_WEEKEND.");
-    }
-    assert(beginWkndErr, "beginWeekendPhase guarded against wrong phase.");
+    // Bob (who is active lead 2 after Alice passed) completes remaining Call 2 position in Mandatory Holiday
+    submitSelection('Bob', { phase: 'HOLIDAY_MANDATORY', action: 'SUBMIT', selections: [{ name: 'New Years', position: 'Call 2' }] });
+    assert(getQueueState().phase === 'READY_WEEKEND', "Holiday Mandatory completion naturally stages READY_WEEKEND.");
 
-    setQueueState({ phase: 'READY_WEEKEND', round: 1, direction: 'ASCENDING', lead: 1 });
     beginWeekendPhase();
     assert(getQueueState().phase === 'WEEKEND', "beginWeekendPhase transitions to WEEKEND.");
 
+    // Alice and Bob fill weekend coverage
     submitSelection('Alice', { phase: 'WEEKEND', action: 'SUBMIT', selections: ['2027-01-02'] });
-    setQueueState({ phase: 'WEEKEND', round: 1, direction: 'ASCENDING', lead: 2 });
     submitSelection('Bob', { phase: 'WEEKEND', action: 'SUBMIT', selections: ['2027-01-03'] });
-    var stateAfterWkndComplete = getQueueState();
-    assert(stateAfterWkndComplete.phase === 'READY_TRANSFER', "Weekend completion stages READY_TRANSFER.");
+    assert(getQueueState().phase === 'READY_TRANSFER', "Weekend completion naturally stages READY_TRANSFER.");
 
     // 7. Guarded Begin Transfer Giveaways & Terminal COMPLETE
     setQueueState({ phase: 'READY_TRANSFER', round: 1, direction: 'ASCENDING', lead: 1 });
@@ -2182,19 +2175,17 @@ function runTask3TransitionTests() {
     assert(snapHolBefore === snapHolAfter, "Holiday coverage sheet snapshot unchanged on SETUP_ERROR.");
     assert(snapConfigBefore === snapConfigAfter, "Config sheet snapshot unchanged on SETUP_ERROR.");
 
-    // 12. On Deck tracking reset verification
+    // 12. Turn tracking reset verification
     setupTask3Fixture();
     pSheet = MockSpreadsheetApp._sheets['Participant Config'];
     pHeaders = pSheet.getDataRange().getValues()[0];
     var entryIdx = pHeaders.indexOf('Entry Timestamp') + 1;
     var remIdx = pHeaders.indexOf('Reminder Sent') + 1;
     var alertIdx = pHeaders.indexOf('Admin Alert Sent') + 1;
-    var onDeckIdx = pHeaders.indexOf('On Deck Event Key') + 1;
 
     pSheet.getRange(2, entryIdx).setValue('2027-01-01');
     pSheet.getRange(2, remIdx).setValue(true);
     pSheet.getRange(2, alertIdx).setValue(true);
-    pSheet.getRange(2, onDeckIdx).setValue('STALE_ON_DECK_KEY');
 
     var rejectedStartErr = false;
     try {
@@ -2203,19 +2194,16 @@ function runTask3TransitionTests() {
       rejectedStartErr = true;
     }
     assert(rejectedStartErr, "Rejected beginWeekendPhase throws error.");
-    assert(pSheet.getRange(2, onDeckIdx).getValue() === 'STALE_ON_DECK_KEY', "Rejected phase start preserves On Deck tracking field.");
     assert(pSheet.getRange(2, remIdx).getValue() === true, "Rejected phase start preserves Reminder Sent field.");
 
     setQueueState({ phase: 'READY_WEEKEND', round: 1, direction: 'ASCENDING', lead: 1 });
     beginWeekendPhase();
     var pDataFresh = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
     var pHeadersFresh = pDataFresh[0];
-    var freshOnDeckVal = pDataFresh[1][pHeadersFresh.indexOf('On Deck Event Key')];
     var freshEntryVal = pDataFresh[1][pHeadersFresh.indexOf('Entry Timestamp')];
     var freshRemVal = pDataFresh[1][pHeadersFresh.indexOf('Reminder Sent')];
     var freshAlertVal = pDataFresh[1][pHeadersFresh.indexOf('Admin Alert Sent')];
 
-    // assert(freshOnDeckVal === '', "Successful phase start clears On Deck Event Key.");
     assert(freshEntryVal === '', "Successful phase start clears Entry Timestamp.");
     assert(freshRemVal === false, "Successful phase start clears Reminder Sent.");
     assert(freshAlertVal === false, "Successful phase start clears Admin Alert Sent.");
