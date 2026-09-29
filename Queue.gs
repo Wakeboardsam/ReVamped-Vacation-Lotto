@@ -95,14 +95,25 @@ function getParticipantAssignments(participantName, phase, cache) {
  * Does not read state internally to ensure consistency.
  */
 function getQueueWindows_(phase, state, cache) {
+  if (getReadinessInfo(phase) || getReadinessInfo(state && state.phase)) {
+    return {
+      activeWindow: [],
+      upNextWindow: [],
+      windowSize: 0,
+      participants: getSheetDataAsObjects('Participant Config', cache)
+    };
+  }
+
+  var effectivePhase = (state && state.phase) ? state.phase : phase;
+
   if (
-    (phase === 'HOLIDAY_VOLUNTEER' || phase === 'HOLIDAY_MANDATORY') &&
+    (effectivePhase === 'HOLIDAY_VOLUNTEER' || effectivePhase === 'HOLIDAY_MANDATORY') &&
     !hasOpenHolidayPositions_()
   ) {
     return {
       activeWindow: [],
       upNextWindow: [],
-      windowSize: getActiveWindowSize(phase),
+      windowSize: getActiveWindowSize(effectivePhase),
       participants: getSheetDataAsObjects('Participant Config', cache)
     };
   }
@@ -113,7 +124,7 @@ function getQueueWindows_(phase, state, cache) {
 
   var participants = getSheetDataAsObjects('Participant Config', cache);
 
-  if (phase === 'TRANSFER_OFFER_COLLECTION') {
+  if (effectivePhase === 'TRANSFER_OFFER_COLLECTION') {
     var activeWindow = [];
     for (var i = 0; i < participants.length; i++) {
       var p = participants[i];
@@ -142,34 +153,34 @@ function getQueueWindows_(phase, state, cache) {
     var isEligibleForPhase = false;
     var targetCap = 999;
 
-    if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
+    if (effectivePhase === 'VACATION_SENIORITY' || effectivePhase === 'VACATION_RANDOM') {
       if (p['Vacation Phase Enabled'] === true || p['Vacation Phase Enabled'] === 'TRUE') {
         isEligibleForPhase = true;
         targetCap = p['Vacation Week Target Override'] !== '' ? parseInt(p['Vacation Week Target Override']) : defaultVacationCap;
       }
-    } else if (phase === 'WEEKEND') {
+    } else if (effectivePhase === 'WEEKEND') {
       if (p['Weekend Phase Enabled'] === true || p['Weekend Phase Enabled'] === 'TRUE') {
         isEligibleForPhase = true;
         targetCap = p['Weekend Assignment Maximum'] !== '' ? parseInt(p['Weekend Assignment Maximum']) : 999;
       }
-    } else if (phase === 'HOLIDAY_VOLUNTEER') {
+    } else if (effectivePhase === 'HOLIDAY_VOLUNTEER') {
       var volResp = String(p['Holiday Volunteer Response'] || '').toLowerCase();
       var volFlag = (p['Holiday Volunteer'] === true || p['Holiday Volunteer'] === 'TRUE');
       if ((volResp === 'yes' || volFlag) && volResp !== 'pass') isEligibleForPhase = true;
-    } else if (phase === 'HOLIDAY_MANDATORY') {
+    } else if (effectivePhase === 'HOLIDAY_MANDATORY') {
       if (p['Mandatory Holiday Eligible'] === true || p['Mandatory Holiday Eligible'] === 'TRUE') isEligibleForPhase = true;
-    } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
+    } else if (effectivePhase === 'TRANSFER_OFFER_COLLECTION') {
       if (p['Transfer Giver'] === true || p['Transfer Giver'] === 'TRUE') isEligibleForPhase = true;
-    } else if (phase === 'TRANSFER_RECEIVER') {
+    } else if (effectivePhase === 'TRANSFER_RECEIVER') {
       if ((p['Transfer Receiver'] === true || p['Transfer Receiver'] === 'TRUE') && p['Transfer Receiver'] !== false && p['Transfer Receiver'] !== 'FALSE') isEligibleForPhase = true;
     }
 
     if (!isEligibleForPhase) continue;
 
-    var actualAssignments = getParticipantAssignments(p['Name'], phase, cache);
+    var actualAssignments = getParticipantAssignments(p['Name'], effectivePhase, cache);
 
     var isEligibleForRound = false;
-    if (phase === 'TRANSFER_RECEIVER') {
+    if (effectivePhase === 'TRANSFER_RECEIVER') {
       // For TRANSFER_RECEIVER, skipped turns, assignment maximums, etc. do not apply.
       // We only check if they have claimed during the current round.
       isEligibleForRound = actualAssignments < 1;
@@ -180,7 +191,7 @@ function getQueueWindows_(phase, state, cache) {
     eligiblePool.push({
       participant: p,
       isEligible: isEligibleForRound,
-      sortPosition: phase === 'VACATION_SENIORITY' ? parseInt(p['Seniority Position']) : parseInt(p['Lottery Position'])
+      sortPosition: effectivePhase === 'VACATION_SENIORITY' ? parseInt(p['Seniority Position']) : parseInt(p['Lottery Position'])
     });
   }
 
@@ -188,7 +199,7 @@ function getQueueWindows_(phase, state, cache) {
     return a.sortPosition - b.sortPosition;
   });
 
-  var windowSize = getActiveWindowSize(phase);
+  var windowSize = getActiveWindowSize(effectivePhase);
   var activeWindow = [];
   var upNextWindow = [];
 
@@ -251,6 +262,10 @@ function advanceQueue() {
 function advanceQueueInternal_() {
     var state = getQueueState();
     var phase = state.phase;
+
+    if (getReadinessInfo(phase)) {
+      return { success: true, ready: true, message: 'Queue is waiting for an administrator.' };
+    }
 
     if (phase === 'TRANSFER_OFFER_COLLECTION') {
       return { success: true, message: 'Transfer offer collection does not advance like a queue.' };

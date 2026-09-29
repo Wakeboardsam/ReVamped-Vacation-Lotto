@@ -1647,3 +1647,293 @@ function runPhaseStatusTests() {
   }
   return log.join('\n');
 }
+
+/**
+ * --- Task 2: Durable READY States Tests ---
+ */
+function runReadyStateTests() {
+  var log = [];
+  var hasFailed = false;
+  function assert(condition, message) {
+    if (!condition) {
+      log.push("❌ FAIL: " + message);
+      hasFailed = true;
+    } else {
+      log.push("✅ PASS: " + message);
+    }
+  }
+
+  var originalSpreadsheetApp = SpreadsheetApp;
+  var originalWithScriptLock = withScriptLock;
+
+  try {
+    SpreadsheetApp = MockSpreadsheetApp;
+    withScriptLock = function(cb) { return cb(); };
+
+    var readyStates = [
+      { phase: 'READY_HOLIDAY_VOLUNTEER', next: 'HOLIDAY_VOLUNTEER', msg: 'Waiting for the administrator to begin Holiday Volunteer selection.' },
+      { phase: 'READY_HOLIDAY_MANDATORY', next: 'HOLIDAY_MANDATORY', msg: 'Waiting for the administrator to begin Mandatory Holiday selection.' },
+      { phase: 'READY_WEEKEND', next: 'WEEKEND', msg: 'Waiting for the administrator to begin Weekend selection.' },
+      { phase: 'READY_TRANSFER', next: 'TRANSFER_OFFER_COLLECTION', msg: 'Waiting for the administrator to begin Transfer Giveaways.' }
+    ];
+
+    // Helper to setup a valid fixture sheet environment
+    function setupFixture() {
+      MockSpreadsheetApp._sheets = {};
+      MockSpreadsheetApp.createSheet('Config', [
+        ['Setting Name', 'Setting Value'],
+        ['Current Phase', 'READY_WEEKEND'],
+        ['Current Round', '1'],
+        ['Current Direction', 'ASCENDING'],
+        ['Current Lead', '1']
+      ]);
+      MockSpreadsheetApp.createSheet('Admin Options', [
+        ['Setting Name', 'Setting Value'],
+        ['Active Year', '2027'],
+        ['Enable SMS Notifications', 'TRUE'],
+        ['Weekend Active Window (participants)', '2'],
+        ['Vacation Active Window (participants)', '3'],
+        ['Web App URL', 'https://example.com']
+      ]);
+      MockSpreadsheetApp.createSheet('Participant Config', [
+        ['Name', 'PIN', 'Active for Year', 'Vacation Phase Enabled', 'Weekend Phase Enabled', 'Holiday Volunteer', 'Mandatory Holiday Eligible', 'Transfer Giver', 'Transfer Receiver', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Phone Number', 'Seniority Position', 'Lottery Position', 'Resend WhatsApp', 'Vacation Week Target Override'],
+        ['Alice', '1234', true, true, true, true, true, true, true, '', false, false, '1111111111', 1, 1, false, ''],
+        ['Bob',   '5678', true, true, true, true, true, true, true, '', false, false, '2222222222', 2, 2, false, '']
+      ]);
+      MockSpreadsheetApp.createSheet('Vacation Availability', [
+        ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants'],
+        ['W1', '2027-01-04', 4, 'Non-Prime', 'None', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Weekend Coverage', [
+        ['Date', 'Day of Week', 'First Call Assignee', 'Vacation Adjacency Warning', 'Holiday Proximity Warning'],
+        ['2027-01-02', 'Saturday', '', '', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Holiday Coverage', [
+        ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+        ['New Years', '2027-01-01', 'Call 1', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Transfer Offers', [
+        ['Offer ID', 'Original Assignee (Giver)', 'Assignment Type', 'Date/Position', 'Status', 'Timestamp', 'Group ID']
+      ]);
+      MockSpreadsheetApp.createSheet('Transfer History', [
+        ['Timestamp', 'Assignment Type', 'Assignment Date', 'Call Position/Day', 'Original Assignee', 'New Assignee', 'Year', 'Receiver Round', 'Claim ID']
+      ]);
+      MockSpreadsheetApp.createSheet('Notification Log', [
+        ['Log Timestamp', 'Event Key', 'Participant ID', 'Participant Name', 'Masked Phone', 'Phase', 'Notification Type', 'Status', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp', 'Selection Reference', 'Sanitized Error']
+      ]);
+    }
+
+    // 1. Shared Readiness Mapping
+    assert(getReadinessInfo('READY_HOLIDAY_VOLUNTEER').nextPhase === 'HOLIDAY_VOLUNTEER', "getReadinessInfo maps READY_HOLIDAY_VOLUNTEER correctly.");
+    assert(getReadinessInfo('READY_HOLIDAY_MANDATORY').nextPhase === 'HOLIDAY_MANDATORY', "getReadinessInfo maps READY_HOLIDAY_MANDATORY correctly.");
+    assert(getReadinessInfo('READY_WEEKEND').nextPhase === 'WEEKEND', "getReadinessInfo maps READY_WEEKEND correctly.");
+    assert(getReadinessInfo('READY_TRANSFER').nextPhase === 'TRANSFER_OFFER_COLLECTION', "getReadinessInfo maps READY_TRANSFER correctly.");
+    assert(getReadinessInfo('WEEKEND') === null, "getReadinessInfo returns null for active phase WEEKEND.");
+
+    // 2. Test Queue Readers and Advancement across all four READY states
+    for (var i = 0; i < readyStates.length; i++) {
+      var item = readyStates[i];
+      setupFixture();
+      setQueueState({ phase: item.phase, round: 1, direction: 'ASCENDING', lead: 1 });
+
+      assert(getActiveWindowSize(item.phase) === 0, "getActiveWindowSize returns 0 for " + item.phase);
+
+      var windows = getQueueWindows_(item.phase, { round: 1, direction: 'ASCENDING', lead: 1 }, {});
+      assert(windows.activeWindow.length === 0, "activeWindow is empty for " + item.phase);
+      assert(windows.upNextWindow.length === 0, "upNextWindow is empty for " + item.phase);
+      assert(windows.windowSize === 0, "windowSize is 0 for " + item.phase);
+      assert(windows.participants.length === 2, "Participants roster retained for " + item.phase);
+
+      assert(getActiveParticipants(item.phase).length === 0, "getActiveParticipants returns empty array for " + item.phase);
+
+      // 1. Active phase argument with READY state.phase in snapshot
+      var staleWindows1 = getQueueWindows_('VACATION_RANDOM', { phase: item.phase, round: 1, direction: 'ASCENDING', lead: 1 }, {});
+      assert(staleWindows1.activeWindow.length === 0, "Active phase argument with READY state.phase returns empty activeWindow for " + item.phase);
+      assert(staleWindows1.windowSize === 0, "Active phase argument with READY state.phase returns windowSize 0 for " + item.phase);
+
+      // 2. READY phase argument with active state.phase in snapshot
+      var staleWindows2 = getQueueWindows_(item.phase, { phase: 'VACATION_RANDOM', round: 1, direction: 'ASCENDING', lead: 1 }, {});
+      assert(staleWindows2.activeWindow.length === 0, "READY phase argument with active state.phase returns empty activeWindow for " + item.phase);
+      assert(staleWindows2.windowSize === 0, "READY phase argument with active state.phase returns windowSize 0 for " + item.phase);
+
+      // Queue advancement
+      var adv1 = advanceQueueInternal_();
+      assert(adv1.ready === true, "advanceQueueInternal_ recognizes READY state for " + item.phase);
+
+      var stateAfter = getQueueState();
+      assert(stateAfter.phase === item.phase, "Current phase unchanged after advanceQueueInternal_ for " + item.phase);
+      assert(stateAfter.lead === 1, "Current lead unchanged after advanceQueueInternal_ for " + item.phase);
+
+      // Repeated advancement
+      var adv2 = advanceQueueInternal_();
+      assert(adv2.ready === true, "Repeated advanceQueueInternal_ produces identical result for " + item.phase);
+    }
+
+    // 3. Test Reconciliation while READY
+    setupFixture();
+    setQueueState({ phase: 'READY_WEEKEND', round: 1, direction: 'ASCENDING', lead: 1 });
+    var reconRes = reconcileFromSheet();
+    assert(reconRes.success === true, "reconcileFromSheet succeeds while in READY_WEEKEND.");
+    assert(getQueueState().phase === 'READY_WEEKEND', "reconcileFromSheet does not advance queue or change phase while READY.");
+
+    // 4. Test API Responses
+    setupFixture();
+    setQueueState({ phase: 'READY_HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+
+    var initRes = getInitialState('Alice', '1234');
+    assert(initRes.success === true, "getInitialState succeeds for valid participant during READY state.");
+    assert(initRes.readiness !== null && initRes.readiness.nextPhase === 'HOLIDAY_VOLUNTEER', "getInitialState includes readiness object.");
+    assert(initRes.isActive === false, "getInitialState sets isActive to false during READY state.");
+    assert(Array.isArray(initRes.availableChoices.vacation) && initRes.availableChoices.vacation.length === 0, "availableChoices fields remain empty arrays.");
+
+    var pubRes = getPublicDisplaySnapshot();
+    assert(pubRes.success === true, "getPublicDisplaySnapshot succeeds during READY state.");
+    assert(pubRes.readiness !== null && pubRes.readiness.nextPhase === 'HOLIDAY_VOLUNTEER', "getPublicDisplaySnapshot includes readiness object.");
+    assert(pubRes.queue.activeNames.length === 0 && pubRes.queue.upNextNames.length === 0, "Public queue active and upNext names are empty.");
+    assert(pubRes.calendar.vacationWeeks.length === 1, "Public calendar data remains available.");
+    assert(pubRes.participantNames.indexOf('Alice') !== -1, "Participant filter names remain available.");
+
+    // 5. Test Server-side Submission Guard (submitSelection)
+    setupFixture();
+    setQueueState({ phase: 'READY_WEEKEND', round: 1, direction: 'ASCENDING', lead: 1 });
+
+    var actionsToTest = [
+      { action: 'SUBMIT', payload: { phase: 'WEEKEND', action: 'SUBMIT', selections: ['2027-01-02'] } },
+      { action: 'SUBMIT (Stale Active Phase)', payload: { phase: 'VACATION_RANDOM', action: 'SUBMIT', selections: ['W1'] } },
+      { action: 'SUBMIT (Missing Phase)', payload: { action: 'SUBMIT', selections: ['2027-01-02'] } },
+      { action: 'PASS', payload: { phase: 'WEEKEND', action: 'PASS' } },
+      { action: 'NONE', payload: { phase: 'TRANSFER_RECEIVER', action: 'NONE' } }
+    ];
+
+    for (var k = 0; k < actionsToTest.length; k++) {
+      var testCase = actionsToTest[k];
+      var rejected = false;
+      try {
+        submitSelection('Alice', testCase.payload);
+      } catch (err) {
+        rejected = true;
+        assert(err.message.indexOf('Waiting for the administrator') !== -1 || err.message.indexOf('waiting for the administrator') !== -1, "submitSelection rejects " + testCase.action + " with friendly waiting message: " + err.message);
+      }
+      assert(rejected, "submitSelection must throw/reject during READY state for " + testCase.action);
+    }
+
+    // Verify sheet data and turn tracking remained unchanged
+    var wDataAfter = MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues();
+    assert(wDataAfter[1][2] === '', "Weekend coverage assignee remains unassigned after rejected submissions.");
+
+    var pDataAfter = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+    assert(pDataAfter[1][9] === '', "Entry Timestamp remains empty after rejected submission.");
+
+    // 6. Test Notification Suppression
+    setupFixture();
+    setQueueState({ phase: 'READY_HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+
+    var messagesSent = 0;
+    var origSendNotif = typeof sendParticipantNotification_ !== 'undefined' ? sendParticipantNotification_ : null;
+    sendParticipantNotification_ = function(phone, text) {
+      messagesSent++;
+      return { success: true };
+    };
+
+    // Automated notifications
+    notifyActiveParticipants();
+    assert(messagesSent === 0, "notifyActiveParticipants sends zero messages during READY state.");
+
+    // Direct manual resend call
+    var resendRes = resendParticipantWhatsApp('Alice', 2);
+    assert(resendRes.success === false, "resendParticipantWhatsApp rejects during READY state.");
+    assert(messagesSent === 0, "resendParticipantWhatsApp sends zero messages during READY state.");
+
+    // Edit resend checkbox in sheet
+    MockSpreadsheetApp._sheets['Participant Config'].getRange(2, 16).setValue(true); // Row 2, Resend WhatsApp = true
+    onEdit({
+      range: {
+        getSheet: function() { return MockSpreadsheetApp._sheets['Participant Config']; },
+        getRow: function() { return 2; },
+        getColumn: function() { return 16; }
+      },
+      value: 'TRUE'
+    });
+    assert(messagesSent === 0, "onEdit resend-checkbox sends zero messages during READY state.");
+    assert(MockSpreadsheetApp._sheets['Participant Config'].getRange(2, 16).getValue() === false, "onEdit resend-checkbox resets checkbox to FALSE.");
+
+    if (origSendNotif) sendParticipantNotification_ = origSendNotif;
+
+    // 7. Test Representative Active-Phase Control Case
+    setupFixture();
+    setQueueState({ phase: 'VACATION_RANDOM', round: 1, direction: 'ASCENDING', lead: 1 });
+
+    assert(getActiveWindowSize('VACATION_RANDOM') > 0, "Active phase control: getActiveWindowSize > 0.");
+    var activeControl = getActiveParticipants('VACATION_RANDOM');
+    assert(activeControl.length > 0 && activeControl[0]['Name'] === 'Alice', "Active phase control: Alice is active in VACATION_RANDOM.");
+
+    var submitControl = submitSelection('Alice', { phase: 'VACATION_RANDOM', action: 'SUBMIT', selections: ['W1'] });
+    assert(submitControl.success === true, "Active phase control: Alice successfully submits selection in VACATION_RANDOM.");
+
+    // 8. Test Frontend UI Rendering (Active -> READY -> Active)
+    if (typeof browserCtx !== 'undefined' && browserCtx.onStateLoaded) {
+      setupFixture();
+
+      // Ensure participant is logged in with rules acknowledged
+      browserCtx.appState.participantId = 'Alice';
+      browserCtx.appState.name = 'Alice';
+
+      // A) Simulate Active Phase State Load
+      setQueueState({ phase: 'VACATION_RANDOM', round: 1, direction: 'ASCENDING', lead: 1 });
+      var activeStatePayload = getInitialState('Alice', '1234');
+      activeStatePayload.participant['Rules Acknowledged Year'] = '2027'; // Bypass modal
+      browserCtx.onStateLoaded(activeStatePayload);
+
+      assert(browserCtx.appState.isActive === true, "Frontend: appState.isActive is true during active phase.");
+      assert(browserCtx.appState.readiness === null, "Frontend: appState.readiness is null during active phase.");
+
+      // B) Simulate Transition into READY State
+      setQueueState({ phase: 'READY_HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+      var readyStatePayload = getInitialState('Alice', '1234');
+      readyStatePayload.participant['Rules Acknowledged Year'] = '2027';
+
+      // Pre-populate pending selection
+      browserCtx.appState.selections = ['W1'];
+      browserCtx.appState.adjacentHolidayPending = { holidayName: 'Thanksgiving', position: 'Call 1' };
+
+      browserCtx.onStateLoaded(readyStatePayload);
+
+      assert(browserCtx.appState.isActive === false, "Frontend: appState.isActive set to false on transition to READY.");
+      assert(browserCtx.appState.readiness !== null && browserCtx.appState.readiness.nextPhase === 'HOLIDAY_VOLUNTEER', "Frontend: appState.readiness populated on transition to READY.");
+      assert(browserCtx.appState.selections.length === 0, "Frontend: appState.selections cleared on transition to READY.");
+      assert(browserCtx.appState.adjacentHolidayPending === null, "Frontend: appState.adjacentHolidayPending cleared on transition to READY.");
+
+      // Test public heading guest view
+      var pubSnapshot = getPublicDisplaySnapshot();
+      browserCtx.appState.participantId = null; // Guest context
+      browserCtx.renderPublicPhaseHeading(pubSnapshot);
+      assert(browserCtx.document.getElementById('phaseLabel').innerText === 'WAITING FOR ADMIN', "Frontend: renderPublicPhaseHeading shows 'WAITING FOR ADMIN'.");
+      browserCtx.appState.participantId = 'Alice'; // Restore logged-in context
+
+      // C) Simulate Transition back to Active Phase
+      setQueueState({ phase: 'HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+      var activeStatePayload2 = getInitialState('Alice', '1234');
+      activeStatePayload2.participant['Rules Acknowledged Year'] = '2027';
+      browserCtx.onStateLoaded(activeStatePayload2);
+
+      assert(browserCtx.appState.isActive === true, "Frontend: appState.isActive restored to true when active phase loaded.");
+      assert(browserCtx.appState.readiness === null, "Frontend: appState.readiness restored to null when active phase loaded.");
+    } else {
+      log.push("⚠️ SKIP: Frontend DOM testing not executed because browserCtx is missing.");
+    }
+
+    log.push("✅ All Task 2 READY state tests passed successfully.");
+
+  } catch (e) {
+    log.push("❌ Test execution failed: " + e.message + "\n" + e.stack);
+    hasFailed = true;
+  } finally {
+    SpreadsheetApp = originalSpreadsheetApp;
+    withScriptLock = originalWithScriptLock;
+  }
+
+  if (hasFailed) {
+    throw new Error("One or more tests failed:\n" + log.join("\n"));
+  }
+  return log.join('\n');
+}

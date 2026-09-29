@@ -27,6 +27,23 @@
 - **Completion States**: `Queue.gs` proactively sets `COMPLETE` if the Transfer Receiver phase encounters an empty initial pool, if there are strictly zero transferable offers, or if finding the next eligible lead exhausts the pool during round advancement (outside of Holiday fallbacks). Note that if an initial pool for Vacation or Weekend is empty, the function simply returns without changing the phase.
 - **Holiday to Transfer**: When `advanceQueueInternal_()` detects that `hasOpenHolidayPositions_()` is false in `HOLIDAY_VOLUNTEER` or `HOLIDAY_MANDATORY`, it automatically stages `TRANSFER_OFFER_COLLECTION` (Round 1, ASCENDING, Lead 1).
 
+### READY States Consumption & Guards (Task 2 Implemented)
+
+The application recognizes four durable waiting states in `Config / Current Phase`:
+1. `READY_HOLIDAY_VOLUNTEER` -> Next: `HOLIDAY_VOLUNTEER`
+2. `READY_HOLIDAY_MANDATORY` -> Next: `HOLIDAY_MANDATORY`
+3. `READY_WEEKEND` -> Next: `WEEKEND`
+4. `READY_TRANSFER` -> Next: `TRANSFER_OFFER_COLLECTION`
+
+- **Queue Readers**: `getQueueWindows_()` returns `windowSize: 0`, empty `activeWindow` and `upNextWindow`, and the full participant roster. `getActiveParticipants()` returns `[]`.
+- **Queue Advancement & Reconciliation**: `advanceQueueInternal_()` returns without changing state, round, direction, lead, assignments, or tracking. `reconcileFromSheet()` performs validations and statistics calculations but skips `advanceQueue()`.
+- **API Contracts**: `getInitialState()` and `getPublicDisplaySnapshot()` expose `readiness: { nextPhase, message }` (or `null` outside READY states). `isActive` is `false`.
+- **Submission Guards**: `submitSelection()` rejects all actions (`SUBMIT`, `PASS`, `NONE`, "no giveaways") inside its script lock with a waiting-for-administrator error message.
+- **Notification Suppression**: Automated pings, manual resends, and overdue alerts exit early without sending messages or updating tracking. Resend checkboxes edited during READY states are reset to `FALSE` without sending.
+- **Client Rendering**: Header displays "WAITING FOR ADMIN", round/direction badges are hidden, selection controls are disabled/hidden, friendly waiting messages are shown, and active sessions clear pending selections/modals on transition into READY states.
+
+*(Note: Production of READY states and administrator Begin/start controls belong to pending Task 3.)*
+
 ---
 
 ## TARGET Behavior (Targeted for later task)

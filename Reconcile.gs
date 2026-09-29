@@ -201,8 +201,9 @@ function reconcileFromSheet() {
     // 7. Re-evaluate Queue State
     // By calling advanceQueue(), if the current Lead's requirement was met via a manual sheet edit,
     // the system will advance the queue to the next eligible person automatically.
+    // While READY, skip queue advancement.
     var state = getQueueState();
-    if (state.phase !== 'COMPLETE' && state.phase !== 'SETUP_EMPTY') {
+    if (state.phase !== 'COMPLETE' && state.phase !== 'SETUP_EMPTY' && !getReadinessInfo(state.phase)) {
        try {
           // If a manual edit fulfilled the current Lead (or multiple leads),
           // advanceQueue() correctly identifies the NEXT eligible person and advances state.

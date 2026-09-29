@@ -10,4 +10,5 @@
 .claspignore
 test_validate.js
 test*.js
+tests/**
 **/*.md
