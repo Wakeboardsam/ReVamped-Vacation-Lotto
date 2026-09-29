@@ -2018,9 +2018,9 @@ function runTask3TransitionTests() {
         ['Web App URL', 'https://example.com']
       ]);
       MockSpreadsheetApp.createSheet('Participant Config', [
-        ['Name', 'PIN', 'Active for Year', 'Vacation Phase Enabled', 'Weekend Phase Enabled', 'Holiday Volunteer', 'Holiday Volunteer Response', 'Mandatory Holiday Eligible', 'Transfer Giver', 'Transfer Receiver', 'Transfer Offers Submitted', 'Seniority Position', 'Lottery Position', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Phone Number', 'Resend WhatsApp', 'Vacation Week Target Override', 'Weekend Assignment Maximum'],
-        ['Alice', '1234', true, true, true, true, 'Yes', true, true, true, false, 1, 1, '', false, false, '1111111111', false, '', ''],
-        ['Bob',   '5678', true, true, true, true, 'Pass', true, true, true, false, 2, 2, '', false, false, '2222222222', false, '', '']
+        ['Name', 'PIN', 'Active for Year', 'Vacation Phase Enabled', 'Weekend Phase Enabled', 'Holiday Volunteer', 'Holiday Volunteer Response', 'Mandatory Holiday Eligible', 'Transfer Giver', 'Transfer Receiver', 'Transfer Offers Submitted', 'Seniority Position', 'Lottery Position', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Phone Number', 'Resend WhatsApp', 'Vacation Week Target Override', 'Weekend Assignment Maximum', 'On Deck Event Key'],
+        ['Alice', '1234', true, true, true, true, 'Yes', true, true, true, false, 1, 1, '', false, false, '1111111111', false, '', '', ''],
+        ['Bob',   '5678', true, true, true, true, 'Pass', true, true, true, false, 2, 2, '', false, false, '2222222222', false, '', '', '']
       ]);
       MockSpreadsheetApp.createSheet('Vacation Availability', [
         ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants'],
@@ -2250,7 +2250,6 @@ function runTask3TransitionTests() {
 
     // 11. Blocked condition (outstanding requirements with exhausted pool) retains phase, no COMPLETE
     setupTask3Fixture();
-    // Clear all participants except Alice
     pSheet = MockSpreadsheetApp._sheets['Participant Config'];
     pHeaders = pSheet.getDataRange().getValues()[0];
     var activeColIdx = pHeaders.indexOf('Active for Year') + 1;
@@ -2259,12 +2258,164 @@ function runTask3TransitionTests() {
     pSheet.getRange(2, overrideColIdx).setValue(5); // Increase Alice target to 5, but only 2 weeks available (W1, W2)
     beginSeniorityRound();
     submitSelection('Alice', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W1'] });
-    // Alice selects W2 in round 2
     setQueueState({ phase: 'VACATION_RANDOM', round: 2, direction: 'ASCENDING', lead: 1 });
     submitSelection('Alice', { phase: 'VACATION_RANDOM', action: 'SUBMIT', selections: ['W2'] });
-    // Round 3: Alice has 2 assignments, target is 5, but no open weeks remain!
+
+    // Round 3: Alice has 2 assignments, target is 5, but 0 open weeks remain in Vacation Availability
+    // Mark W1 and W2 capacity full
+    var vSheet = MockSpreadsheetApp._sheets['Vacation Availability'];
+    vSheet.getRange(2, 3).setValue(1); // W1 capacity 1 (filled by Alice)
+    vSheet.getRange(3, 3).setValue(1); // W2 capacity 1 (filled by Alice)
+
     var advBlocked = advanceQueueInternal_();
+    assert(advBlocked && advBlocked.blocked === true, "Vacation blocked condition returns explicit blocked result.");
     assert(getQueueState().phase === 'VACATION_RANDOM', "Vacation with outstanding requirements and exhausted pool retains phase without setting COMPLETE.");
+
+    // 12. SETUP_ERROR fallthrough prevention
+    setupTask3Fixture();
+    setQueueState({ phase: 'HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+    pSheet = MockSpreadsheetApp._sheets['Participant Config'];
+    pHeaders = pSheet.getDataRange().getValues()[0];
+    pSheet.getRange(2, pHeaders.indexOf('Holiday Volunteer Response') + 1).setValue('Pass');
+    pSheet.getRange(3, pHeaders.indexOf('Holiday Volunteer Response') + 1).setValue('Pass');
+    MockSpreadsheetApp._sheets['Holiday Coverage'].getRange(2, 2).setValue('not-a-date'); // Malformed date
+    var snapHolBefore = JSON.stringify(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues());
+    var snapConfigBefore = JSON.stringify(MockSpreadsheetApp._sheets['Config'].getDataRange().getValues());
+    var setupErrRes = advanceQueueInternal_();
+    var snapHolAfter = JSON.stringify(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues());
+    var snapConfigAfter = JSON.stringify(MockSpreadsheetApp._sheets['Config'].getDataRange().getValues());
+    assert(setupErrRes && setupErrRes.setupError === true, "advanceQueueInternal_ handles SETUP_ERROR explicitly without fallthrough.");
+    assert(getQueueState().phase === 'HOLIDAY_VOLUNTEER', "HOLIDAY_VOLUNTEER phase retained on SETUP_ERROR.");
+    assert(snapHolBefore === snapHolAfter, "Holiday coverage sheet snapshot unchanged on SETUP_ERROR.");
+    assert(snapConfigBefore === snapConfigAfter, "Config sheet snapshot unchanged on SETUP_ERROR.");
+
+    // 13a. Single volunteer fallback serpentine advancement
+    setupTask3Fixture();
+    setQueueState({ phase: 'HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-01-01', 'Call 1', 'Alice'],
+      ['Memorial Day', '2027-05-31', 'Call 1', 'Alice'],
+      ['Independence Day', '2027-07-04', 'Call 1', '']
+    ]);
+    pSheet = MockSpreadsheetApp._sheets['Participant Config'];
+    pHeaders = pSheet.getDataRange().getValues()[0];
+    pSheet.getRange(3, pHeaders.indexOf('Holiday Volunteer Response') + 1).setValue('Pass');
+    advanceQueueInternal_();
+    assert(getQueueState().phase === 'HOLIDAY_VOLUNTEER', "Holiday Volunteer does not stage MANDATORY while legal voluntary choices remain for Alice.");
+    assert(getQueueState().round === 3, "Serpentine round advancement sets minReqRound = 3 for Alice (who holds 2 assignments).");
+
+    // 13b. Multiple volunteers at reversal boundary (Alice Pos 1 with 2 holidays, Bob Pos 2 with 2 holidays, 5 total holidays)
+    setupTask3Fixture();
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['H1', '2027-01-01', 'Call 1', 'Alice'],
+      ['H2', '2027-02-01', 'Call 1', 'Alice'],
+      ['H3', '2027-03-01', 'Call 1', 'Bob'],
+      ['H4', '2027-04-01', 'Call 1', 'Bob'],
+      ['H5', '2027-05-01', 'Call 1', '']
+    ]);
+    setQueueState({ phase: 'HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 2 });
+    pSheet = MockSpreadsheetApp._sheets['Participant Config'];
+    pHeaders = pSheet.getDataRange().getValues()[0];
+    pSheet.getRange(2, pHeaders.indexOf('Holiday Volunteer Response') + 1).setValue('Yes');
+    pSheet.getRange(3, pHeaders.indexOf('Holiday Volunteer Response') + 1).setValue('Yes');
+
+    advanceQueueInternal_();
+    var stateMulti = getQueueState();
+    assert(stateMulti.phase === 'HOLIDAY_VOLUNTEER', "Phase remains HOLIDAY_VOLUNTEER for multiple volunteers.");
+    assert(stateMulti.round === 3, "Min required round set to 3.");
+    assert(stateMulti.direction === 'ASCENDING', "Parity flip across 2 boundary steps retains ASCENDING direction.");
+    assert(stateMulti.lead === 1, "First eligible lead in ASCENDING order is Alice (lead 1).");
+    var activeMulti = getActiveParticipants('HOLIDAY_VOLUNTEER');
+    assert(activeMulti.length > 0 && activeMulti[0]['Name'] === 'Alice', "Alice is exposed as the sole active participant.");
+
+    // 13c. Volunteers with different existing holiday counts (Alice Pos 1 with 1 holiday, Bob Pos 2 with 3 holidays)
+    setupTask3Fixture();
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['H1', '2027-01-01', 'Call 1', 'Alice'],
+      ['H2', '2027-02-01', 'Call 1', 'Bob'],
+      ['H3', '2027-03-01', 'Call 1', 'Bob'],
+      ['H4', '2027-04-01', 'Call 1', 'Bob'],
+      ['H5', '2027-05-01', 'Call 1', '']
+    ]);
+    setQueueState({ phase: 'HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 2 });
+    advanceQueueInternal_();
+    var stateDiff = getQueueState();
+    assert(stateDiff.round === 2, "Does not jump rounds further than needed: minReqRound = 2 for Alice.");
+    assert(stateDiff.direction === 'DESCENDING', "Single boundary step flips direction to DESCENDING.");
+    assert(stateDiff.lead === 1, "Alice (lead 1) is active.");
+    var activeDiff = getActiveParticipants('HOLIDAY_VOLUNTEER');
+    assert(activeDiff.length === 1 && activeDiff[0]['Name'] === 'Alice', "Bob (3 assignments) is NOT prematurely eligible in round 2.");
+
+    // 14. Blocked condition handling in WEEKEND and HOLIDAY_MANDATORY
+    // A) WEEKEND with open coverage and all enabled participants capped at 0
+    setupTask3Fixture();
+    setQueueState({ phase: 'WEEKEND', round: 1, direction: 'ASCENDING', lead: 1 });
+    pSheet = MockSpreadsheetApp._sheets['Participant Config'];
+    pHeaders = pSheet.getDataRange().getValues()[0];
+    pSheet.getRange(2, pHeaders.indexOf('Weekend Assignment Maximum') + 1).setValue(0);
+    pSheet.getRange(3, pHeaders.indexOf('Weekend Assignment Maximum') + 1).setValue(0);
+    var wkndBlockedRes = advanceQueueInternal_();
+    assert(wkndBlockedRes && wkndBlockedRes.blocked === true, "WEEKEND with capped participants returns explicit blocked result.");
+    assert(getQueueState().phase === 'WEEKEND' && getQueueState().round === 1, "WEEKEND phase and round retained without setting COMPLETE or incrementing round.");
+
+    // B) HOLIDAY_MANDATORY with Alice holding Call 1, and only Call 2 of SAME holiday open
+    setupTask3Fixture();
+    setQueueState({ phase: 'HOLIDAY_MANDATORY', round: 1, direction: 'ASCENDING', lead: 1 });
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['New Years', '2027-01-01', 'Call 1', 'Alice'],
+      ['New Years', '2027-01-01', 'Call 2', '']
+    ]);
+    pSheet = MockSpreadsheetApp._sheets['Participant Config'];
+    pHeaders = pSheet.getDataRange().getValues()[0];
+    pSheet.getRange(3, pHeaders.indexOf('Active for Year') + 1).setValue(false); // Bob inactive
+    var mandBlockedRes = advanceQueueInternal_();
+    assert(mandBlockedRes && mandBlockedRes.blocked === true, "HOLIDAY_MANDATORY with duplicate-blocked participant returns explicit blocked result.");
+    assert(getActiveParticipants('HOLIDAY_MANDATORY').length === 0, "Alice is NOT exposed as active when legally blocked from all open holidays.");
+
+    // 15. On Deck tracking reset verification
+    setupTask3Fixture();
+    pSheet = MockSpreadsheetApp._sheets['Participant Config'];
+    pHeaders = pSheet.getDataRange().getValues()[0];
+    var entryIdx = pHeaders.indexOf('Entry Timestamp') + 1;
+    var remIdx = pHeaders.indexOf('Reminder Sent') + 1;
+    var alertIdx = pHeaders.indexOf('Admin Alert Sent') + 1;
+    var onDeckIdx = pHeaders.indexOf('On Deck Event Key') + 1;
+
+    // Populate all tracking fields for Alice
+    pSheet.getRange(2, entryIdx).setValue('2027-01-01');
+    pSheet.getRange(2, remIdx).setValue(true);
+    pSheet.getRange(2, alertIdx).setValue(true);
+    pSheet.getRange(2, onDeckIdx).setValue('STALE_ON_DECK_KEY');
+
+    // Rejected phase start preserves tracking fields
+    var rejectedStartErr = false;
+    try {
+      beginWeekendPhase(); // State is SETUP, requires READY_WEEKEND
+    } catch (e) {
+      rejectedStartErr = true;
+    }
+    assert(rejectedStartErr, "Rejected beginWeekendPhase throws error.");
+    assert(pSheet.getRange(2, onDeckIdx).getValue() === 'STALE_ON_DECK_KEY', "Rejected phase start preserves On Deck tracking field.");
+    assert(pSheet.getRange(2, remIdx).getValue() === true, "Rejected phase start preserves Reminder Sent field.");
+
+    // Successful phase start clears all tracking fields including On Deck
+    setQueueState({ phase: 'READY_WEEKEND', round: 1, direction: 'ASCENDING', lead: 1 });
+    beginWeekendPhase();
+    var pDataFresh = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+    var pHeadersFresh = pDataFresh[0];
+    var freshOnDeckVal = pDataFresh[1][pHeadersFresh.indexOf('On Deck Event Key')];
+    var freshEntryVal = pDataFresh[1][pHeadersFresh.indexOf('Entry Timestamp')];
+    var freshRemVal = pDataFresh[1][pHeadersFresh.indexOf('Reminder Sent')];
+    var freshAlertVal = pDataFresh[1][pHeadersFresh.indexOf('Admin Alert Sent')];
+
+    assert(freshOnDeckVal === '', "Successful phase start clears On Deck Event Key.");
+    assert(freshEntryVal === '', "Successful phase start clears Entry Timestamp.");
+    assert(freshRemVal === false, "Successful phase start clears Reminder Sent.");
+    assert(freshAlertVal === false, "Successful phase start clears Admin Alert Sent.");
 
     log.push("✅ All Task 3 Transition tests passed successfully.");
 

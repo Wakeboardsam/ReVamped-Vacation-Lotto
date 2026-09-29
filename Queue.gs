@@ -152,8 +152,8 @@ function getQueueWindows_(phase, state, cache) {
   var effectivePhase = (state && state.phase) ? state.phase : phase;
 
   if (
-    (effectivePhase === 'HOLIDAY_VOLUNTEER' || effectivePhase === 'HOLIDAY_MANDATORY') &&
-    !hasOpenHolidayPositions_()
+    ((effectivePhase === 'HOLIDAY_VOLUNTEER' || effectivePhase === 'HOLIDAY_MANDATORY') && !hasOpenHolidayPositions_()) ||
+    ((effectivePhase === 'VACATION_SENIORITY' || effectivePhase === 'VACATION_RANDOM') && !hasOpenVacationWeeks_())
   ) {
     return {
       activeWindow: [],
@@ -237,6 +237,10 @@ function getQueueWindows_(phase, state, cache) {
           }
         } else if (effectivePhase === 'WEEKEND') {
           if (!participantHasLegalWeekendChoice_(p['Name'], cache)) {
+            isEligibleForRound = false;
+          }
+        } else if (effectivePhase === 'VACATION_SENIORITY' || effectivePhase === 'VACATION_RANDOM') {
+          if (!hasOpenVacationWeeks_()) {
             isEligibleForRound = false;
           }
         }
@@ -485,6 +489,10 @@ function advanceQueueInternal_() {
             if (!participantHasLegalWeekendChoice_(p['Name'], {})) {
               isEligibleForRound = false;
             }
+          } else if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
+            if (!hasOpenVacationWeeks_()) {
+              isEligibleForRound = false;
+            }
           }
         }
       }
@@ -723,6 +731,11 @@ function advanceQueueInternal_() {
                  newLeadIdx = i;
                  break;
                }
+             } else if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
+               if (hasOpenVacationWeeks_()) {
+                 newLeadIdx = i;
+                 break;
+               }
              } else {
                newLeadIdx = i;
                break;
@@ -785,20 +798,75 @@ function advanceQueueInternal_() {
             }
           } else if (hStatus.status === 'INCOMPLETE') {
             if (hasLegalHolidayChoices_()) {
-              // Calculate minimum required round so volunteer with legal choices is immediately active
-              var minReqRound = newRound;
+              // 1. Calculate the minimum required round where at least one volunteer is eligible
+              var minReqRound = Infinity;
               for (var k = 0; k < eligiblePool.length; k++) {
-                if (participantHasLegalHolidayChoice_(eligiblePool[k].participant['Name'], {})) {
-                  var req = eligiblePool[k].actualAssignments + 1;
-                  if (req > minReqRound) minReqRound = req;
+                var pName = eligiblePool[k].participant['Name'];
+                if (participantHasLegalHolidayChoice_(pName, {})) {
+                  var pAssigns = eligiblePool[k].actualAssignments;
+                  var reqR = pAssigns + 1;
+                  if (reqR >= newRound && reqR < minReqRound) {
+                    minReqRound = reqR;
+                  }
                 }
               }
-              setQueueState({
-                direction: newDirection,
-                round: minReqRound,
-                lead: eligiblePool[0].sortPosition
-              });
-              return { success: true, message: 'Continuing serpentine rounds for eligible volunteers.' };
+
+              if (minReqRound === Infinity) {
+                // No volunteers can make a legal choice
+                setQueueState({
+                  phase: 'READY_HOLIDAY_MANDATORY',
+                  round: 1,
+                  direction: 'ASCENDING',
+                  lead: 1
+                });
+                return {
+                  success: true,
+                  ready: true,
+                  message: 'Holiday volunteer participation is exhausted. Staged READY_HOLIDAY_MANDATORY.'
+                };
+              }
+
+              // 2. Parity flip: calculate direction across intermediate round boundaries
+              var roundFlips = minReqRound - currentRound;
+              var targetDirection = direction;
+              if (roundFlips % 2 !== 0) {
+                targetDirection = (direction === 'ASCENDING') ? 'DESCENDING' : 'ASCENDING';
+              }
+
+              // 3. Find the first volunteer in targetDirection eligible for minReqRound
+              var searchStep = (targetDirection === 'ASCENDING') ? 1 : -1;
+              var searchStartIdx = (targetDirection === 'ASCENDING') ? 0 : eligiblePool.length - 1;
+              var targetLeadPos = -1;
+
+              for (var i = searchStartIdx; i >= 0 && i < eligiblePool.length; i += searchStep) {
+                var pCandidate = eligiblePool[i].participant;
+                var candAssigns = eligiblePool[i].actualAssignments;
+                if (candAssigns < minReqRound && participantHasLegalHolidayChoice_(pCandidate['Name'], {})) {
+                  targetLeadPos = eligiblePool[i].sortPosition;
+                  break;
+                }
+              }
+
+              if (targetLeadPos !== -1) {
+                setQueueState({
+                  direction: targetDirection,
+                  round: minReqRound,
+                  lead: targetLeadPos
+                });
+                return { success: true, message: 'Continuing serpentine rounds for eligible volunteers.' };
+              } else {
+                setQueueState({
+                  phase: 'READY_HOLIDAY_MANDATORY',
+                  round: 1,
+                  direction: 'ASCENDING',
+                  lead: 1
+                });
+                return {
+                  success: true,
+                  ready: true,
+                  message: 'Holiday volunteer participation is exhausted. Staged READY_HOLIDAY_MANDATORY.'
+                };
+              }
             } else {
               setQueueState({
                 phase: 'READY_HOLIDAY_MANDATORY',

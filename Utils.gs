@@ -223,6 +223,31 @@ function addDaysToDateKey_(dateKey, days) {
 }
 
 /**
+ * Returns true when at least one vacation week has remaining capacity.
+ */
+function hasOpenVacationWeeks_() {
+  var vSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Vacation Availability');
+  if (!vSheet) return false;
+  var vData = vSheet.getDataRange().getValues();
+  if (vData.length < 2) return false;
+  var vHeaders = vData[0];
+  var capCol = vHeaders.indexOf('Capacity');
+  var assignCol = vHeaders.indexOf('Assigned Participants');
+
+  if (capCol === -1 || assignCol === -1) return false;
+
+  for (var i = 1; i < vData.length; i++) {
+    var cap = parseInt(vData[i][capCol]) || 4;
+    var assigneesStr = String(vData[i][assignCol] || '').trim();
+    var assignees = assigneesStr ? assigneesStr.split(',').map(function(s) { return s.trim(); }).filter(Boolean) : [];
+    if (assignees.length < cap) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Returns true when at least one official holiday call position is still open.
  */
 function hasOpenHolidayPositions_() {
@@ -408,17 +433,20 @@ function clearNotificationTracking_(participantId, phase) {
   var entryCol = pHeaders.indexOf('Entry Timestamp');
   var remCol = pHeaders.indexOf('Reminder Sent');
   var alertCol = pHeaders.indexOf('Admin Alert Sent');
+  var onDeckCol = pHeaders.indexOf('On Deck Event Key');
 
   var currentEntry = pData[pRowIdx - 1][entryCol];
   var currentRem = pData[pRowIdx - 1][remCol];
   var currentAlert = pData[pRowIdx - 1][alertCol];
+  var currentOnDeck = onDeckCol !== -1 ? pData[pRowIdx - 1][onDeckCol] : '';
 
   // Check if actually populated
   var hasEntry = currentEntry !== '' && currentEntry !== undefined && currentEntry !== null;
   var hasRem = currentRem === true || String(currentRem).toUpperCase() === 'TRUE';
   var hasAlert = currentAlert === true || String(currentAlert).toUpperCase() === 'TRUE';
+  var hasOnDeck = currentOnDeck !== '' && currentOnDeck !== undefined && currentOnDeck !== null;
 
-  if (hasEntry || hasRem || hasAlert) {
+  if (hasEntry || hasRem || hasAlert || hasOnDeck) {
     if (typeof logStateReset !== 'undefined') {
       var pObj = {
         'Name': participantId,
@@ -433,5 +461,6 @@ function clearNotificationTracking_(participantId, phase) {
     if (entryCol !== -1) pSheet.getRange(pRowIdx, entryCol + 1).clearContent();
     if (remCol !== -1) pSheet.getRange(pRowIdx, remCol + 1).setValue(false);
     if (alertCol !== -1) pSheet.getRange(pRowIdx, alertCol + 1).setValue(false);
+    if (onDeckCol !== -1) pSheet.getRange(pRowIdx, onDeckCol + 1).clearContent();
   }
 }

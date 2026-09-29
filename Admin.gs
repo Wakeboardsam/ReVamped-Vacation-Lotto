@@ -66,30 +66,13 @@ function resetParticipantTrackingFields_(ss, phaseName) {
   if (pData.length < 2) return;
   var pHeaders = pData[0];
 
-  var entryColIdx = pHeaders.indexOf('Entry Timestamp') + 1;
-  var reminderColIdx = pHeaders.indexOf('Reminder Sent') + 1;
-  var alertColIdx = pHeaders.indexOf('Admin Alert Sent') + 1;
+  var nameCol = pHeaders.indexOf('Name');
+  if (nameCol === -1) return;
 
-  if (entryColIdx > 0 && reminderColIdx > 0 && alertColIdx > 0) {
-    for (var i = 1; i < pData.length; i++) {
-      var row = i + 1;
-      if (typeof clearNotificationTracking_ !== 'undefined') {
-        var pName = pData[i][pHeaders.indexOf('Name')];
-        if (pName) {
-          clearNotificationTracking_(pName, phaseName);
-        }
-      } else {
-        if (typeof logStateReset !== 'undefined') {
-          var participantObj = {};
-          for (var c = 0; c < pHeaders.length; c++) {
-            participantObj[pHeaders[c]] = pData[i][c];
-          }
-          logStateReset(participantObj, phaseName);
-        }
-        pSheet.getRange(row, entryColIdx).clearContent();
-        pSheet.getRange(row, reminderColIdx).setValue(false);
-        pSheet.getRange(row, alertColIdx).setValue(false);
-      }
+  for (var i = 1; i < pData.length; i++) {
+    var pName = pData[i][nameCol];
+    if (pName) {
+      clearNotificationTracking_(pName, phaseName);
     }
   }
 }
