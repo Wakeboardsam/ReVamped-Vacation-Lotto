@@ -290,10 +290,15 @@ function advanceQueueInternal_() {
       phase === 'HOLIDAY_MANDATORY'
     ) {
       var hStatus = getHolidayPhaseStatus();
+      if (hStatus.status === 'SETUP_ERROR') {
+        return { success: false, setupError: true, error: hStatus.reason || 'Holiday setup error.' };
+      }
       if (hStatus.status === 'COMPLETE') {
-        // Coverage is complete. Do not expose additional ACTIVE participants.
         var nextInfo = getNextReadyStateFromHoliday();
-        if (!nextInfo.setupError && nextInfo.readyPhase) {
+        if (nextInfo.setupError) {
+          return { success: false, setupError: true, error: nextInfo.setupError };
+        }
+        if (nextInfo.readyPhase) {
           setQueueState({
             phase: nextInfo.readyPhase,
             round: 1,
@@ -323,9 +328,15 @@ function advanceQueueInternal_() {
 
     if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
       var vStatus = getVacationPhaseStatus();
+      if (vStatus.status === 'SETUP_ERROR') {
+        return { success: false, setupError: true, error: vStatus.reason || 'Vacation setup error.' };
+      }
       if (vStatus.status === 'COMPLETE') {
         var nextInfo = getNextReadyStateFromVacation();
-        if (!nextInfo.setupError && nextInfo.readyPhase) {
+        if (nextInfo.setupError) {
+          return { success: false, setupError: true, error: nextInfo.setupError };
+        }
+        if (nextInfo.readyPhase) {
           setQueueState({
             phase: nextInfo.readyPhase,
             round: 1,
@@ -343,6 +354,9 @@ function advanceQueueInternal_() {
 
     if (phase === 'WEEKEND') {
       var wStatus = getWeekendPhaseStatus();
+      if (wStatus.status === 'SETUP_ERROR') {
+        return { success: false, setupError: true, error: wStatus.reason || 'Weekend setup error.' };
+      }
       if (wStatus.status === 'COMPLETE') {
         setQueueState({
           phase: 'READY_TRANSFER',
@@ -431,8 +445,10 @@ function advanceQueueInternal_() {
     if (eligiblePool.length === 0) {
       if (phase === 'HOLIDAY_VOLUNTEER') {
         var hStatus = getHolidayPhaseStatus();
+        if (hStatus.status === 'SETUP_ERROR') {
+          return { success: false, setupError: true, error: hStatus.reason || 'Holiday setup error.' };
+        }
         if (hStatus.status === 'INCOMPLETE') {
-          // Volunteer participation genuinely exhausted with unfilled positions -> stage READY_HOLIDAY_MANDATORY
           setQueueState({
             phase: 'READY_HOLIDAY_MANDATORY',
             round: 1,
@@ -446,7 +462,10 @@ function advanceQueueInternal_() {
           };
         } else if (hStatus.status === 'COMPLETE') {
           var nextInfo = getNextReadyStateFromHoliday();
-          if (!nextInfo.setupError && nextInfo.readyPhase) {
+          if (nextInfo.setupError) {
+            return { success: false, setupError: true, error: nextInfo.setupError };
+          }
+          if (nextInfo.readyPhase) {
             setQueueState({
               phase: nextInfo.readyPhase,
               round: 1,
@@ -462,11 +481,17 @@ function advanceQueueInternal_() {
         }
       } else if (phase === 'HOLIDAY_MANDATORY') {
         var hStatus = getHolidayPhaseStatus();
+        if (hStatus.status === 'SETUP_ERROR') {
+          return { success: false, setupError: true, error: hStatus.reason || 'Holiday setup error.' };
+        }
         if (hStatus.status === 'INCOMPLETE') {
-          return { error: 'No eligible participants remain for Mandatory Holiday, but holiday positions are still unfilled.' };
+          return { success: false, blocked: true, error: 'No eligible participants remain for Mandatory Holiday, but holiday positions are still unfilled.' };
         } else if (hStatus.status === 'COMPLETE') {
           var nextInfo = getNextReadyStateFromHoliday();
-          if (!nextInfo.setupError && nextInfo.readyPhase) {
+          if (nextInfo.setupError) {
+            return { success: false, setupError: true, error: nextInfo.setupError };
+          }
+          if (nextInfo.readyPhase) {
             setQueueState({
               phase: nextInfo.readyPhase,
               round: 1,
@@ -480,11 +505,27 @@ function advanceQueueInternal_() {
             };
           }
         }
+      } else if (phase === 'WEEKEND') {
+        var wStatus = getWeekendPhaseStatus();
+        if (wStatus.status === 'SETUP_ERROR') {
+          return { success: false, setupError: true, error: wStatus.reason || 'Weekend setup error.' };
+        }
+        if (wStatus.status === 'INCOMPLETE') {
+          return { success: false, blocked: true, error: 'Weekend coverage is incomplete, but no eligible participants remain.' };
+        }
+      } else if (phase === 'VACATION_SENIORITY' || phase === 'VACATION_RANDOM') {
+        var vStatus = getVacationPhaseStatus();
+        if (vStatus.status === 'SETUP_ERROR') {
+          return { success: false, setupError: true, error: vStatus.reason || 'Vacation setup error.' };
+        }
+        if (vStatus.status === 'INCOMPLETE') {
+          return { success: false, blocked: true, error: 'Vacation targets remain, but no eligible participants remain.' };
+        }
       } else if (phase === 'TRANSFER_RECEIVER') {
         setQueueState({ phase: 'COMPLETE' });
         return { success: true, complete: true, message: 'Transfer Receiver phase complete.' };
       }
-      return; // Queue does not advance (retains current phase for Vacation/Weekend if targets/unfilled remain)
+      return; // Queue does not advance
     }
 
     // Determine bounds and find next eligible lead in the current direction
