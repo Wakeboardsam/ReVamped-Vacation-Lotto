@@ -12,7 +12,8 @@
     participant: null,
     availableChoices: null,
     selections: [],
-    adjacentWeekendPending: null
+    adjacentWeekendPending: null,
+    holidayProximityRange: 3
   };
 
   var cachedRulesText = null;
@@ -507,6 +508,7 @@
       appState.isActive = appState.readiness ? false : state.isActive;
       appState.participant = state.participant;
       appState.availableChoices = state.availableChoices;
+      appState.holidayProximityRange = (state.holidayProximityRange !== undefined && state.holidayProximityRange !== null) ? state.holidayProximityRange : 3;
 
       if (appState.readiness) {
         appState.selections = [];
@@ -1954,6 +1956,7 @@
 
     var weekends = (appState.availableChoices && appState.availableChoices.weekend) ? appState.availableChoices.weekend : [];
     var eligibleNearby = [];
+    var proximityRange = (appState.holidayProximityRange !== undefined && appState.holidayProximityRange !== null) ? appState.holidayProximityRange : 3;
 
     // Filter available weekend choices near the selected holiday Observed Date
     for (var i = 0; i < weekends.length; i++) {
@@ -1967,7 +1970,7 @@
       var wUtc = Date.UTC(wLocalDate.getFullYear(), wLocalDate.getMonth(), wLocalDate.getDate());
 
       var diffDays = Math.floor(Math.abs(hUtc - wUtc) / (1000 * 60 * 60 * 24));
-      if (diffDays <= 3) {
+      if (diffDays <= proximityRange) {
         eligibleNearby.push(w);
       }
     }

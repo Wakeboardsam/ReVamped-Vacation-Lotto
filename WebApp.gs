@@ -146,10 +146,39 @@ function getInitialState(participantId, pin) {
     attachSoftHolidayWarnings_(response.availableChoices.holiday, 'Observed Date', 0);
 
     var proximityStr = adminOptions['Holiday Proximity Range (days)'];
-    var proximityRange = (proximityStr !== undefined && proximityStr !== '') ? parseInt(proximityStr, 10) : 3;
+    var proximityRange = (proximityStr !== undefined && proximityStr !== '' && !isNaN(parseInt(proximityStr, 10))) ? parseInt(proximityStr, 10) : 3;
+    response.holidayProximityRange = proximityRange;
 
     var vacs = getSheetDataAsObjects('Vacation Availability');
     var wks = getSheetDataAsObjects('Weekend Coverage');
+
+    // Expose eligible weekend choices for optional adjacent weekend selection during Holiday
+    var isWeekendEnabled = participant['Weekend Phase Enabled'] === true || participant['Weekend Phase Enabled'] === 'TRUE';
+    var maxCapVal = participant['Weekend Assignment Maximum'];
+    var maxCap = (maxCapVal !== undefined && maxCapVal !== '' && !isNaN(parseInt(maxCapVal, 10))) ? parseInt(maxCapVal, 10) : 999;
+    var currentWkndAssignments = getParticipantAssignments(participant['Name'], 'WEEKEND', {});
+
+    var eligibleWeekends = [];
+    if (isWeekendEnabled && currentWkndAssignments < maxCap) {
+      var wHeaders = wks.length > 0 ? Object.keys(wks[0]) : [];
+      var wData = [wHeaders];
+      for (var k = 0; k < wks.length; k++) {
+        var row = [];
+        for (var c = 0; c < wHeaders.length; c++) row.push(wks[k][wHeaders[c]]);
+        wData.push(row);
+      }
+
+      for (var i = 0; i < wks.length; i++) {
+        var w = wks[i];
+        if (w['First Call Assignee']) continue; // Must be unassigned
+        var dateStr = w['Date'];
+        if (dateStr instanceof Date) dateStr = formatDate(dateStr);
+        if (participantAlreadyHasWeekend_(participant['Name'], dateStr, wData, wHeaders)) continue; // Must not hold same weekend
+
+        eligibleWeekends.push(w);
+      }
+    }
+    response.availableChoices.weekend = eligibleWeekends;
 
     var myVacations = [];
     for (var i = 0; i < vacs.length; i++) {
@@ -905,15 +934,25 @@ function submitSelection(participantId, selectionData) {
         var requestedWeekend = selectionData.adjacentWeekend;
         var partialSuccessMessage = null;
 
-        if (requestedWeekend && requestedWeekend.date) {
-          var reqDateStr = String(requestedWeekend.date).trim();
+        if (requestedWeekend && (requestedWeekend.date !== undefined && requestedWeekend.date !== null)) {
+          var rawReqDate = String(requestedWeekend.date).trim();
 
-          // Reject malformed date formats immediately
-          var normReqDate = normalizeDateKey_(reqDateStr);
-          if (!normReqDate) {
+          // Reject malformed date formats, suffixes (e.g. 2027-01-02garbage), and impossible dates (e.g. 2027-02-30) immediately
+          var dateRegex = /^(\d{4})-(\d{2})-(\d{2})$/;
+          var match = rawReqDate.match(dateRegex);
+          if (!match) {
             throw new Error("Invalid or malformed weekend date requested.");
           }
-          reqDateStr = normReqDate;
+
+          var yr = parseInt(match[1], 10);
+          var mo = parseInt(match[2], 10);
+          var dy = parseInt(match[3], 10);
+          var checkDate = new Date(yr, mo - 1, dy);
+          if (checkDate.getFullYear() !== yr || (checkDate.getMonth() + 1) !== mo || checkDate.getDate() !== dy) {
+            throw new Error("Invalid or impossible weekend date requested.");
+          }
+
+          var reqDateStr = rawReqDate;
 
           var wSheet = ss.getSheetByName('Weekend Coverage');
           var wData = wSheet ? wSheet.getDataRange().getValues() : [];
@@ -958,11 +997,16 @@ function submitSelection(participantId, selectionData) {
           var currentAssignee = wData[wRow - 1][wHeaders.indexOf('First Call Assignee')];
           var alreadyHasSameWeekend = participantAlreadyHasWeekend_(participantId, reqDateStr, wData, wHeaders);
 
-          var currentWkndAssignments = getParticipantAssignments(participantId, 'WEEKEND', {});
-          var maxCapVal = pData[pRowIdx - 1][pHeaders.indexOf('Weekend Assignment Maximum')];
-          var maxCap = (maxCapVal !== undefined && maxCapVal !== '') ? parseInt(maxCapVal, 10) : 999;
+          var pRowData = pData[pRowIdx - 1];
+          var isWeekendEnabled = pRowData[pHeaders.indexOf('Weekend Phase Enabled')] === true || pRowData[pHeaders.indexOf('Weekend Phase Enabled')] === 'TRUE';
 
-          if (currentAssignee) {
+          var currentWkndAssignments = getParticipantAssignments(participantId, 'WEEKEND', {});
+          var maxCapVal = pRowData[pHeaders.indexOf('Weekend Assignment Maximum')];
+          var maxCap = (maxCapVal !== undefined && maxCapVal !== '' && !isNaN(parseInt(maxCapVal, 10))) ? parseInt(maxCapVal, 10) : 999;
+
+          if (!isWeekendEnabled) {
+            partialSuccessMessage = "Holiday selection successful. However, the adjacent weekend (" + reqDateStr + ") was not added because weekend selection is disabled for your account.";
+          } else if (currentAssignee) {
             partialSuccessMessage = "Holiday selection successful. However, the adjacent weekend (" + reqDateStr + ") was not added because it was just selected by another participant.";
           } else if (alreadyHasSameWeekend) {
             partialSuccessMessage = "Holiday selection successful. However, the adjacent weekend (" + reqDateStr + ") was not added because you already hold a position for that weekend.";
