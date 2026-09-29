@@ -18,7 +18,6 @@ function onOpen(e) {
       .addItem('▶️ Begin Holiday Volunteer', 'beginHolidayPhase')
       .addItem('▶️ Begin Mandatory Holiday', 'beginMandatoryHolidayPhase')
       .addItem('▶️ Begin Weekend Phase', 'beginWeekendPhase')
-      .addItem('⏹️ End Weekend Early', 'endWeekendEarly')
       .addItem('▶️ Begin Transfer Giveaways', 'beginTransferPhase')
       .addSeparator()
       .addItem('✉️ Send Active Participant PINs', 'sendActiveParticipantPINs')
@@ -480,56 +479,6 @@ function beginWeekendPhase() {
   });
 }
 
-/**
- * Explicitly ends Weekend selection early after administrator confirmation.
- */
-function endWeekendEarly() {
-  var state = getQueueState();
-  if (state.phase !== 'WEEKEND') {
-    SpreadsheetApp.getUi().alert("Cannot end Weekend early: Current phase is '" + state.phase + "'. Action allowed only during active Weekend selection.");
-    return;
-  }
-
-  var wStatus = getWeekendPhaseStatus();
-  if (wStatus.status === 'SETUP_ERROR') {
-    SpreadsheetApp.getUi().alert("Cannot end Weekend early: " + (wStatus.reason || "Setup error detected."));
-    return;
-  }
-
-  var remaining = wStatus.remaining || 0;
-  var ui = SpreadsheetApp.getUi();
-  var response = ui.alert(
-    "End Weekend Phase Early",
-    "Are you sure you want to end Weekend selection early?\n\n" +
-    "Remaining unfilled weekend positions: " + remaining + "\n\n" +
-    "Ending early will stage READY_TRANSFER. Remaining vacancies will require manual resolution.",
-    ui.ButtonSet.YES_NO
-  );
-
-  if (response !== ui.Button.YES) {
-    return;
-  }
-
-  return withScriptLock(function() {
-    var stateCheck = getQueueState();
-    if (stateCheck.phase !== 'WEEKEND') {
-      throw new Error("Weekend phase state changed concurrently before ending early.");
-    }
-
-    var freshStatus = getWeekendPhaseStatus();
-    if (freshStatus.status === 'SETUP_ERROR') {
-      throw new Error("Cannot end Weekend early: " + (freshStatus.reason || "Setup error detected."));
-    }
-
-    setQueueState({ phase: 'READY_TRANSFER', round: 1, direction: 'ASCENDING', lead: 1 });
-
-    var summary = "Weekend selection ended early by administrator.\n\n" +
-                  "- Remaining unfilled weekend dates: " + (freshStatus.remaining || 0) + "\n" +
-                  "- Staged State: READY_TRANSFER";
-
-    SpreadsheetApp.getUi().alert(summary);
-  });
-}
 
 /**
  * Starts the Transfer Phase from READY_TRANSFER.
