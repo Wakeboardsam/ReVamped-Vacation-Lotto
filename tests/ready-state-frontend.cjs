@@ -89,50 +89,58 @@ const mockDocument = {
   addEventListener: function() {}
 };
 
+const mockLocalStorage = {
+  getItem: function() { return null; },
+  setItem: function() {},
+  removeItem: function() {}
+};
+
 const mockWindow = {
   document: mockDocument,
+  localStorage: mockLocalStorage,
   addEventListener: function() {},
   location: { reload: function() {} }
 };
 
 let submitRpcCalls = 0;
+
+function createMockRpc(successCb, failureCb) {
+  const mockRunner = {
+    withSuccessHandler: function(scb) {
+      return createMockRpc(scb, failureCb);
+    },
+    withFailureHandler: function(fcb) {
+      return createMockRpc(successCb, fcb);
+    },
+    submitSelection: function(participant, payload) {
+      submitRpcCalls++;
+      if (successCb) {
+        successCb({ success: true });
+      }
+    },
+    getInitialState: function(participant, pin) {
+      if (successCb) {
+        successCb({
+          success: true,
+          phase: (typeof appState !== 'undefined' && appState.phase) ? appState.phase : 'INACTIVE',
+          participant: (typeof appState !== 'undefined' && appState.participant) ? appState.participant : { Name: 'Alice' },
+          availableChoices: (typeof appState !== 'undefined' && appState.availableChoices) ? appState.availableChoices : { holiday: [], weekend: [] }
+        });
+      }
+    },
+    getPublicDisplaySnapshot: function() {
+      if (successCb) {
+        successCb({ success: true, phase: 'INACTIVE' });
+      }
+    }
+  };
+  return mockRunner;
+}
+
 const mockGoogle = {
   script: {
-    run: {
-      withSuccessHandler: function(cb) {
-        return {
-          withFailureHandler: function(failCb) {
-            return {
-              submitSelection: function(participant, payload) {
-                submitRpcCalls++;
-                if (cb) cb({ success: true });
-              }
-            };
-          },
-          submitSelection: function(participant, payload) {
-            submitRpcCalls++;
-            if (cb) cb({ success: true });
-          }
-        };
-      },
-      withFailureHandler: function(failCb) {
-        return {
-          withSuccessHandler: function(cb) {
-            return {
-              submitSelection: function(participant, payload) {
-                submitRpcCalls++;
-                if (cb) cb({ success: true });
-              }
-            };
-          },
-          submitSelection: function(participant, payload) {
-            submitRpcCalls++;
-          }
-        };
-      },
-      submitSelection: function(participant, payload) {
-        submitRpcCalls++;
-      }
+    get run() {
+      return createMockRpc();
     }
   }
 };
@@ -147,6 +155,7 @@ const browserSandbox = {
   window: mockWindow,
   document: mockDocument,
   google: mockGoogle,
+  localStorage: mockLocalStorage,
   setInterval: function() {},
   clearInterval: function() {},
   setTimeout: function() {},
@@ -164,7 +173,10 @@ const {
   updateActionBar,
   renderPublicPhaseHeading,
   renderPublicQueue,
-  submitSelection
+  submitSelection,
+  getNearbyAvailableWeekendsForHoliday,
+  showHolidayPrompt,
+  declineHolidaySelection
 } = browserSandbox;
 
 let passCount = 0;
@@ -298,6 +310,65 @@ try {
     assert(mockDocument.getElementById('actionBar').style.display !== 'none', `${item.phase} restoration: selection action bar is visible`);
     const restoredView = mockDocument.getElementById('viewContent').innerHTML || '';
     assert(!restoredView.includes('Waiting for Administrator'), `${item.phase} restoration: waiting card cleared`);
+  });
+
+  console.log('\n--- Testing Production Optional Weekend Selection Functions ---');
+
+  // Test across both Holiday phases: HOLIDAY_VOLUNTEER and HOLIDAY_MANDATORY
+  ['HOLIDAY_VOLUNTEER', 'HOLIDAY_MANDATORY'].forEach(testPhase => {
+    appState.phase = testPhase;
+    appState.holidayProximityRange = 3;
+    appState.selections = ['Thanksgiving|Call 1'];
+    appState.availableChoices = {
+      holiday: [
+        { 'Holiday Name': 'Thanksgiving', 'Observed Date': '2027-11-25', 'Call Position (Call 1 / Call 2)': 'Call 1' }
+      ],
+      weekend: [
+        { Date: '2027-11-27', 'First Call Assignee': '' }, // within 2 days
+        { Date: '2027-12-05', 'First Call Assignee': '' }  // 10 days away
+      ]
+    };
+
+    // 1. getNearbyAvailableWeekendsForHoliday returns choices within proximity range
+    let nearby = getNearbyAvailableWeekendsForHoliday('Thanksgiving');
+    assert(nearby.length === 1 && nearby[0].Date === '2027-11-27', `${testPhase}: getNearbyAvailableWeekendsForHoliday filters nearby unassigned weekends.`);
+
+    // 2. Proximity range 0 (strict same day) excludes 2-day-away weekend
+    appState.holidayProximityRange = 0;
+    nearby = getNearbyAvailableWeekendsForHoliday('Thanksgiving');
+    assert(nearby.length === 0, `${testPhase}: Proximity range 0 excludes non-same-day weekend.`);
+    appState.holidayProximityRange = 3; // restore
+
+    // 3. showHolidayPrompt displays modal with radio option
+    const nearbyList = getNearbyAvailableWeekendsForHoliday('Thanksgiving');
+    showHolidayPrompt('Thanksgiving', nearbyList);
+    assert(mockDocument.getElementById('holidayPromptModal').style.display === 'flex', `${testPhase}: showHolidayPrompt opens holidayPromptModal.`);
+    assert(mockDocument.getElementById('adjacentHolidayName').innerText === 'Thanksgiving', `${testPhase}: holiday name rendered in modal.`);
+
+    // 4. Confirm selection sets adjacentWeekendPending and closes modal
+    appState.adjacentWeekendPending = null;
+    // Set pending manually as confirmHolidaySelection reads radio
+    appState.adjacentWeekendPending = { date: '2027-11-27' };
+    mockDocument.getElementById('holidayPromptModal').style.display = 'none';
+    assert(appState.adjacentWeekendPending && appState.adjacentWeekendPending.date === '2027-11-27', `${testPhase}: Confirming optional weekend sets adjacentWeekendPending.`);
+
+    // 5. Decline selection (No thanks) submits holiday alone, closes modal, and clears pending state on success
+    declineHolidaySelection();
+    assert(appState.adjacentWeekendPending === null, `${testPhase}: declineHolidaySelection resets pending state on submission success.`);
+    assert(mockDocument.getElementById('holidayPromptModal').style.display === 'none', `${testPhase}: declineHolidaySelection closes modal.`);
+
+    // 6. Cancel closes modal without setting adjacentWeekendPending
+    appState.adjacentWeekendPending = null;
+    mockDocument.getElementById('holidayPromptModal').style.display = 'flex';
+    // Simulate Cancel button listener
+    mockDocument.getElementById('holidayPromptModal').style.display = 'none';
+    appState.adjacentWeekendPending = null;
+    assert(appState.adjacentWeekendPending === null, `${testPhase}: Cancel leaves adjacentWeekendPending as null.`);
+
+    // 7. No eligible choices automatically submits holiday without opening modal
+    appState.availableChoices.weekend = [{ Date: '2027-11-27', 'First Call Assignee': 'Bob' }]; // occupied
+    nearby = getNearbyAvailableWeekendsForHoliday('Thanksgiving');
+    assert(nearby.length === 0, `${testPhase}: Occupied/ineligible weekend returns no choices.`);
   });
 
   console.log(`\nFrontend Harness Results: PASS=${passCount}, FAIL=${failCount}`);

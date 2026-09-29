@@ -934,8 +934,14 @@ function submitSelection(participantId, selectionData) {
         var requestedWeekend = selectionData.adjacentWeekend;
         var partialSuccessMessage = null;
 
-        if (requestedWeekend && (requestedWeekend.date !== undefined && requestedWeekend.date !== null)) {
-          var rawReqDate = String(requestedWeekend.date).trim();
+        if (requestedWeekend !== undefined && requestedWeekend !== null) {
+          // Validate payload shape: must be a non-array object with a string date property
+          if (typeof requestedWeekend !== 'object' || Array.isArray(requestedWeekend) ||
+              typeof requestedWeekend.date !== 'string') {
+            throw new Error("Invalid or malformed weekend date requested.");
+          }
+
+          var rawReqDate = requestedWeekend.date.trim();
 
           // Reject malformed date formats, suffixes (e.g. 2027-01-02garbage), and impossible dates (e.g. 2027-02-30) immediately
           var dateRegex = /^(\d{4})-(\d{2})-(\d{2})$/;
