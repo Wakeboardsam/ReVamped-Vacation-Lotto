@@ -67,7 +67,9 @@ const elementIds = [
   "phaseLabel", "roundLabel", "directionLabel", "timeWindowNotice", "phaseBadge",
   "selectionCard", "selectionContent", "selectionCount", "selectionLimit", "adjacentHolidayCard",
   "confirmSelectionBtn", "passTurnBtn", "noneChoiceBtn", "noGiveawaysBtn", "waitingCard",
-  "rulesModal", "publicPhaseHeading", "publicQueueList", "activeNames", "upNextNames"
+  "rulesModal", "holidayPromptModal", "viewContent", "actionBar", "submitSelectionBtn", "passBtn",
+  "selectionSummary", "publicPhaseHeading", "publicQueueList", "publicActiveList", "publicUpNextList",
+  "activeNames", "upNextNames", "activeYearLabel"
 ];
 
 elementIds.forEach(id => {
@@ -188,13 +190,14 @@ const readyStates = [
 ];
 
 try {
-  // 1. Active-Phase Control Case
+  // Setup authenticated user context
   appState.participantId = 'Alice';
   appState.name = 'Alice';
   appState.pin = '1234';
 
   const activeStatePayload = {
     success: true,
+    activeYear: '2027',
     participant: { Name: 'Alice', 'Rules Acknowledged Year': '2027' },
     isActive: true,
     phase: 'VACATION_RANDOM',
@@ -205,82 +208,97 @@ try {
     readiness: null
   };
 
+  // 1. Initial Active Control Test
   onStateLoaded(activeStatePayload);
-
   assert(appState.isActive === true, "Control case: appState.isActive is true for active phase");
-  const viewHtml = mockDocument.getElementById('viewContent').innerHTML || '';
-  assert(!viewHtml.includes('Waiting for Administrator'), "Control case: waiting for administrator card not rendered during active phase");
+  assert(mockDocument.getElementById('statusBadge').innerText === 'ACTIVE - YOUR TURN', "Control case: status badge displays ACTIVE - YOUR TURN");
+  assert(mockDocument.getElementById('actionBar').style.display !== 'none', "Control case: selection action bar is visible");
 
-  // 2. Test all four READY states
+  // 2. Test each of the four READY states
   readyStates.forEach(item => {
-    console.log(`\n--- Testing State: ${item.phase} ---`);
+    console.log(`\n--- Testing State Transition to ${item.phase} ---`);
 
+    // Load active state before transitioning to READY
+    onStateLoaded(activeStatePayload);
+    assert(mockDocument.getElementById('statusBadge').innerText === 'ACTIVE - YOUR TURN', `${item.phase} pre-check: status badge is ACTIVE - YOUR TURN`);
+    assert(mockDocument.getElementById('actionBar').style.display !== 'none', `${item.phase} pre-check: action bar is visible`);
+
+    // Pre-populate selections, pending holiday, and open selection modal
+    appState.selections = ['W1'];
+    appState.adjacentHolidayPending = { holidayName: 'Thanksgiving', position: 'Call 1' };
+    mockDocument.getElementById('holidayPromptModal').style.display = 'flex';
+    assert(mockDocument.getElementById('holidayPromptModal').style.display === 'flex', `${item.phase} pre-check: holidayPromptModal is open`);
+
+    submitRpcCalls = 0; // Reset RPC call counter
+
+    // Construct READY state payload matching API structure with top-level and queue state
     const readyPayload = {
       success: true,
+      activeYear: '2027',
       participant: { Name: 'Alice', 'Rules Acknowledged Year': '2027' },
       isActive: false,
+      phase: item.phase,
+      round: 1,
+      direction: 'ASCENDING',
       queue: { phase: item.phase, round: 1, direction: 'ASCENDING', lead: 1, activeNames: [], upNextNames: [] },
       availableChoices: { vacation: [], weekend: [], holiday: [], transferOffers: [] },
       readiness: { nextPhase: item.next, message: item.msg }
     };
 
-    // Populate selections to test modal and selection clearing
-    appState.selections = ['W1'];
-    appState.adjacentHolidayPending = { holidayName: 'Thanksgiving', position: 'Call 1' };
-    mockDocument.getElementById('rulesModal').style.display = 'block';
-
-    submitRpcCalls = 0; // Reset RPC tracker
-
+    // Transition into READY state solely through onStateLoaded()
     onStateLoaded(readyPayload);
 
     // Assert friendly waiting message displayed
-    renderPhaseView();
     const viewContent = mockDocument.getElementById('viewContent');
-    assert(viewContent.innerHTML.includes('Waiting for Administrator') && viewContent.innerHTML.includes(item.msg), `${item.phase}: viewContent renders friendly waiting message card`);
+    assert(viewContent.innerHTML.includes('Waiting for Administrator') && viewContent.innerHTML.includes(item.msg), `${item.phase}: viewContent renders friendly waiting card`);
 
-    // Assert active-turn indicators and selection controls are suppressed/hidden
+    // Assert active-turn indicators and selection controls are suppressed
     assert(appState.isActive === false, `${item.phase}: appState.isActive is false`);
-    assert(mockDocument.getElementById('statusBadge').innerText === 'WAITING FOR ADMIN', `${item.phase}: status badge displays 'WAITING FOR ADMIN'`);
+    assert(mockDocument.getElementById('statusBadge').innerText === 'WAITING FOR ADMIN', `${item.phase}: status badge displays WAITING FOR ADMIN`);
     assert(mockDocument.getElementById('actionBar').style.display === 'none', `${item.phase}: selection action bar is hidden`);
 
-    // Assert round/direction presentation hidden
+    // Assert round/direction labels cleared
     assert(mockDocument.getElementById('roundLabel').innerText === '', `${item.phase}: roundLabel is empty`);
 
-    // Assert pending selections and modals cleared
-    assert(appState.selections.length === 0, `${item.phase}: pending appState.selections cleared`);
-    assert(appState.adjacentHolidayPending === null, `${item.phase}: pending adjacentHolidayPending cleared`);
+    // Assert pending selections and selection modal cleared/closed
+    assert(appState.selections.length === 0, `${item.phase}: appState.selections cleared`);
+    assert(appState.adjacentHolidayPending === null, `${item.phase}: appState.adjacentHolidayPending cleared`);
+    assert(mockDocument.getElementById('holidayPromptModal').style.display === 'none', `${item.phase}: holidayPromptModal display is none`);
 
-    // Assert client submission produces zero RPC calls
+    // Assert client submission handler produces zero RPC calls
     submitSelection();
-    assert(submitRpcCalls === 0, `${item.phase}: client submission blocked, 0 RPC calls made`);
+    assert(submitRpcCalls === 0, `${item.phase}: submitSelection blocked (0 RPC calls)`);
 
-    // Public Heading and Public Queue test
+    // Public Heading & Queue rendering test
     const publicSnapshot = {
       success: true,
+      activeYear: '2027',
+      phase: item.phase,
+      round: 1,
+      direction: 'ASCENDING',
       readiness: { nextPhase: item.next, message: item.msg },
       queue: { phase: item.phase, round: 1, direction: 'ASCENDING', lead: 1, activeNames: [], upNextNames: [] }
     };
 
-    appState.participantId = null; // Test guest view
+    appState.participantId = null; // Guest view
     renderPublicPhaseHeading(publicSnapshot);
-    assert(mockDocument.getElementById('phaseLabel').innerText === 'WAITING FOR ADMIN', `${item.phase}: public heading displays 'WAITING FOR ADMIN'`);
+    assert(mockDocument.getElementById('phaseLabel').innerText === 'WAITING FOR ADMIN', `${item.phase}: public phaseLabel displays WAITING FOR ADMIN`);
 
     renderPublicQueue(publicSnapshot);
     const activeList = mockDocument.getElementById('publicActiveList');
-    assert(activeList.innerText.includes(item.msg) || activeList.textContent.includes(item.msg), `${item.phase}: public queue active list shows waiting message`);
-    appState.participantId = 'Alice'; // Restore logged-in state
+    assert(activeList.innerText.includes(item.msg) || activeList.textContent.includes(item.msg), `${item.phase}: public active list displays waiting message`);
+
+    // Restore logged-in user context
+    appState.participantId = 'Alice';
+
+    // Return to Active state and assert full restoration
+    onStateLoaded(activeStatePayload);
+    assert(appState.isActive === true, `${item.phase} restoration: appState.isActive restored to true`);
+    assert(mockDocument.getElementById('statusBadge').innerText === 'ACTIVE - YOUR TURN', `${item.phase} restoration: status badge restored to ACTIVE - YOUR TURN`);
+    assert(mockDocument.getElementById('actionBar').style.display !== 'none', `${item.phase} restoration: selection action bar is visible`);
+    const restoredView = mockDocument.getElementById('viewContent').innerHTML || '';
+    assert(!restoredView.includes('Waiting for Administrator'), `${item.phase} restoration: waiting card cleared`);
   });
-
-  // 3. Test Active -> READY -> Active Transition Restoration
-  console.log("\n--- Testing Active -> READY -> Active Transition ---");
-
-  // Reset readiness state to simulate active phase return
-  activeStatePayload.readiness = null;
-  onStateLoaded(activeStatePayload); // Return to active
-  renderPhaseView();
-  assert(appState.isActive === true, "Active restoration: appState.isActive restored to true");
-  const restoredHtml = mockDocument.getElementById('viewContent').innerHTML || '';
-  assert(!restoredHtml.includes('Waiting for Administrator'), "Active restoration: waiting card cleared when returning to active phase");
 
   console.log(`\nFrontend Harness Results: PASS=${passCount}, FAIL=${failCount}`);
 
