@@ -1919,7 +1919,7 @@ function runReadyStateTests() {
       assert(browserCtx.appState.isActive === true, "Frontend: appState.isActive restored to true when active phase loaded.");
       assert(browserCtx.appState.readiness === null, "Frontend: appState.readiness restored to null when active phase loaded.");
     } else {
-      assert(true, "Frontend DOM testing verified in separate browserCtx harness.");
+      log.push("⚠️ SKIP: Frontend DOM testing not executed because browserCtx is missing.");
     }
 
     log.push("✅ All Task 2 READY state tests passed successfully.");

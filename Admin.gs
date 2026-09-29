@@ -721,7 +721,9 @@ function resendParticipantWhatsApp(participantId, rowIndex) {
     var phase = state.phase;
 
     if (getReadinessInfo(phase)) {
-      pSheet.getRange(rowIndex, resendColIdx).setValue(false);
+      if (resendColIdx > 0) {
+        pSheet.getRange(rowIndex, resendColIdx).setValue(false);
+      }
       return { success: false, message: 'Queue is waiting for an administrator.' };
     }
     var adminOptions = getAdminOptions();
