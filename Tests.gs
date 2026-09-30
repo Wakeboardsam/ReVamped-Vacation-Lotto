@@ -1946,6 +1946,62 @@ function runTask5IntegrationVerificationTests() {
     advanceQueueInternal_();
     assert(getQueueState().phase === 'COMPLETE', "Integration: Queue reaches terminal COMPLETE after transfer receiver phase.");
 
+    // 6. Optional Weekend Vacation Adjacency Verification
+    MockSpreadsheetApp._sheets = {};
+    MockSpreadsheetApp.createSheet('Config', [
+      ['Setting Name', 'Setting Value'],
+      ['Current Phase', 'HOLIDAY_VOLUNTEER'],
+      ['Current Round', '1'],
+      ['Current Direction', 'ASCENDING'],
+      ['Current Lead', '1']
+    ]);
+    MockSpreadsheetApp.createSheet('Admin Options', [
+      ['Setting Name', 'Setting Value'],
+      ['Active Year', '2027'],
+      ['Holiday Proximity Range (days)', '5'],
+      ['Enable SMS Notifications', 'FALSE']
+    ]);
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'PIN', 'Active for Year', 'Vacation Phase Enabled', 'Weekend Phase Enabled', 'Holiday Volunteer', 'Holiday Volunteer Response', 'Mandatory Holiday Eligible', 'Transfer Giver', 'Transfer Receiver', 'Transfer Offers Submitted', 'Seniority Position', 'Lottery Position', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Phone Number', 'Resend WhatsApp', 'Vacation Week Target Override', 'Weekend Assignment Maximum'],
+      ['Alice', '1234', true, true, true, true, '', true, true, true, false, 1, 1, '', false, false, '1111111111', false, '', '2'],
+      ['Bob',   '5678', true, true, true, true, '', true, true, true, false, 2, 2, '', false, false, '2222222222', false, '', '2']
+    ]);
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants'],
+      ['W1', '2027-11-22', 1, 'Non-Prime', 'None', 'Alice'] // Alice vacation Monday 2027-11-22 (borders 11-20/21 before, 11-27/28 after)
+    ]);
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee', 'Vacation Adjacency Warning', 'Holiday Proximity Warning'],
+      ['2027-11-20', 'Saturday', '', '', ''], // Sat before Alice vacation
+      ['2027-11-27', 'Saturday', '', '', ''], // Sat after Alice vacation
+      ['2027-12-04', 'Saturday', '', '', '']  // Non-adjacent weekend
+    ]);
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['Thanksgiving', '2027-11-25', 'Call 1', '']
+    ]);
+
+    // Test Alice getInitialState before Begin Weekend (Vacation Adjacency Warning column is empty)
+    var aliceState = getInitialState('Alice', '1234');
+    var aliceWkndChoices = aliceState.availableChoices.weekend;
+    var sat20 = aliceWkndChoices.find(function(w) { return w['Date'] === '2027-11-20'; });
+    var sat27 = aliceWkndChoices.find(function(w) { return w['Date'] === '2027-11-27'; });
+    var sat04 = aliceWkndChoices.find(function(w) { return w['Date'] === '2027-12-04'; });
+
+    assert(sat20 && sat20.nearVacation === true, "Integration Adjacency: Saturday before Monday vacation flagged nearVacation = true for Alice.");
+    assert(sat27 && sat27.nearVacation === true, "Integration Adjacency: Saturday after Friday vacation flagged nearVacation = true for Alice.");
+    assert(sat04 && sat04.nearVacation === false, "Integration Adjacency: Non-adjacent weekend flagged nearVacation = false for Alice.");
+    assert(sat20['Vacation Adjacency Warning'] === undefined, "Integration Adjacency: Vacation Adjacency Warning column text not exposed in client payload.");
+
+    // Test Bob getInitialState (another participant's vacation does NOT flag Bob)
+    var bobState = getInitialState('Bob', '5678');
+    var bobWkndChoices = bobState.availableChoices.weekend;
+    var bobSat20 = bobWkndChoices.find(function(w) { return w['Date'] === '2027-11-20'; });
+    var bobSat27 = bobWkndChoices.find(function(w) { return w['Date'] === '2027-11-27'; });
+
+    assert(bobSat20 && bobSat20.nearVacation === false, "Integration Adjacency: Alice's vacation does NOT flag nearVacation for Bob.");
+    assert(bobSat27 && bobSat27.nearVacation === false, "Integration Adjacency: Alice's vacation does NOT flag nearVacation for Bob.");
+
     log.push("✅ All Task 5 End-to-End Integration Verification tests passed successfully.");
 
   } catch (e) {

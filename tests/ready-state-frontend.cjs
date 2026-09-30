@@ -391,11 +391,13 @@ try {
     assert(nearby.length === 0, `${testPhase}: Proximity range 0 excludes non-same-day weekend.`);
     appState.holidayProximityRange = 3; // restore
 
-    // 3. showHolidayPrompt displays modal with radio option
+    // 3. showHolidayPrompt displays modal with radio option and Near Your Vacation badge
     const nearbyList = getNearbyAvailableWeekendsForHoliday('Thanksgiving');
+    nearbyList[0].nearVacation = true; // Inject nearVacation flag for rendering assertion
     showHolidayPrompt('Thanksgiving', nearbyList);
     assert(mockDocument.getElementById('holidayPromptModal').style.display === 'flex', `${testPhase}: showHolidayPrompt opens holidayPromptModal.`);
     assert(mockDocument.getElementById('adjacentHolidayName').innerText === 'Thanksgiving', `${testPhase}: holiday name rendered in modal.`);
+    assert(mockDocument.getElementById('adjacentHolidayOptions').innerHTML.includes('Near Your Vacation'), `${testPhase}: showHolidayPrompt renders 'Near Your Vacation' caution badge.`);
 
     // 4. Confirm selection via production confirmHolidaySelection with radio in DOM fixture
     appState.selections = ['Thanksgiving|Call 1'];

@@ -158,6 +158,15 @@ function getInitialState(participantId, pin) {
     var maxCap = (maxCapVal !== undefined && maxCapVal !== '' && !isNaN(parseInt(maxCapVal, 10))) ? parseInt(maxCapVal, 10) : 999;
     var currentWkndAssignments = getParticipantAssignments(participant['Name'], 'WEEKEND', {});
 
+    var myVacations = [];
+    for (var i = 0; i < vacs.length; i++) {
+      var assigneesStr = String(vacs[i]['Assigned Participants'] || '');
+      var assignees = assigneesStr ? assigneesStr.split(',').map(function(n) { return n.trim(); }) : [];
+      if (assignees.indexOf(participant['Name']) !== -1) {
+        myVacations.push(vacs[i]);
+      }
+    }
+
     var eligibleWeekends = [];
     if (isWeekendEnabled && currentWkndAssignments < maxCap) {
       var wHeaders = wks.length > 0 ? Object.keys(wks[0]) : [];
@@ -175,19 +184,39 @@ function getInitialState(participantId, pin) {
         if (dateStr instanceof Date) dateStr = formatDate(dateStr);
         if (participantAlreadyHasWeekend_(participant['Name'], dateStr, wData, wHeaders)) continue; // Must not hold same weekend
 
+        // Calculate participant-specific nearVacation for optional weekend choice
+        var nearVacation = false;
+        var wParts = String(dateStr).split('-');
+        if (wParts.length === 3) {
+          var wLocalDate = new Date(parseInt(wParts[0], 10), parseInt(wParts[1], 10) - 1, parseInt(wParts[2], 10));
+          var wDateNorm = formatDate(wLocalDate);
+
+          for (var v = 0; v < myVacations.length; v++) {
+            var rawVDate = myVacations[v]['Start Date (Monday)'];
+            if (!rawVDate) continue;
+            var vDateStr = (rawVDate instanceof Date) ? formatDate(rawVDate) : String(rawVDate);
+            var vParts = vDateStr.split('-');
+            if (vParts.length !== 3) continue;
+
+            var startDate = new Date(parseInt(vParts[0], 10), parseInt(vParts[1], 10) - 1, parseInt(vParts[2], 10));
+            var satBefore = formatDate(new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() - 2));
+            var sunBefore = formatDate(new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() - 1));
+            var satAfter = formatDate(new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + 5));
+            var sunAfter = formatDate(new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + 6));
+
+            if (wDateNorm === satBefore || wDateNorm === sunBefore || wDateNorm === satAfter || wDateNorm === sunAfter) {
+              nearVacation = true;
+              break;
+            }
+          }
+        }
+        w['nearVacation'] = nearVacation;
+        delete w['Vacation Adjacency Warning']; // Prevent leak
+
         eligibleWeekends.push(w);
       }
     }
     response.availableChoices.weekend = eligibleWeekends;
-
-    var myVacations = [];
-    for (var i = 0; i < vacs.length; i++) {
-      var assigneesStr = String(vacs[i]['Assigned Participants'] || '');
-      var assignees = assigneesStr ? assigneesStr.split(',').map(function(n) { return n.trim(); }) : [];
-      if (assignees.indexOf(participant['Name']) !== -1) {
-        myVacations.push(vacs[i]);
-      }
-    }
 
     var myWeekends = [];
     for (var i = 0; i < wks.length; i++) {
