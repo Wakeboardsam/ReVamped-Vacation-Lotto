@@ -12,7 +12,8 @@
     participant: null,
     availableChoices: null,
     selections: [],
-    adjacentHolidayPending: null
+    adjacentWeekendPending: null,
+    holidayProximityRange: 3
   };
 
   var cachedRulesText = null;
@@ -314,7 +315,7 @@
     document.getElementById('declineHolidayBtn').addEventListener('click', declineHolidaySelection);
     document.getElementById('cancelWeekendBtn').addEventListener('click', function() {
       document.getElementById('holidayPromptModal').style.display = 'none';
-      appState.adjacentHolidayPending = null;
+      appState.adjacentWeekendPending = null;
     });
   });
 
@@ -394,7 +395,7 @@
     appState.participant = null;
     appState.availableChoices = null;
     appState.selections = [];
-    appState.adjacentHolidayPending = null;
+    appState.adjacentWeekendPending = null;
 
     // Hide all internal elements and restore Guest header
     document.getElementById('mainScreen').style.display = 'none';
@@ -507,10 +508,11 @@
       appState.isActive = appState.readiness ? false : state.isActive;
       appState.participant = state.participant;
       appState.availableChoices = state.availableChoices;
+      appState.holidayProximityRange = (state.holidayProximityRange !== undefined && state.holidayProximityRange !== null) ? state.holidayProximityRange : 3;
 
       if (appState.readiness) {
         appState.selections = [];
-        appState.adjacentHolidayPending = null;
+        appState.adjacentWeekendPending = null;
         var hModal = document.getElementById('holidayPromptModal');
         if (hModal) hModal.style.display = 'none';
       }
@@ -539,7 +541,7 @@
     document.getElementById('viewContent').innerHTML = '';
     document.getElementById('actionBar').style.display = 'none';
     appState.selections = [];
-    appState.adjacentHolidayPending = null;
+    appState.adjacentWeekendPending = null;
 
     google.script.run
       .withSuccessHandler(onStateLoaded)
@@ -1772,11 +1774,10 @@
       } else {
         // All other phases allow only 1 selection
         appState.selections = [];
+        if (type === 'holiday') {
+          appState.adjacentWeekendPending = null;
+        }
         document.querySelectorAll('.card.selected').forEach(function(c) { c.classList.remove('selected'); });
-      }
-
-      if (type === 'weekend') {
-        appState.adjacentHolidayPending = null;
       }
 
       appState.selections.push(id);
@@ -1855,26 +1856,23 @@
         data.selections = appState.selections;
       } else if (appState.phase === 'WEEKEND') {
         data.selections = appState.selections; // Array of dates
-
-        // Check for adjacent holiday warning ONLY if we haven't already processed it
-        if (!appState.adjacentHolidayPending) {
-           var el = document.querySelector('.card.selected');
-           var holWarning = el ? el.getAttribute('data-holwarning') : '';
-
-           if (holWarning && holWarning !== 'undefined' && holWarning !== '') {
-             showHolidayPrompt(holWarning);
-             return; // Stop execution, wait for modal
-           }
-        } else {
-           // We have a pending holiday attachment
-           if (appState.adjacentHolidayPending !== 'DECLINED') {
-             data.adjacentHoliday = appState.adjacentHolidayPending;
-           }
-        }
       } else if (appState.phase === 'HOLIDAY_VOLUNTEER' || appState.phase === 'HOLIDAY_MANDATORY') {
         var idStr = appState.selections[0];
         var parts = idStr.split('|');
         data.selections = [{ name: parts[0], position: parts[1] }];
+
+        // Check for nearby weekend choices ONLY if we haven't already processed prompt decision
+        if (!appState.adjacentWeekendPending) {
+          var nearbyWeekends = getNearbyAvailableWeekendsForHoliday(parts[0]);
+          if (nearbyWeekends && nearbyWeekends.length > 0) {
+            showHolidayPrompt(parts[0], nearbyWeekends);
+            return; // Stop execution, wait for modal selection/decision
+          }
+        } else {
+          if (appState.adjacentWeekendPending !== 'DECLINED' && appState.adjacentWeekendPending.date) {
+            data.adjacentWeekend = appState.adjacentWeekendPending;
+          }
+        }
       } else if (appState.phase === 'TRANSFER_OFFER_COLLECTION') {
         data.selections = [];
         for (var i = 0; i < appState.selections.length; i++) {
@@ -1915,7 +1913,7 @@
         btn.innerText = "Submit Selection";
 
         if (res.success) {
-          appState.adjacentHolidayPending = null;
+          appState.adjacentWeekendPending = null;
           showToast(res.message || "Submission successful!", "success");
           fetchInitialState(appState.participantId); // Reload state
           loadPublicDisplay(true); // Forced public refresh
@@ -1935,52 +1933,82 @@
       .submitSelection(appState.participantId, data);
   }
 
-  // Holiday Prompt Logic
-  function showHolidayPrompt(holidayName) {
+  // Optional Weekend Prompt Logic during Holiday Phase
+  function getNearbyAvailableWeekendsForHoliday(holidayName) {
+    var holidays = appState.availableChoices ? appState.availableChoices.holiday : [];
+    var h = null;
+    if (holidays) {
+      for (var i = 0; i < holidays.length; i++) {
+        if (holidays[i]['Holiday Name'] === holidayName) {
+          h = holidays[i];
+          break;
+        }
+      }
+    }
+
+    if (!h || !h['Observed Date']) return [];
+
+    var rawDate = h['Observed Date'];
+    var parts = String(rawDate).split('T')[0].split('-');
+    if (parts.length !== 3) return [];
+    var hLocalDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    var hUtc = Date.UTC(hLocalDate.getFullYear(), hLocalDate.getMonth(), hLocalDate.getDate());
+
+    var weekends = (appState.availableChoices && appState.availableChoices.weekend) ? appState.availableChoices.weekend : [];
+    var eligibleNearby = [];
+    var proximityRange = (appState.holidayProximityRange !== undefined && appState.holidayProximityRange !== null) ? appState.holidayProximityRange : 3;
+
+    // Filter available weekend choices near the selected holiday Observed Date
+    for (var i = 0; i < weekends.length; i++) {
+      var w = weekends[i];
+      if (w['First Call Assignee']) continue; // Must be unassigned
+
+      var wDateRaw = w['Date'];
+      var wParts = String(wDateRaw).split('T')[0].split('-');
+      if (wParts.length !== 3) continue;
+      var wLocalDate = new Date(parseInt(wParts[0], 10), parseInt(wParts[1], 10) - 1, parseInt(wParts[2], 10));
+      var wUtc = Date.UTC(wLocalDate.getFullYear(), wLocalDate.getMonth(), wLocalDate.getDate());
+
+      var diffDays = Math.floor(Math.abs(hUtc - wUtc) / (1000 * 60 * 60 * 24));
+      if (diffDays <= proximityRange) {
+        eligibleNearby.push(w);
+      }
+    }
+
+    return eligibleNearby;
+  }
+
+  function showHolidayPrompt(holidayName, nearbyWeekends) {
     document.getElementById('adjacentHolidayName').innerText = holidayName;
     var optsContainer = document.getElementById('adjacentHolidayOptions');
-    optsContainer.innerHTML = 'Loading holiday availability...';
+    optsContainer.innerHTML = '';
 
     document.getElementById('confirmHolidayBtn').disabled = true;
     document.getElementById('holidayPromptModal').style.display = 'flex';
 
-    // Find holiday in state
-    var holidays = appState.availableChoices.holiday; // Note: Ensure getInitialState always returns holiday array in Weekend phase too, or we need to fetch it.
-    // Wait, getInitialState only returns phase specific choices.
-    // Let's modify the frontend to gracefully handle missing holiday data by allowing decline.
-
-    if (!holidays) {
-       // Fallback if data is missing
-       optsContainer.innerHTML = `
-         <label class="radio-option"><input type="radio" name="holOpt" value="Call 2"> Call 2</label>
-         <label class="radio-option"><input type="radio" name="holOpt" value="Call 1"> Call 1</label>
-       `;
-    } else {
-       var html = '';
-       var hasAvailability = false;
-       for (var i = 0; i < holidays.length; i++) {
-         if (holidays[i]['Holiday Name'] === holidayName) {
-           var pos = holidays[i]['Call Position (Call 1 / Call 2)'];
-           var assignee = holidays[i]['Assigned Participant'];
-           if (!assignee) {
-             hasAvailability = true;
-             html += '<label class="radio-option"><input type="radio" name="holOpt" value="' + pos + '"> ' + pos + '</label>';
-           }
-         }
-       }
-
-       if (hasAvailability) {
-         optsContainer.innerHTML = html;
-       } else {
-         optsContainer.innerHTML = '<p class="error-text">No positions available for this holiday.</p>';
-         // Allow them to decline without selecting a position
-         document.getElementById('confirmHolidayBtn').style.display = 'none';
-         document.getElementById('declineHolidayBtn').classList.replace('btn-secondary', 'btn-primary');
-         return;
-       }
+    if (!nearbyWeekends || nearbyWeekends.length === 0) {
+      document.getElementById('holidayPromptModal').style.display = 'none';
+      submitSelection(false);
+      return;
     }
 
-    var radios = document.querySelectorAll('input[name="holOpt"]');
+    var html = '';
+    var weekdayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    for (var i = 0; i < nearbyWeekends.length; i++) {
+      var w = nearbyWeekends[i];
+      var wDateStr = String(w['Date']).split('T')[0];
+      var wParts = wDateStr.split('-');
+      var dayLabel = wDateStr;
+      if (wParts.length === 3) {
+        var dObj = new Date(parseInt(wParts[0], 10), parseInt(wParts[1], 10) - 1, parseInt(wParts[2], 10));
+        dayLabel = wDateStr + ' (' + weekdayNames[dObj.getDay()] + ')';
+      }
+      html += '<label class="radio-option" style="display: block; margin-bottom: 8px;"><input type="radio" name="wkndOpt" value="' + wDateStr + '"> ' + dayLabel + '</label>';
+    }
+
+    optsContainer.innerHTML = html;
+
+    var radios = optsContainer.querySelectorAll('input[name="wkndOpt"]');
     radios.forEach(function(r) {
       r.addEventListener('change', function() {
         document.getElementById('confirmHolidayBtn').disabled = false;
@@ -1989,11 +2017,10 @@
   }
 
   function confirmHolidaySelection() {
-    var selectedRadio = document.querySelector('input[name="holOpt"]:checked');
+    var selectedRadio = document.querySelector('input[name="wkndOpt"]:checked');
     if (selectedRadio) {
-      appState.adjacentHolidayPending = {
-        holidayName: document.getElementById('adjacentHolidayName').innerText,
-        position: selectedRadio.value
+      appState.adjacentWeekendPending = {
+        date: selectedRadio.value
       };
       document.getElementById('holidayPromptModal').style.display = 'none';
       submitSelection(false);
@@ -2001,8 +2028,7 @@
   }
 
   function declineHolidaySelection() {
-    // Explicitly record that the user declined the holiday offer, so only the weekend is selected
-    appState.adjacentHolidayPending = 'DECLINED';
+    appState.adjacentWeekendPending = 'DECLINED';
     document.getElementById('holidayPromptModal').style.display = 'none';
     submitSelection(false);
   }

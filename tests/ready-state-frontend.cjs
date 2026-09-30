@@ -7,6 +7,7 @@ function createMockElement(id, tag = 'div') {
   const children = [];
   const attributes = {};
   const classListMap = {};
+  const eventListeners = {};
   let innerHtmlVal = '';
   let textContentVal = '';
 
@@ -40,6 +41,7 @@ function createMockElement(id, tag = 'div') {
     set innerText(val) { el.textContent = val; },
     value: '',
     disabled: false,
+    checked: false,
     setAttribute: function(k, v) { attributes[k] = String(v); },
     getAttribute: function(k) { return attributes[k] || null; },
     removeAttribute: function(k) { delete attributes[k]; },
@@ -50,10 +52,32 @@ function createMockElement(id, tag = 'div') {
       }
     },
     get children() { return children; },
-    querySelectorAll: function() { return []; },
-    querySelector: function() { return null; },
-    addEventListener: function() {},
-    removeEventListener: function() {}
+    querySelectorAll: function(selector) {
+      if (selector === 'input[name="wkndOpt"]') {
+        return children.filter(c => c.name === 'wkndOpt');
+      }
+      return [];
+    },
+    querySelector: function(selector) {
+      if (selector === 'input[name="wkndOpt"]:checked') {
+        return children.find(c => c.name === 'wkndOpt' && c.checked) || null;
+      }
+      return null;
+    },
+    addEventListener: function(event, handler) {
+      if (!eventListeners[event]) eventListeners[event] = [];
+      eventListeners[event].push(handler);
+    },
+    removeEventListener: function(event, handler) {
+      if (eventListeners[event]) {
+        eventListeners[event] = eventListeners[event].filter(h => h !== handler);
+      }
+    },
+    click: function() {
+      if (eventListeners['click']) {
+        eventListeners['click'].forEach(h => h({ target: el }));
+      }
+    }
   };
   return el;
 }
@@ -76,63 +100,93 @@ elementIds.forEach(id => {
   elementsMap[id] = createMockElement(id);
 });
 
+const docListeners = {};
+
+const mockBody = createMockElement('body', 'body');
+
 const mockDocument = {
+  body: mockBody,
   getElementById: function(id) {
     if (!elementsMap[id]) {
       elementsMap[id] = createMockElement(id);
     }
     return elementsMap[id];
   },
-  querySelector: function() { return null; },
-  querySelectorAll: function() { return []; },
+  querySelector: function(selector) {
+    if (selector === 'input[name="wkndOpt"]:checked') {
+      const container = mockDocument.getElementById('adjacentHolidayOptions');
+      return container.querySelector(selector);
+    }
+    return null;
+  },
+  querySelectorAll: function(selector) {
+    if (selector === 'input[name="wkndOpt"]') {
+      const container = mockDocument.getElementById('adjacentHolidayOptions');
+      return container.querySelectorAll(selector);
+    }
+    return [];
+  },
   createElement: function(tag) { return createMockElement("dynamic", tag); },
-  addEventListener: function() {}
+  addEventListener: function(evt, fn) {
+    if (!docListeners[evt]) docListeners[evt] = [];
+    docListeners[evt].push(fn);
+  }
+};
+
+const mockLocalStorage = {
+  getItem: function() { return null; },
+  setItem: function() {},
+  removeItem: function() {}
 };
 
 const mockWindow = {
   document: mockDocument,
+  localStorage: mockLocalStorage,
   addEventListener: function() {},
   location: { reload: function() {} }
 };
 
 let submitRpcCalls = 0;
+let lastSubmittedPayload = null;
+
+function createMockRpc(successCb, failureCb) {
+  const mockRunner = {
+    withSuccessHandler: function(scb) {
+      return createMockRpc(scb, failureCb);
+    },
+    withFailureHandler: function(fcb) {
+      return createMockRpc(successCb, fcb);
+    },
+    submitSelection: function(participant, payload) {
+      submitRpcCalls++;
+      lastSubmittedPayload = payload;
+      if (successCb) {
+        successCb({ success: true });
+      }
+    },
+    getInitialState: function(participant, pin) {
+      if (successCb) {
+        successCb({
+          success: true,
+          phase: (typeof appState !== 'undefined' && appState.phase) ? appState.phase : 'INACTIVE',
+          participant: (typeof appState !== 'undefined' && appState.participant) ? appState.participant : { Name: 'Alice' },
+          availableChoices: (typeof appState !== 'undefined' && appState.availableChoices) ? appState.availableChoices : { holiday: [], weekend: [] }
+        });
+      }
+    },
+    getPublicDisplaySnapshot: function() {
+      if (successCb) {
+        successCb({ success: true, phase: 'INACTIVE' });
+      }
+    }
+  };
+  return mockRunner;
+}
+
 const mockGoogle = {
   script: {
-    run: {
-      withSuccessHandler: function(cb) {
-        return {
-          withFailureHandler: function(failCb) {
-            return {
-              submitSelection: function(participant, payload) {
-                submitRpcCalls++;
-                if (cb) cb({ success: true });
-              }
-            };
-          },
-          submitSelection: function(participant, payload) {
-            submitRpcCalls++;
-            if (cb) cb({ success: true });
-          }
-        };
-      },
-      withFailureHandler: function(failCb) {
-        return {
-          withSuccessHandler: function(cb) {
-            return {
-              submitSelection: function(participant, payload) {
-                submitRpcCalls++;
-                if (cb) cb({ success: true });
-              }
-            };
-          },
-          submitSelection: function(participant, payload) {
-            submitRpcCalls++;
-          }
-        };
-      },
-      submitSelection: function(participant, payload) {
-        submitRpcCalls++;
-      }
+    get run() {
+      return createMockRpc();
     }
   }
 };
@@ -147,6 +201,7 @@ const browserSandbox = {
   window: mockWindow,
   document: mockDocument,
   google: mockGoogle,
+  localStorage: mockLocalStorage,
   setInterval: function() {},
   clearInterval: function() {},
   setTimeout: function() {},
@@ -156,6 +211,11 @@ const browserSandbox = {
 vm.createContext(browserSandbox);
 vm.runInContext(jsCode, browserSandbox);
 
+// Trigger DOMContentLoaded so all event listeners (e.g. cancelWeekendBtn, confirmHolidayBtn) are registered
+if (docListeners['DOMContentLoaded']) {
+  docListeners['DOMContentLoaded'].forEach(fn => fn());
+}
+
 // Retrieve functions under test directly from browser sandbox
 const {
   appState,
@@ -164,7 +224,11 @@ const {
   updateActionBar,
   renderPublicPhaseHeading,
   renderPublicQueue,
-  submitSelection
+  submitSelection,
+  getNearbyAvailableWeekendsForHoliday,
+  showHolidayPrompt,
+  confirmHolidaySelection,
+  declineHolidaySelection
 } = browserSandbox;
 
 let passCount = 0;
@@ -225,7 +289,7 @@ try {
 
     // Pre-populate selections, pending holiday, and open selection modal
     appState.selections = ['W1'];
-    appState.adjacentHolidayPending = { holidayName: 'Thanksgiving', position: 'Call 1' };
+    appState.adjacentWeekendPending = { date: '2027-11-27' };
     mockDocument.getElementById('holidayPromptModal').style.display = 'flex';
     assert(mockDocument.getElementById('holidayPromptModal').style.display === 'flex', `${item.phase} pre-check: holidayPromptModal is open`);
 
@@ -262,7 +326,7 @@ try {
 
     // Assert pending selections and selection modal cleared/closed
     assert(appState.selections.length === 0, `${item.phase}: appState.selections cleared`);
-    assert(appState.adjacentHolidayPending === null, `${item.phase}: appState.adjacentHolidayPending cleared`);
+    assert(appState.adjacentWeekendPending === null, `${item.phase}: appState.adjacentWeekendPending cleared`);
     assert(mockDocument.getElementById('holidayPromptModal').style.display === 'none', `${item.phase}: holidayPromptModal display is none`);
 
     // Assert client submission handler produces zero RPC calls
@@ -298,6 +362,84 @@ try {
     assert(mockDocument.getElementById('actionBar').style.display !== 'none', `${item.phase} restoration: selection action bar is visible`);
     const restoredView = mockDocument.getElementById('viewContent').innerHTML || '';
     assert(!restoredView.includes('Waiting for Administrator'), `${item.phase} restoration: waiting card cleared`);
+  });
+
+  console.log('\n--- Testing Production Optional Weekend Selection Functions ---');
+
+  // Test across both Holiday phases: HOLIDAY_VOLUNTEER and HOLIDAY_MANDATORY
+  ['HOLIDAY_VOLUNTEER', 'HOLIDAY_MANDATORY'].forEach(testPhase => {
+    appState.phase = testPhase;
+    appState.holidayProximityRange = 3;
+    appState.selections = ['Thanksgiving|Call 1'];
+    appState.availableChoices = {
+      holiday: [
+        { 'Holiday Name': 'Thanksgiving', 'Observed Date': '2027-11-25', 'Call Position (Call 1 / Call 2)': 'Call 1' }
+      ],
+      weekend: [
+        { Date: '2027-11-27', 'First Call Assignee': '' }, // within 2 days
+        { Date: '2027-12-05', 'First Call Assignee': '' }  // 10 days away
+      ]
+    };
+
+    // 1. getNearbyAvailableWeekendsForHoliday returns choices within proximity range
+    let nearby = getNearbyAvailableWeekendsForHoliday('Thanksgiving');
+    assert(nearby.length === 1 && nearby[0].Date === '2027-11-27', `${testPhase}: getNearbyAvailableWeekendsForHoliday filters nearby unassigned weekends.`);
+
+    // 2. Proximity range 0 (strict same day) excludes 2-day-away weekend
+    appState.holidayProximityRange = 0;
+    nearby = getNearbyAvailableWeekendsForHoliday('Thanksgiving');
+    assert(nearby.length === 0, `${testPhase}: Proximity range 0 excludes non-same-day weekend.`);
+    appState.holidayProximityRange = 3; // restore
+
+    // 3. showHolidayPrompt displays modal with radio option
+    const nearbyList = getNearbyAvailableWeekendsForHoliday('Thanksgiving');
+    showHolidayPrompt('Thanksgiving', nearbyList);
+    assert(mockDocument.getElementById('holidayPromptModal').style.display === 'flex', `${testPhase}: showHolidayPrompt opens holidayPromptModal.`);
+    assert(mockDocument.getElementById('adjacentHolidayName').innerText === 'Thanksgiving', `${testPhase}: holiday name rendered in modal.`);
+
+    // 4. Confirm selection via production confirmHolidaySelection with radio in DOM fixture
+    appState.selections = ['Thanksgiving|Call 1'];
+    appState.adjacentWeekendPending = null;
+    const radioOpt = createMockElement('wkndOpt1', 'input');
+    radioOpt.name = 'wkndOpt';
+    radioOpt.value = '2027-11-27';
+    radioOpt.checked = true;
+    mockDocument.getElementById('adjacentHolidayOptions').appendChild(radioOpt);
+
+    lastSubmittedPayload = null;
+    confirmHolidaySelection();
+
+    assert(lastSubmittedPayload && lastSubmittedPayload.adjacentWeekend && lastSubmittedPayload.adjacentWeekend.date === '2027-11-27', `${testPhase}: Confirming optional weekend submits RPC with adjacentWeekend.date.`);
+    assert(mockDocument.getElementById('holidayPromptModal').style.display === 'none', `${testPhase}: confirmHolidaySelection closes modal.`);
+
+    // 5. Decline selection (No thanks) via production declineHolidaySelection
+    appState.selections = ['Thanksgiving|Call 1'];
+    lastSubmittedPayload = null;
+    declineHolidaySelection();
+    assert(lastSubmittedPayload && lastSubmittedPayload.adjacentWeekend === undefined, `${testPhase}: declineHolidaySelection submits RPC without adjacentWeekend.`);
+    assert(appState.adjacentWeekendPending === null, `${testPhase}: declineHolidaySelection clears adjacentWeekendPending on success.`);
+    assert(mockDocument.getElementById('holidayPromptModal').style.display === 'none', `${testPhase}: declineHolidaySelection closes modal.`);
+
+    // 6. Cancel via actual registered Cancel button event callback
+    appState.adjacentWeekendPending = null;
+    mockDocument.getElementById('holidayPromptModal').style.display = 'flex';
+    const rpcCountPreCancel = submitRpcCalls;
+    mockDocument.getElementById('cancelWeekendBtn').click();
+    assert(mockDocument.getElementById('holidayPromptModal').style.display === 'none', `${testPhase}: Cancel click closes modal.`);
+    assert(appState.adjacentWeekendPending === null, `${testPhase}: Cancel leaves adjacentWeekendPending as null.`);
+    assert(submitRpcCalls === rpcCountPreCancel, `${testPhase}: Cancel produces zero submission RPC calls.`);
+
+    // 7. No eligible choices automatically submits holiday via production submitSelection without opening modal
+    appState.availableChoices.weekend = [{ Date: '2027-11-27', 'First Call Assignee': 'Bob' }]; // occupied
+    appState.selections = ['Thanksgiving|Call 1'];
+    appState.adjacentWeekendPending = null;
+    mockDocument.getElementById('holidayPromptModal').style.display = 'none';
+
+    lastSubmittedPayload = null;
+    submitSelection(false);
+
+    assert(mockDocument.getElementById('holidayPromptModal').style.display === 'none', `${testPhase}: No eligible choices does NOT open modal.`);
+    assert(lastSubmittedPayload && lastSubmittedPayload.adjacentWeekend === undefined, `${testPhase}: No eligible choices submits holiday alone without adjacentWeekend.`);
   });
 
   console.log(`\nFrontend Harness Results: PASS=${passCount}, FAIL=${failCount}`);
