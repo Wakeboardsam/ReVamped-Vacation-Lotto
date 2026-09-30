@@ -511,8 +511,8 @@ function runRegressionTests() {
     MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('WEEKEND');
     MockSpreadsheetApp.createSheet('Weekend Coverage', [
       ['Date', 'First Call Assignee'],
-      ['2027-11-27', ''], // Saturday after Thanksgiving
-      ['2027-11-28', '']  // Sunday after Thanksgiving
+      ['2027-11-27', ''],
+      ['2027-11-28', '']
     ]);
     MockSpreadsheetApp.createSheet('Holiday Coverage', [
       ['Holiday Name', 'Call Position (Call 1 / Call 2)', 'Assigned Participant', 'Observed Date'],
@@ -527,39 +527,61 @@ function runRegressionTests() {
 
     // 10b. Holiday selection with optional adjacent weekend
     MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('HOLIDAY_VOLUNTEER');
-    MockSpreadsheetApp._sheets['Weekend Coverage'].getRange(2, 2).setValue(''); // Re-open weekend
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Call Position (Call 1 / Call 2)', 'Assigned Participant', 'Observed Date'],
+      ['Thanksgiving', 'Call 1', '', '2027-11-25'],
+      ['Thanksgiving', 'Call 2', '', '2027-11-25']
+    ]);
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'First Call Assignee'],
+      ['2027-11-27', ''],
+      ['2027-11-28', '']
+    ]);
 
     var holWithWkndSubmit = submitSelection('Alice', { action: 'SUBMIT', selections: [{ name: 'Thanksgiving', position: 'Call 1' }], adjacentWeekend: { date: '2027-11-27' } });
     assert(holWithWkndSubmit && holWithWkndSubmit.success === true, "Holiday selection with valid optional adjacent weekend succeeds.");
     assert(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues()[1][2] === 'Alice', "Holiday Thanksgiving Call 1 assigned to Alice.");
     assert(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()[1][1] === 'Alice', "Optional adjacent weekend assigned to Alice.");
 
-    // 10c. Holiday selection with occupied optional weekend returns partial success
+    // 10c. Holiday selection with occupied optional weekend returns partial success (Alice owns NO positions prior)
     MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('HOLIDAY_VOLUNTEER');
-    // Thanksgiving Call 2 is unassigned (observed 2027-11-25). 2027-11-27 is within 3-day proximity range.
-    // Ensure Bob is in Participant Config and occupies 2027-11-27.
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Call Position (Call 1 / Call 2)', 'Assigned Participant', 'Observed Date'],
+      ['Thanksgiving', 'Call 1', '', '2027-11-25'],
+      ['Thanksgiving', 'Call 2', '', '2027-11-25']
+    ]);
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'First Call Assignee'],
+      ['2027-11-27', 'Bob'], // Bob occupies the weekend
+      ['2027-11-28', '']
+    ]);
     var pSheetData = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
     var bobExists = pSheetData.some(row => row[0] === 'Bob');
     if (!bobExists) { MockSpreadsheetApp._sheets['Participant Config'].appendRow(['Bob', true, true, '', false, false, true, 3, '2']); }
-    MockSpreadsheetApp._sheets['Weekend Coverage'].getRange(2, 2).setValue('Bob');
-    MockSpreadsheetApp._sheets['Holiday Coverage'].getRange(3, 3).setValue(''); // Re-open Thanksgiving Call 2
 
     getActiveParticipants = function(p) { return [{ Name: 'Alice' }]; };
-    var holOccupiedWkndSubmit = submitSelection('Alice', { action: 'SUBMIT', selections: [{ name: 'Thanksgiving', position: 'Call 2' }], adjacentWeekend: { date: '2027-11-27' } });
+    var holOccupiedWkndSubmit = submitSelection('Alice', { action: 'SUBMIT', selections: [{ name: 'Thanksgiving', position: 'Call 1' }], adjacentWeekend: { date: '2027-11-27' } });
     assert(holOccupiedWkndSubmit.success === true && holOccupiedWkndSubmit.message && holOccupiedWkndSubmit.message.indexOf('was not added because it was just selected by another participant') !== -1, "Holiday saved with partial success message when optional weekend occupied.");
-    assert(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues()[2][2] === 'Alice', "Holiday Thanksgiving Call 2 saved to Alice.");
-    assert(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()[1][1] === 'Bob', "Weekend remains assigned to Bob.");
+    assert(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues()[1][2] === 'Alice', "Holiday Thanksgiving Call 1 saved to Alice.");
+    assert(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()[1][1] === 'Bob', "Weekend 2027-11-27 remains assigned to Bob.");
 
     // 10d. Nonadjacent optional weekend rejected without writes to either sheet
-    // Re-open Thanksgiving Call 2 and add a non-adjacent weekend 2027-01-02
-    MockSpreadsheetApp._sheets['Holiday Coverage'].getRange(3, 3).setValue('');
-    MockSpreadsheetApp._sheets['Weekend Coverage'].appendRow(['2027-01-02', '']);
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('HOLIDAY_VOLUNTEER');
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Call Position (Call 1 / Call 2)', 'Assigned Participant', 'Observed Date'],
+      ['Thanksgiving', 'Call 1', '', '2027-11-25'],
+      ['Thanksgiving', 'Call 2', '', '2027-11-25']
+    ]);
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'First Call Assignee'],
+      ['2027-01-02', ''] // Nonadjacent date (January vs November)
+    ]);
     var hDataPre = JSON.stringify(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues());
     var wDataPre = JSON.stringify(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues());
 
     var nonAdjacentFailed = false;
     try {
-      submitSelection('Alice', { action: 'SUBMIT', selections: [{ name: 'Thanksgiving', position: 'Call 2' }], adjacentWeekend: { date: '2027-01-02' } });
+      submitSelection('Alice', { action: 'SUBMIT', selections: [{ name: 'Thanksgiving', position: 'Call 1' }], adjacentWeekend: { date: '2027-01-02' } });
       nonAdjacentFailed = true;
     } catch (e) {
       assert(e.message.indexOf('not within the holiday proximity range') !== -1, "Nonadjacent weekend date correctly rejected.");
@@ -569,6 +591,19 @@ function runRegressionTests() {
     assert(JSON.stringify(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()) === wDataPre, "Weekend sheet unchanged on rejected nonadjacent weekend.");
 
     // 10e. Malformed adjacentWeekend objects (e.g. {}, array, non-string date, garbage) rejected without writes
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('HOLIDAY_VOLUNTEER');
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Call Position (Call 1 / Call 2)', 'Assigned Participant', 'Observed Date'],
+      ['Thanksgiving', 'Call 1', '', '2027-11-25'],
+      ['Thanksgiving', 'Call 2', '', '2027-11-25']
+    ]);
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'First Call Assignee'],
+      ['2027-11-27', '']
+    ]);
+    var hDataPreMalformed = JSON.stringify(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues());
+    var wDataPreMalformed = JSON.stringify(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues());
+
     var malformedPayloads = [
       {},
       { date: 12345 },
@@ -582,29 +617,36 @@ function runRegressionTests() {
     for (var m = 0; m < malformedPayloads.length; m++) {
       var malformedFailed = false;
       try {
-        submitSelection('Alice', { action: 'SUBMIT', selections: [{ name: 'Thanksgiving', position: 'Call 2' }], adjacentWeekend: malformedPayloads[m] });
+        submitSelection('Alice', { action: 'SUBMIT', selections: [{ name: 'Thanksgiving', position: 'Call 1' }], adjacentWeekend: malformedPayloads[m] });
         malformedFailed = true;
       } catch (e) {
         assert(e.message.indexOf('Invalid or malformed weekend date requested') !== -1, "Malformed payload rejected: " + JSON.stringify(malformedPayloads[m]));
       }
       assert(!malformedFailed, "Malformed payload submission rejected.");
-      assert(JSON.stringify(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues()) === hDataPre, "Holiday sheet unchanged on malformed payload.");
-      assert(JSON.stringify(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()) === wDataPre, "Weekend sheet unchanged on malformed payload.");
+      assert(JSON.stringify(MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues()) === hDataPreMalformed, "Holiday sheet unchanged on malformed payload.");
+      assert(JSON.stringify(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()) === wDataPreMalformed, "Weekend sheet unchanged on malformed payload.");
     }
 
     // 10f. Disabled Weekend Phase Enabled returns partial success for Holiday
-    // Re-open Thanksgiving Call 2 and re-open weekend 2027-11-27
-    MockSpreadsheetApp._sheets['Holiday Coverage'].getRange(3, 3).setValue('');
-    MockSpreadsheetApp._sheets['Weekend Coverage'].getRange(2, 2).setValue('');
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('HOLIDAY_VOLUNTEER');
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Call Position (Call 1 / Call 2)', 'Assigned Participant', 'Observed Date'],
+      ['Thanksgiving', 'Call 1', '', '2027-11-25'],
+      ['Thanksgiving', 'Call 2', '', '2027-11-25']
+    ]);
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'First Call Assignee'],
+      ['2027-11-27', '']
+    ]);
 
     var pHeaders = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues()[0];
     var wkCol = pHeaders.indexOf('Weekend Phase Enabled');
     var aliceRowIdx = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues().findIndex(r => r[0] === 'Alice') + 1;
     MockSpreadsheetApp._sheets['Participant Config'].getRange(aliceRowIdx, wkCol + 1).setValue(false);
 
-    var holDisabledWkndSubmit = submitSelection('Alice', { action: 'SUBMIT', selections: [{ name: 'Thanksgiving', position: 'Call 2' }], adjacentWeekend: { date: '2027-11-27' } });
+    var holDisabledWkndSubmit = submitSelection('Alice', { action: 'SUBMIT', selections: [{ name: 'Thanksgiving', position: 'Call 1' }], adjacentWeekend: { date: '2027-11-27' } });
     assert(holDisabledWkndSubmit.success === true && holDisabledWkndSubmit.message && holDisabledWkndSubmit.message.indexOf('disabled for your account') !== -1, "Holiday saved with explanation when weekend participation disabled.");
-    assert(MockSpreadsheetApp._sheets['Holiday Coverage'].getRange(3, 3).getValue() === 'Alice', "Holiday saved to Alice.");
+    assert(MockSpreadsheetApp._sheets['Holiday Coverage'].getRange(2, 3).getValue() === 'Alice', "Holiday saved to Alice.");
     assert(MockSpreadsheetApp._sheets['Weekend Coverage'].getRange(2, 2).getValue() === '', "Weekend remains unassigned when participant disabled for weekend.");
 
     // Restore Alice's Weekend Phase Enabled
