@@ -70,9 +70,19 @@ When Vacation or Holiday selection closes (via full completion or explicit early
 
 ---
 
-## 5. Deferred Features & Out-of-Scope Items
+## 5. Optional Adjacent Weekend Selection During Holiday
+
+During the Holiday Volunteer and Mandatory Holiday phases:
+- When a participant selects a holiday call position, eligible unassigned weekend First Call choices within the configured `Holiday Proximity Range (days)` are presented as an optional addition.
+- If accepted, the weekend choice is recorded as an ordinary weekend assignment and counts toward the participant's weekend assignment maximum.
+- When the Weekend phase begins, any pre-assigned optional weekends count through the standard weekend assignment-counting mechanism.
+- In subsequent Transfer phases, optional weekend assignments remain eligible for transfer under standard weekend transfer rules.
+- Declining or canceling the optional weekend leaves the primary holiday selection and progression operating normally.
+
+---
+
+## 6. Deferred Features & Out-of-Scope Items
 
 The following features remain explicitly deferred as separate, future work:
 - New mandatory-holiday tiers.
-- Optional adjacent-weekend selection during Holiday and its UI.
 - New stall alerts or general queue hardening.

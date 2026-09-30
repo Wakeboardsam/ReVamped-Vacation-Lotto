@@ -1746,6 +1746,279 @@ function runPhaseStatusTests() {
 }
 
 /**
+ * Task 5: End-to-End Integration Verification Tests
+ */
+function runTask5IntegrationVerificationTests() {
+  var log = [];
+  var hasFailed = false;
+  function assert(condition, message) {
+    if (!condition) {
+      log.push("❌ FAIL: " + message);
+      hasFailed = true;
+    } else {
+      log.push("✅ PASS: " + message);
+    }
+  }
+
+  var originalSpreadsheetApp = SpreadsheetApp;
+  var originalWithScriptLock = withScriptLock;
+
+  try {
+    SpreadsheetApp = MockSpreadsheetApp;
+    withScriptLock = function(cb) { return cb(); };
+
+    // Setup complete 2027 lottery fixture
+    MockSpreadsheetApp._sheets = {};
+    MockSpreadsheetApp.createSheet('Config', [
+      ['Setting Name', 'Setting Value'],
+      ['Current Phase', 'SETUP'],
+      ['Current Round', '0'],
+      ['Current Direction', 'NONE'],
+      ['Current Lead', '0']
+    ]);
+    MockSpreadsheetApp.createSheet('Admin Options', [
+      ['Setting Name', 'Setting Value'],
+      ['Active Year', '2027'],
+      ['Vacation Week Target Default', '2'],
+      ['Vacation Active Window (participants)', '2'],
+      ['Weekend Active Window (participants)', '2'],
+      ['Holiday Active Window (participants)', '2'],
+      ['Transfer Active Window (participants)', '2'],
+      ['Holiday Proximity Range (days)', '3'],
+      ['Enable SMS Notifications', 'FALSE'],
+      ['Web App URL', 'https://example.com']
+    ]);
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'PIN', 'Active for Year', 'Vacation Phase Enabled', 'Weekend Phase Enabled', 'Holiday Volunteer', 'Holiday Volunteer Response', 'Mandatory Holiday Eligible', 'Transfer Giver', 'Transfer Receiver', 'Transfer Offers Submitted', 'Seniority Position', 'Lottery Position', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Phone Number', 'Resend WhatsApp', 'Vacation Week Target Override', 'Weekend Assignment Maximum'],
+      ['Alice',   '1234', true, true, true, true, '', true, true, true, false, 1, 1, '', false, false, '1111111111', false, '', '2'],
+      ['Bob',     '5678', true, true, true, true, '', true, true, true, false, 2, 2, '', false, false, '2222222222', false, '', '2'],
+      ['Charlie', '9999', true, true, true, true, '', true, true, true, false, 3, 3, '', false, false, '3333333333', false, '', '2']
+    ]);
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants'],
+      ['W1', '2027-01-04', 2, 'Non-Prime', 'None', ''],
+      ['W2', '2027-01-11', 2, 'Non-Prime', 'None', ''],
+      ['W3', '2027-01-18', 2, 'Non-Prime', 'None', ''],
+      ['W4', '2027-01-25', 2, 'Non-Prime', 'None', ''],
+      ['W5', '2027-02-01', 2, 'Non-Prime', 'None', ''],
+      ['W6', '2027-02-08', 2, 'Non-Prime', 'None', '']
+    ]);
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee', 'Vacation Adjacency Warning', 'Holiday Proximity Warning'],
+      ['2027-11-27', 'Saturday', '', '', ''],
+      ['2027-11-28', 'Sunday', '', '', ''],
+      ['2027-12-04', 'Saturday', '', '', '']
+    ]);
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['Thanksgiving', '2027-11-25', 'Call 1', ''],
+      ['Thanksgiving', '2027-11-25', 'Call 2', '']
+    ]);
+    MockSpreadsheetApp.createSheet('Transfer Offers', [
+      ['Offer ID', 'Original Assignee (Giver)', 'Assignment Type', 'Date/Position', 'Status', 'Timestamp', 'Group ID']
+    ]);
+    MockSpreadsheetApp.createSheet('Transfer History', [
+      ['Timestamp', 'Assignment Type', 'Assignment Date', 'Call Position/Day', 'Original Assignee', 'New Assignee', 'Year', 'Receiver Round', 'Claim ID']
+    ]);
+    MockSpreadsheetApp.createSheet('Notification Log', [
+      ['Log Timestamp', 'Event Key', 'Participant ID', 'Participant Name', 'Masked Phone', 'Phase', 'Notification Type', 'Status', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp', 'Selection Reference', 'Sanitized Error']
+    ]);
+
+    SpreadsheetApp.getUi = function() { return { alert: function(){} }; };
+
+    // 1. Begin Seniority Round -> VACATION_SENIORITY
+    beginSeniorityRound();
+    assert(getQueueState().phase === 'VACATION_SENIORITY', "Integration: beginSeniorityRound sets phase to VACATION_SENIORITY.");
+    assert(getQueueState().round === 1, "Integration: Seniority starts at Round 1.");
+
+    // Seniority selections (Round 1)
+    submitSelection('Alice', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W1'] });
+    submitSelection('Bob', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W2'] });
+    submitSelection('Charlie', { phase: 'VACATION_SENIORITY', action: 'SUBMIT', selections: ['W3'] });
+
+    // Progressed to VACATION_RANDOM (Round 2) because targets remain (target = 2)
+    assert(getQueueState().phase === 'VACATION_RANDOM', "Integration: Vacation Seniority progresses to VACATION_RANDOM when targets remain.");
+    assert(getQueueState().round === 2, "Integration: VACATION_RANDOM starts at Round 2.");
+
+    // Random selections (Round 2) - completes targets
+    submitSelection('Alice', { phase: 'VACATION_RANDOM', action: 'SUBMIT', selections: ['W4'] });
+    submitSelection('Bob', { phase: 'VACATION_RANDOM', action: 'SUBMIT', selections: ['W5'] });
+    submitSelection('Charlie', { phase: 'VACATION_RANDOM', action: 'SUBMIT', selections: ['W6'] });
+
+    // Vacation complete stages READY_HOLIDAY_VOLUNTEER
+    assert(getQueueState().phase === 'READY_HOLIDAY_VOLUNTEER', "Integration: Vacation completion stages READY_HOLIDAY_VOLUNTEER.");
+
+    // 2. Begin Holiday Volunteer Phase
+    beginHolidayPhase();
+    assert(getQueueState().phase === 'HOLIDAY_VOLUNTEER', "Integration: beginHolidayPhase sets phase to HOLIDAY_VOLUNTEER.");
+
+    // Alice selects Thanksgiving Call 1 with optional adjacent weekend 2027-11-27
+    var holSubmitAlice = submitSelection('Alice', {
+      phase: 'HOLIDAY_VOLUNTEER',
+      action: 'SUBMIT',
+      selections: [{ name: 'Thanksgiving', position: 'Call 1' }],
+      adjacentWeekend: { date: '2027-11-27' }
+    });
+    assert(holSubmitAlice.success === true, "Integration: Alice holiday selection with optional adjacent weekend succeeds.");
+
+    var wSheetData = MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues();
+    assert(wSheetData[1][2] === 'Alice', "Integration: Optional weekend 2027-11-27 assigned to Alice during Holiday selection.");
+
+    // Bob passes during Volunteer phase
+    submitSelection('Bob', { phase: 'HOLIDAY_VOLUNTEER', action: 'PASS' });
+
+    // Charlie passes during Volunteer phase
+    submitSelection('Charlie', { phase: 'HOLIDAY_VOLUNTEER', action: 'PASS' });
+
+    // Alice passes in Round 2 (volunteer exhausted while Thanksgiving Call 2 remains open)
+    submitSelection('Alice', { phase: 'HOLIDAY_VOLUNTEER', action: 'PASS' });
+
+    // Volunteer exhaustion stages READY_HOLIDAY_MANDATORY
+    assert(getQueueState().phase === 'READY_HOLIDAY_MANDATORY', "Integration: Volunteer exhaustion with open holiday positions stages READY_HOLIDAY_MANDATORY.");
+
+    // 3. Begin Mandatory Holiday Phase
+    beginMandatoryHolidayPhase();
+    assert(getQueueState().phase === 'HOLIDAY_MANDATORY', "Integration: beginMandatoryHolidayPhase sets phase to HOLIDAY_MANDATORY.");
+
+    // Bob fills remaining Thanksgiving Call 2 position (declining optional weekend)
+    submitSelection('Bob', {
+      phase: 'HOLIDAY_MANDATORY',
+      action: 'SUBMIT',
+      selections: [{ name: 'Thanksgiving', position: 'Call 2' }]
+    });
+
+    // Holiday completion stages READY_WEEKEND (waiting for Weekend; does not prematurely open transfers)
+    assert(getQueueState().phase === 'READY_WEEKEND', "Integration: Holiday completion stages READY_WEEKEND, waiting for Weekend phase.");
+
+    // 4. Begin Weekend Phase
+    beginWeekendPhase();
+    assert(getQueueState().phase === 'WEEKEND', "Integration: beginWeekendPhase sets phase to WEEKEND.");
+
+    // Verify optional weekend pre-assigned during Holiday counts in weekend assignment counting mechanism
+    var aliceWkndAssignments = getParticipantAssignments('Alice', 'WEEKEND', {});
+    assert(aliceWkndAssignments === 1, "Integration: Alice optional weekend assigned during Holiday counts as 1 existing weekend assignment when Weekend starts.");
+
+    // Bob fills Saturday 2027-12-04 (a different weekend)
+    submitSelection('Bob', { phase: 'WEEKEND', action: 'SUBMIT', selections: ['2027-12-04'] });
+
+    // Charlie fills Sunday 2027-11-28
+    submitSelection('Charlie', { phase: 'WEEKEND', action: 'SUBMIT', selections: ['2027-11-28'] });
+
+    // Weekend completion stages READY_TRANSFER
+    assert(getQueueState().phase === 'READY_TRANSFER', "Integration: Weekend completion stages READY_TRANSFER.");
+
+    // 5. Begin Transfer Phase (Offer Collection)
+    beginTransferPhase();
+    assert(getQueueState().phase === 'TRANSFER_OFFER_COLLECTION', "Integration: beginTransferPhase sets phase to TRANSFER_OFFER_COLLECTION.");
+
+    // Verify Alice's optional weekend assigned during Holiday is eligible for transfer under standard rules
+    var aliceWkndGiverSubmit = submitSelection('Alice', {
+      phase: 'TRANSFER_OFFER_COLLECTION',
+      action: 'SUBMIT',
+      selections: [{ type: 'WEEKEND', datePos: '2027-11-27' }]
+    });
+    assert(aliceWkndGiverSubmit.success === true, "Integration: Alice optional weekend assignment is offered for transfer under standard rules.");
+
+    // Bob passes offer collection
+    submitSelection('Bob', { phase: 'TRANSFER_OFFER_COLLECTION', action: 'PASS' });
+    submitSelection('Charlie', { phase: 'TRANSFER_OFFER_COLLECTION', action: 'PASS' });
+    checkTransferOfferCollectionComplete_();
+
+    // Transitions to TRANSFER_RECEIVER
+    assert(getQueueState().phase === 'TRANSFER_RECEIVER', "Integration: Offer collection complete transitions to TRANSFER_RECEIVER.");
+
+    // Bob claims Alice's offered optional weekend in Transfer Receiver round
+    var offers = getSheetDataAsObjects('Transfer Offers', {});
+    var activeOffer = offers.find(function(o) { return o['Status'] === 'Active'; });
+    assert(activeOffer && activeOffer['Date/Position'] === '2027-11-27', "Integration: Active transfer offer contains optional weekend 2027-11-27.");
+
+    var bobClaim = submitSelection('Bob', {
+      phase: 'TRANSFER_RECEIVER',
+      action: 'SUBMIT',
+      selections: [{ type: 'WEEKEND', offerId: activeOffer['Offer ID'] }]
+    });
+    assert(bobClaim.success === true, "Integration: Bob successfully claims transferred optional weekend.");
+
+    var wSheetDataPostTransfer = MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues();
+    assert(wSheetDataPostTransfer[1][2] === 'Bob', "Integration: Weekend Coverage updated to Bob following transfer claim.");
+
+    // Queue reaches terminal COMPLETE
+    advanceQueueInternal_();
+    assert(getQueueState().phase === 'COMPLETE', "Integration: Queue reaches terminal COMPLETE after transfer receiver phase.");
+
+    // 6. Optional Weekend Vacation Adjacency Verification
+    MockSpreadsheetApp._sheets = {};
+    MockSpreadsheetApp.createSheet('Config', [
+      ['Setting Name', 'Setting Value'],
+      ['Current Phase', 'HOLIDAY_VOLUNTEER'],
+      ['Current Round', '1'],
+      ['Current Direction', 'ASCENDING'],
+      ['Current Lead', '1']
+    ]);
+    MockSpreadsheetApp.createSheet('Admin Options', [
+      ['Setting Name', 'Setting Value'],
+      ['Active Year', '2027'],
+      ['Holiday Proximity Range (days)', '5'],
+      ['Enable SMS Notifications', 'FALSE']
+    ]);
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'PIN', 'Active for Year', 'Vacation Phase Enabled', 'Weekend Phase Enabled', 'Holiday Volunteer', 'Holiday Volunteer Response', 'Mandatory Holiday Eligible', 'Transfer Giver', 'Transfer Receiver', 'Transfer Offers Submitted', 'Seniority Position', 'Lottery Position', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Phone Number', 'Resend WhatsApp', 'Vacation Week Target Override', 'Weekend Assignment Maximum'],
+      ['Alice', '1234', true, true, true, true, '', true, true, true, false, 1, 1, '', false, false, '1111111111', false, '', '2'],
+      ['Bob',   '5678', true, true, true, true, '', true, true, true, false, 2, 2, '', false, false, '2222222222', false, '', '2']
+    ]);
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants'],
+      ['W1', '2027-11-22', 1, 'Non-Prime', 'None', 'Alice'] // Alice vacation Monday 2027-11-22 (borders 11-20/21 before, 11-27/28 after)
+    ]);
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee', 'Vacation Adjacency Warning', 'Holiday Proximity Warning'],
+      ['2027-11-20', 'Saturday', '', '', ''], // Sat before Alice vacation
+      ['2027-11-27', 'Saturday', '', '', ''], // Sat after Alice vacation
+      ['2027-12-04', 'Saturday', '', '', '']  // Non-adjacent weekend
+    ]);
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ['Thanksgiving', '2027-11-25', 'Call 1', '']
+    ]);
+
+    // Test Alice getInitialState before Begin Weekend (Vacation Adjacency Warning column is empty)
+    var aliceState = getInitialState('Alice', '1234');
+    var aliceWkndChoices = aliceState.availableChoices.weekend;
+    var sat20 = aliceWkndChoices.find(function(w) { return w['Date'] === '2027-11-20'; });
+    var sat27 = aliceWkndChoices.find(function(w) { return w['Date'] === '2027-11-27'; });
+    var sat04 = aliceWkndChoices.find(function(w) { return w['Date'] === '2027-12-04'; });
+
+    assert(sat20 && sat20.nearVacation === true, "Integration Adjacency: Saturday before Monday vacation flagged nearVacation = true for Alice.");
+    assert(sat27 && sat27.nearVacation === true, "Integration Adjacency: Saturday after Friday vacation flagged nearVacation = true for Alice.");
+    assert(sat04 && sat04.nearVacation === false, "Integration Adjacency: Non-adjacent weekend flagged nearVacation = false for Alice.");
+    assert(sat20['Vacation Adjacency Warning'] === undefined, "Integration Adjacency: Vacation Adjacency Warning column text not exposed in client payload.");
+
+    // Test Bob getInitialState (another participant's vacation does NOT flag Bob)
+    var bobState = getInitialState('Bob', '5678');
+    var bobWkndChoices = bobState.availableChoices.weekend;
+    var bobSat20 = bobWkndChoices.find(function(w) { return w['Date'] === '2027-11-20'; });
+    var bobSat27 = bobWkndChoices.find(function(w) { return w['Date'] === '2027-11-27'; });
+
+    assert(bobSat20 && bobSat20.nearVacation === false, "Integration Adjacency: Alice's vacation does NOT flag nearVacation for Bob.");
+    assert(bobSat27 && bobSat27.nearVacation === false, "Integration Adjacency: Alice's vacation does NOT flag nearVacation for Bob.");
+
+    log.push("✅ All Task 5 End-to-End Integration Verification tests passed successfully.");
+
+  } catch (e) {
+    log.push("❌ Test execution failed: " + e.message + "\n" + e.stack);
+    hasFailed = true;
+  } finally {
+    SpreadsheetApp = originalSpreadsheetApp;
+    withScriptLock = originalWithScriptLock;
+  }
+
+  if (hasFailed) {
+    throw new Error("One or more tests failed:\n" + log.join("\n"));
+  }
+  return log.join('\n');
+}
+
+/**
  * --- Task 2: Durable READY States Tests ---
  */
 function runReadyStateTests() {

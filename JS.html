@@ -2003,7 +2003,8 @@
         var dObj = new Date(parseInt(wParts[0], 10), parseInt(wParts[1], 10) - 1, parseInt(wParts[2], 10));
         dayLabel = wDateStr + ' (' + weekdayNames[dObj.getDay()] + ')';
       }
-      html += '<label class="radio-option" style="display: block; margin-bottom: 8px;"><input type="radio" name="wkndOpt" value="' + wDateStr + '"> ' + dayLabel + '</label>';
+      var badgeHtml = w.nearVacation ? ' <span class="badge badge-proximity-caution">Near Your Vacation</span>' : '';
+      html += '<label class="radio-option" style="display: block; margin-bottom: 8px;"><input type="radio" name="wkndOpt" value="' + wDateStr + '"> ' + dayLabel + badgeHtml + '</label>';
     }
 
     optsContainer.innerHTML = html;
