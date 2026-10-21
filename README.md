@@ -52,7 +52,7 @@ All randomized phases use the same yearly Lottery Position, start at position 1,
 - When no volunteers remain and positions are open, the app moves itself to Mandatory Holiday. When every position is filled, it moves itself to Transfer offers.
 - **[Gap]** Mandatory Holiday uses only the "Mandatory Holiday Eligible" box, which auto-fill turns on for everyone. "Worked Any Official Holiday Last Year" is never read. **[Planned]** Those marked as having worked a holiday last year are excluded from Holiday Mandatory; if the pool runs out with positions open, a second round continues within the pool and the admin is alerted.
 - **[Gap]** Picking a holiday does not offer the nearby weekend at all. **[Planned]** A pop-up strongly encourages taking the weekend call shift within the proximity range of the holiday in the same turn; declining is allowed. The current reverse pop-up is `showHolidayPrompt` in `JS.html`, handled in `submitSelection` in `WebApp.gs`.
-- **[Gap]** For a fresh year, auto-fill puts holidays on calendar dates, not observed dates. **[Planned]** Saturday → Friday, Sunday → Monday; New Year's Day of the lottery year is included even when observed on December 31 of the year before.
+- For a fresh year, auto-fill puts each official holiday on its observed weekday (`getHolidaysForYear` in `Utils.gs`): a Saturday holiday moves to the Friday before, a Sunday holiday to the Monday after. New Year's Day of the lottery year is included even when observed on December 31 of the year before (the 2028 lottery gets 2027-12-31). Every later step, including the weekend warnings, reads the Observed Date column, so admin corrections there carry through.
 - **[Gap]** When the Holiday Coverage tab already has rows, auto-fill keeps every existing holiday's date *and assignees* instead of regenerating them (`autoFillAndRandomize` in `Admin.gs`). Running it for 2028 over the 2027 sheet would carry over 2027 dates and names. Weekend warnings are then computed from those old dates.
 
 ### Weekend
@@ -125,6 +125,6 @@ Approved changes still to build. See the 2026-10-20 decision log entry.
 2. Volunteer flows straight into Mandatory (already true in code); rename to "Holiday Mandatory" everywhere.
 3. Exclude last year's holiday workers from Holiday Mandatory; alert the admin (and list the alert on Admin Options) if a second round starts.
 4. Auto-fill refuses to run without a target year.
-5. Observed holiday dates, New Year's Day kept with its lottery year, and auto-fill regenerating holiday rows instead of keeping last year's dates and names.
+5. Auto-fill regenerating holiday rows instead of keeping last year's dates and names. (Observed dates and New Year's Day staying with its lottery year are built.)
 6. Decide whether to add the server-side check for the Prime and two-week rules.
 7. Multi-year setup: year banner on each working tab, Lottery Archive tab, Initialize following the Active Year with a confirmation step, and last-year boxes pre-checked from the archive.
