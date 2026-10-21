@@ -25,6 +25,7 @@ function setupDatabaseSchema() {
         ['Prompt Text - Transfer', 'It is your turn to select an available transfer.', 'Message sent when transfer turn starts'],
         ['Prompt Text - On Deck', 'Hi [Name], you’re next in line for the [Phase] phase of the Vacation Lottery. Your turn should be coming soon. No action is needed yet—please watch for the notification that you may select.', 'Message sent when participant is next in line'],
         ['Prompt Text - Holiday Weekend', 'You better choose a CALL, or you may be FLOGGED by a Co-Worker for ruining their family time. The holiday you picked is within [Days] days of an open weekend call shift. Please take that weekend day with your holiday.', 'Pop-up shown when a holiday pick has an open weekend day nearby; [Days] is the Holiday Proximity Range'],
+        ['Admin Alert - Second Holiday Mandatory Round', 'Info only', 'If everyone in the Holiday Mandatory pool already has a holiday and positions are still open, a second round starts and the admin gets a WhatsApp alert (when notifications are enabled). Answer by changing the "Worked Any Official Holiday Last Year" boxes on Participant Config.'],
         ['Web App URL', '', 'The public URL for the participant web interface']
       ]
     },

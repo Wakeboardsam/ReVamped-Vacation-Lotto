@@ -117,3 +117,13 @@ Decided by the owner on 2026-10-21. This spells out the 2026-10-20 "Holiday pick
 - The holiday and the weekend day are saved together or not at all. If the weekend day (or the holiday) was taken a moment earlier by someone else, nothing is saved and the person repicks: the same holiday with a different weekend day, or a different holiday with its weekend day. Saving the holiday alone in that case is not acceptable.
 - The weekend-phase pop-up that offered a holiday from a weekend pick is removed.
 - **Open:** whether a weekend day taken with a holiday counts as the person's first weekend pick in the Weekend phase. Not decided yet; until it is, it counts like any other weekend day they hold.
+
+## 2026-10-21 — Holiday Mandatory pool and second-round alert, as built
+
+Decided by the owner on 2026-10-21. This spells out the 2026-10-20 "Mandatory exclusion" and "Second mandatory round" items, which are now built.
+
+- The Holiday Mandatory pool is everyone with "Mandatory Holiday Eligible" checked and "Worked Any Official Holiday Last Year" unchecked. "Mandatory Holiday Eligible" stays as the admin's per-person off switch (for example for a part-year employee).
+- Last year's holiday workers are left out of Holiday Mandatory only; they may still volunteer.
+- The second-round alert goes to the admin once, when Holiday Mandatory moves into round 2, and only when notifications are enabled. Changes to the last-year boxes take effect on the next turn.
+- No separate alert for an empty pool. The pool would be empty only if the admin excluded or switched off everyone in it, and since the snake keeps going round after round, even a small pool fills every position. The owner judged an empty pool very unlikely.
+

@@ -88,6 +88,16 @@ function getParticipantAssignments(participantName, phase, cache) {
 }
 
 /**
+ * Holiday Mandatory pool: "Mandatory Holiday Eligible" is checked and
+ * "Worked Any Official Holiday Last Year" is not. The admin sets both boxes by hand.
+ */
+function isInHolidayMandatoryPool_(p) {
+  var eligible = p['Mandatory Holiday Eligible'] === true || p['Mandatory Holiday Eligible'] === 'TRUE';
+  var workedLastYear = p['Worked Any Official Holiday Last Year'] === true || p['Worked Any Official Holiday Last Year'] === 'TRUE';
+  return eligible && !workedLastYear;
+}
+
+/**
  * Gets the active window of participants based on phase, round, direction, and lead.
  */
 /**
@@ -157,7 +167,7 @@ function getQueueWindows_(phase, state, cache) {
       var volFlag = (p['Holiday Volunteer'] === true || p['Holiday Volunteer'] === 'TRUE');
       if ((volResp === 'yes' || volFlag) && volResp !== 'pass') isEligibleForPhase = true;
     } else if (phase === 'HOLIDAY_MANDATORY') {
-      if (p['Mandatory Holiday Eligible'] === true || p['Mandatory Holiday Eligible'] === 'TRUE') isEligibleForPhase = true;
+      if (isInHolidayMandatoryPool_(p)) isEligibleForPhase = true;
     } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
       if (p['Transfer Giver'] === true || p['Transfer Giver'] === 'TRUE') isEligibleForPhase = true;
     } else if (phase === 'TRANSFER_RECEIVER') {
@@ -336,7 +346,7 @@ function advanceQueueInternal_() {
           isEligibleForPhase = true;
         }
       } else if (phase === 'HOLIDAY_MANDATORY') {
-        if (p['Mandatory Holiday Eligible'] === true || p['Mandatory Holiday Eligible'] === 'TRUE') {
+        if (isInHolidayMandatoryPool_(p)) {
           isEligibleForPhase = true;
         }
       } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
@@ -547,6 +557,9 @@ function advanceQueueInternal_() {
           round: newRound,
           lead: eligiblePool[newLeadIdx].sortPosition
         });
+        if (phase === 'HOLIDAY_MANDATORY' && newRound === 2) {
+          notifyAdminSecondHolidayMandatoryRound_();
+        }
       } else {
         // If no one is eligible in the new round, the phase is complete!
         // We handle phase transitions in the main controller, but setting state to COMPLETE
