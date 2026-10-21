@@ -274,6 +274,8 @@ function runRegressionTests() {
     ]);
 
     // Test A: Weekend initialization resets state, populates adjacency
+    // Weekends follow holidays, so the Weekend phase normally starts from HOLIDAY_COMPLETE.
+    setQueueState({ phase: 'HOLIDAY_COMPLETE' });
     beginWeekendPhase();
 
     var wData = MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues();
@@ -298,6 +300,8 @@ function runRegressionTests() {
       ['Bob', false, true, '', false, false, true, 2, '2'] // Duplicate position 2
     ]);
     var caught = false;
+    var phaseBeforeValidationTests = getQueueState().phase;
+    setQueueState({ phase: 'HOLIDAY_COMPLETE' });
     try {
       beginWeekendPhase();
     } catch (e) {
@@ -309,6 +313,7 @@ function runRegressionTests() {
     var wBackup = MockSpreadsheetApp._sheets['Weekend Coverage'];
     MockSpreadsheetApp.createSheet('Weekend Coverage', [['BadHeader']]);
     caught = false;
+    setQueueState({ phase: 'HOLIDAY_COMPLETE' });
     try {
       beginWeekendPhase();
     } catch (e) {
@@ -316,6 +321,7 @@ function runRegressionTests() {
     }
     assert(caught, "Missing headers fail correctly before changing state");
     MockSpreadsheetApp._sheets['Weekend Coverage'] = wBackup; // restore
+    setQueueState({ phase: phaseBeforeValidationTests }); // restore the WEEKEND phase from Test A
 
     // Test C: Integration Login -> Initial State -> Privacy Context
     var loginRes = authenticateParticipant('Alice', '1234');
@@ -461,9 +467,9 @@ function runRegressionTests() {
     var sysConfig = MockSpreadsheetApp._sheets['Config'].getDataRange().getValues();
     var currentPhaseSet = false;
     for(var i = 1; i < sysConfig.length; i++) {
-        if(sysConfig[i][0] === 'Current Phase' && sysConfig[i][1] === 'TRANSFER_OFFER_COLLECTION') currentPhaseSet = true;
+        if(sysConfig[i][0] === 'Current Phase' && sysConfig[i][1] === 'HOLIDAY_COMPLETE') currentPhaseSet = true;
     }
-    assert(currentPhaseSet, "System config Current Phase is correctly set to Transfer phase.");
+    assert(currentPhaseSet, "Full holiday coverage stops at HOLIDAY_COMPLETE (waiting for the admin to start Weekend), not the Transfer phase.");
 
     // 3. Stale holiday submission is rejected without advancing.
     var staleSubmitPassed = false;
@@ -495,7 +501,117 @@ function runRegressionTests() {
     var currentState = getQueueState();
     assert(currentState.phase === 'TRANSFER_OFFER_COLLECTION', "Queue phase should remain TRANSFER_OFFER_COLLECTION after rejected stale submission.");
 
+    // 3b. A stale holiday submission is also rejected once the lottery is at HOLIDAY_COMPLETE.
+    staleSubmitPassed = false;
+    try {
+      setQueueState({ phase: 'HOLIDAY_COMPLETE' });
+      submitSelection('Alice', { phase: 'HOLIDAY_VOLUNTEER', action: 'SUBMIT', selections: [{ name: 'Christmas', position: 'Call 1' }] });
+      staleSubmitPassed = true;
+    } catch (e) {
+      assert(e.message.indexOf('Holiday selection is no longer available because holiday coverage is complete') !== -1, "Stale holiday submission at HOLIDAY_COMPLETE gets the coverage-complete message.");
+    }
+    assert(!staleSubmitPassed, "Stale holiday submission does not succeed at HOLIDAY_COMPLETE.");
+
     getActiveParticipants = origGetActiveParticipants;
+
+    // --- PHASE ORDER: HOLIDAYS BEFORE WEEKENDS ---
+    var origGetUiPhase = SpreadsheetApp.getUi;
+    var origSendWhatsAppMessage = sendWhatsAppMessage;
+    var origGetWhatsAppConfig = getWhatsAppConfig_;
+    var origAdminOptionsPhase = MockSpreadsheetApp._sheets['Admin Options'];
+    try {
+      // Menu lists the phases in lottery order.
+      var menuItems = [];
+      var menuMock = {
+        addItem: function(label) { menuItems.push(label); return menuMock; },
+        addSeparator: function() { return menuMock; },
+        addToUi: function() {}
+      };
+      SpreadsheetApp.getUi = function() { return { createMenu: function() { return menuMock; } }; };
+      onOpen();
+      var holidayItem = menuItems.indexOf('▶️ Begin Holiday Phase');
+      var weekendItem = menuItems.indexOf('▶️ Begin Weekend Phase');
+      var transferItem = menuItems.indexOf('▶️ Begin Transfer Phase');
+      var seniorityItem = menuItems.indexOf('▶️ Begin Seniority Round');
+      assert(seniorityItem !== -1 && seniorityItem < holidayItem && holidayItem < weekendItem && weekendItem < transferItem,
+          "Menu order is Seniority, Holiday, Weekend, Transfer");
+
+      // Filling the last holiday alerts the admin once notifications are enabled.
+      var adminMessages = [];
+      sendWhatsAppMessage = function(phone, text) { adminMessages.push({ phone: phone, text: text }); return { success: true }; };
+      getWhatsAppConfig_ = function() { return { adminPhone: '999' }; };
+      MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2028'], ['Enable SMS Notifications', 'TRUE']]);
+      setQueueState({ phase: 'HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+      var completeRes = advanceQueueInternal_();
+      assert(getQueueState().phase === 'HOLIDAY_COMPLETE', "Last holiday filled during Holiday Volunteer stops at HOLIDAY_COMPLETE");
+      assert(completeRes && completeRes.complete === true, "Holiday completion reports complete");
+      assert(adminMessages.length === 1 && adminMessages[0].phone === '999' && adminMessages[0].text.indexOf('Begin Weekend Phase') !== -1,
+          "Admin gets one WhatsApp message to start the Weekend phase");
+
+      // No message when notifications are turned off.
+      adminMessages = [];
+      MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2028'], ['Enable SMS Notifications', 'FALSE']]);
+      setQueueState({ phase: 'HOLIDAY_MANDATORY', round: 1, direction: 'ASCENDING', lead: 1 });
+      advanceQueueInternal_();
+      assert(getQueueState().phase === 'HOLIDAY_COMPLETE', "Last holiday filled during Holiday Mandatory stops at HOLIDAY_COMPLETE");
+      assert(adminMessages.length === 0, "No admin message is sent while notifications are disabled");
+
+      // A failed admin message does not undo holiday completion.
+      MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2028'], ['Enable SMS Notifications', 'TRUE']]);
+      getWhatsAppConfig_ = function() { throw new Error('Missing ADMIN_PHONE configuration'); };
+      setQueueState({ phase: 'HOLIDAY_VOLUNTEER', round: 1, direction: 'ASCENDING', lead: 1 });
+      var failedAlertRes = advanceQueueInternal_();
+      assert(getQueueState().phase === 'HOLIDAY_COMPLETE' && failedAlertRes.complete === true,
+          "Holiday completion still stands when the admin message cannot be sent");
+
+      // HOLIDAY_COMPLETE has no active participants and does not move on by itself.
+      advanceQueueInternal_();
+      assert(getQueueState().phase === 'HOLIDAY_COMPLETE', "HOLIDAY_COMPLETE waits for the admin instead of advancing");
+      assert(getQueueWindows_('HOLIDAY_COMPLETE', getQueueState(), {}).activeWindow.length === 0, "HOLIDAY_COMPLETE has no active participants");
+
+      // Out-of-order Begin buttons warn, and do nothing unless the admin confirms.
+      var phaseAlerts = [];
+      var phaseAnswer = 'NO';
+      var phaseUi = {
+        ButtonSet: { YES_NO: 'YES_NO' },
+        Button: { YES: 'YES', NO: 'NO' },
+        alert: function(title, msg, buttons) {
+          phaseAlerts.push({ title: title, msg: msg, buttons: buttons });
+          return buttons ? phaseAnswer : undefined;
+        }
+      };
+      SpreadsheetApp.getUi = function() { return phaseUi; };
+
+      setQueueState({ phase: 'VACATION_RANDOM', round: 3, direction: 'ASCENDING', lead: 1 });
+      beginWeekendPhase();
+      assert(phaseAlerts.length === 1 && phaseAlerts[0].buttons === 'YES_NO' && phaseAlerts[0].title.indexOf('out of order') !== -1,
+          "Begin Weekend during vacation asks the admin to confirm");
+      assert(phaseAlerts[0].msg.indexOf('Vacation → Holiday Volunteer → Holiday Mandatory → Weekend → Transfer') !== -1,
+          "The warning names the normal phase order");
+      assert(getQueueState().phase === 'VACATION_RANDOM', "Declining the warning leaves the phase unchanged");
+
+      phaseAlerts = [];
+      setQueueState({ phase: 'HOLIDAY_COMPLETE' });
+      beginTransferPhase();
+      assert(phaseAlerts.length === 1 && getQueueState().phase === 'HOLIDAY_COMPLETE',
+          "Begin Transfer before weekends warns and, when declined, changes nothing");
+
+      phaseAlerts = [];
+      phaseAnswer = 'YES';
+      beginTransferPhase();
+      assert(getQueueState().phase === 'TRANSFER_OFFER_COLLECTION', "Confirming the warning starts the phase anyway");
+
+      phaseAlerts = [];
+      setQueueState({ phase: 'WEEKEND' });
+      beginTransferPhase();
+      assert(phaseAlerts.length === 1 && !phaseAlerts[0].buttons && getQueueState().phase === 'TRANSFER_OFFER_COLLECTION',
+          "Begin Transfer after the Weekend phase starts without a warning");
+    } finally {
+      SpreadsheetApp.getUi = origGetUiPhase;
+      sendWhatsAppMessage = origSendWhatsAppMessage;
+      getWhatsAppConfig_ = origGetWhatsAppConfig;
+      MockSpreadsheetApp._sheets['Admin Options'] = origAdminOptionsPhase;
+    }
 
     // Weekend Duplicate Ownership Tests
     MockSpreadsheetApp.createSheet('Weekend Coverage', [

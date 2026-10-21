@@ -248,3 +248,40 @@ function notifyActiveParticipants() {
     // We will do that in advanceQueue() to be safe.
   });
 }
+
+/**
+ * Tells the admin that every holiday call position is filled and the Weekend phase
+ * can be started. Never throws: a failed message must not undo the holiday pick.
+ */
+function notifyAdminHolidayCoverageComplete_() {
+  try {
+    var adminOptions = getAdminOptions();
+    var isEnabled = adminOptions['Enable SMS Notifications'];
+    if (isEnabled !== true && String(isEnabled).toUpperCase() !== 'TRUE') {
+      return;
+    }
+
+    var config = getWhatsAppConfig_();
+    var message = 'Vacation Lotto: every holiday call position is filled. ' +
+        'Start the Weekend phase from the Vacation Lotto menu (Begin Weekend Phase) when ready.';
+    var result = sendParticipantNotification_(config.adminPhone, message);
+
+    logNotificationEvent({
+      timestamp: new Date(),
+      eventKey: 'HOLIDAY_COMPLETE-' + (adminOptions['Active Year'] || '') + '-' + new Date().getTime(),
+      participantId: 'Admin',
+      participantName: 'Admin',
+      phone: config.adminPhone,
+      phase: 'HOLIDAY_COMPLETE',
+      type: 'ADMIN_ALERT',
+      status: result && result.success ? 'SUCCESS' : 'FAILED',
+      entryTimestamp: '',
+      reminderSent: '',
+      alertSent: '',
+      resendWhatsApp: '',
+      error: result && result.failureType ? result.failureType : (result && result.error ? 'TRANSPORT_ERROR' : '')
+    });
+  } catch (e) {
+    console.warn('[WARN] Could not send the holiday-complete admin alert: ' + e.message);
+  }
+}

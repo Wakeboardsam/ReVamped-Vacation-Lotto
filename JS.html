@@ -548,6 +548,7 @@
     else if (phaseName === 'WEEKEND') phaseName = 'WEEKEND COVERAGE';
     else if (phaseName === 'HOLIDAY_VOLUNTEER') phaseName = 'HOLIDAY VOLUNTEER';
     else if (phaseName === 'HOLIDAY_MANDATORY') phaseName = 'HOLIDAY MANDATORY';
+    else if (phaseName === 'HOLIDAY_COMPLETE') phaseName = 'HOLIDAYS COMPLETE';
     else phaseName = phaseName.replace(/_/g, ' ');
 
     document.getElementById('phaseLabel').innerText = phaseName;
@@ -662,6 +663,8 @@
     } else if (appState.phase === 'TRANSFER_RECEIVER') {
       renderTransferReceiverPhase(container);
       showDensityControl = true;
+    } else if (appState.phase === 'HOLIDAY_COMPLETE') {
+      container.innerHTML = '<div class="card"><div class="card-content"><p class="card-title">Holidays Complete</p><p>Every holiday call position is filled. Weekend selection starts next, once the administrator opens it.</p></div></div>';
     } else if (appState.phase === 'COMPLETE') {
       container.innerHTML = '<div class="card"><div class="card-content"><p class="card-title">Lottery Complete</p><p>All phases of the lottery have concluded for this year.</p></div></div>';
     } else {
@@ -2137,6 +2140,7 @@
         else if (phaseLabel === 'WEEKEND') phaseLabel = 'WEEKEND COVERAGE';
         else if (phaseLabel === 'HOLIDAY_VOLUNTEER') phaseLabel = 'HOLIDAY VOLUNTEER';
         else if (phaseLabel === 'HOLIDAY_MANDATORY') phaseLabel = 'HOLIDAY MANDATORY';
+        else if (phaseLabel === 'HOLIDAY_COMPLETE') phaseLabel = 'HOLIDAYS COMPLETE';
 
         document.getElementById('phaseLabel').innerText = phaseLabel;
 

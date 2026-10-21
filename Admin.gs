@@ -14,8 +14,8 @@ function onOpen(e) {
       .addItem('🎲 Auto-Fill & Randomize Roster', 'runAutoFillFromMenu')
       .addSeparator()
       .addItem('▶️ Begin Seniority Round', 'beginSeniorityRound')
-      .addItem('▶️ Begin Weekend Phase', 'beginWeekendPhase')
       .addItem('▶️ Begin Holiday Phase', 'beginHolidayPhase')
+      .addItem('▶️ Begin Weekend Phase', 'beginWeekendPhase')
       .addItem('▶️ Begin Transfer Phase', 'beginTransferPhase')
       .addSeparator()
       .addItem('✉️ Send Active Participant PINs', 'sendActiveParticipantPINs')
@@ -54,9 +54,50 @@ function runAutoFillFromMenu() {
 }
 
 /**
+ * Plain-language name of a lottery phase for admin messages.
+ */
+function getPhaseDisplayName_(phase) {
+  var names = {
+    'VACATION_SENIORITY': 'Vacation (seniority round)',
+    'VACATION_RANDOM': 'Vacation (lottery rounds)',
+    'HOLIDAY_VOLUNTEER': 'Holiday Volunteer',
+    'HOLIDAY_MANDATORY': 'Holiday Mandatory',
+    'HOLIDAY_COMPLETE': 'Holidays complete (waiting for the Weekend phase)',
+    'WEEKEND': 'Weekend',
+    'TRANSFER_OFFER_COLLECTION': 'Transfer (collecting offers)',
+    'TRANSFER_RECEIVER': 'Transfer (receivers choosing)',
+    'COMPLETE': 'Complete'
+  };
+  return names[phase] || String(phase || 'Setup').replace(/_/g, ' ');
+}
+
+/**
+ * Returns true when a phase may start. Starting from an unexpected phase is allowed,
+ * but only after the admin confirms a warning that names the normal order.
+ */
+function confirmPhaseStart_(targetName, expectedPhases) {
+  var current = getQueueState().phase;
+  var isSetup = /^SETUP/.test(String(current || 'SETUP'));
+  if (expectedPhases.indexOf(current) !== -1 || (isSetup && expectedPhases.indexOf('SETUP') !== -1)) {
+    return true;
+  }
+
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.alert(
+    'Start ' + targetName + ' out of order?',
+    'The lottery is currently in: ' + getPhaseDisplayName_(current) + '.\n\n' +
+    'The normal order is: Vacation → Holiday Volunteer → Holiday Mandatory → Weekend → Transfer.\n\n' +
+    'Start ' + targetName + ' anyway?',
+    ui.ButtonSet.YES_NO
+  );
+  return response === ui.Button.YES;
+}
+
+/**
  * Transitions phase state to VACATION_SENIORITY and opens Round 1.
  */
 function beginSeniorityRound() {
+  if (!confirmPhaseStart_('the Seniority Round', ['SETUP', 'COMPLETE'])) return;
   setQueueState({ phase: 'VACATION_SENIORITY', round: 1, direction: 'ASCENDING', lead: 1 });
   advanceQueue();
   SpreadsheetApp.getUi().alert('Lottery state changed to VACATION_SENIORITY. Seniority Round 1 is now active!');
@@ -66,6 +107,8 @@ function beginSeniorityRound() {
  * Transitions phase state to WEEKEND.
  */
 function beginWeekendPhase() {
+  if (!confirmPhaseStart_('the Weekend phase', ['HOLIDAY_COMPLETE'])) return;
+
   return withScriptLock(function() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
 
@@ -256,9 +299,13 @@ function beginWeekendPhase() {
 }
 
 /**
- * Starts the Holiday Phase from Lottery Position 1.
+ * Starts the Holiday Phase from Lottery Position 1. Holidays come after vacation
+ * and before weekends; when every holiday position fills, the lottery stops at
+ * HOLIDAY_COMPLETE until the admin starts the Weekend phase.
  */
 function beginHolidayPhase() {
+  if (!confirmPhaseStart_('the Holiday phase', ['VACATION_SENIORITY', 'VACATION_RANDOM', 'COMPLETE'])) return;
+
   setQueueState({
     phase: 'HOLIDAY_VOLUNTEER',
     round: 1,
@@ -280,6 +327,8 @@ function beginHolidayPhase() {
  * Starts the Transfer Phase from Lottery Position 1.
  */
 function beginTransferPhase() {
+  if (!confirmPhaseStart_('the Transfer phase', ['WEEKEND', 'COMPLETE'])) return;
+
   setQueueState({
     phase: 'TRANSFER_OFFER_COLLECTION',
     round: 1,
