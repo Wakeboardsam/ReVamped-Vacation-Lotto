@@ -167,6 +167,7 @@ function runWahaUnitTests() {
   var originalSpreadsheetApp = typeof SpreadsheetApp !== 'undefined' ? SpreadsheetApp : null;
   var originalGetQueueState = typeof getQueueState !== 'undefined' ? getQueueState : null;
   var originalGetActiveParticipants = typeof getActiveParticipants !== 'undefined' ? getActiveParticipants : null;
+  var originalGetQueueWindows = typeof getQueueWindows_ !== 'undefined' ? getQueueWindows_ : null;
   var originalUtilities = typeof Utilities !== 'undefined' ? Utilities : null;
   var flushCalled = 0;
   var sheetValuesSet = [];
@@ -182,6 +183,10 @@ function runWahaUnitTests() {
         { _rowIndex: 2, 'Entry Timestamp': '', 'Reminder Sent': false, 'Admin Alert Sent': false, 'Phone Number': '5551111111', 'Name': 'Alice' },
         { _rowIndex: 3, 'Entry Timestamp': '', 'Reminder Sent': false, 'Admin Alert Sent': false, 'Phone Number': '5552222222', 'Name': 'Bob' }
       ];
+    };
+    // notifyActiveParticipants reads the window through getQueueWindows_; no On Deck person here
+    getQueueWindows_ = function(phase) {
+      return { activeWindow: getActiveParticipants(phase), upNextWindow: [] };
     };
     var mockProps = {
       'WAHA_BASE_URL': 'https://mock.ngrok.io',
@@ -261,6 +266,7 @@ function runWahaUnitTests() {
     if (originalGetAdminOptions) { getAdminOptions = originalGetAdminOptions; }
     if (originalGetQueueState) { getQueueState = originalGetQueueState; }
     if (originalGetActiveParticipants) { getActiveParticipants = originalGetActiveParticipants; }
+    if (originalGetQueueWindows) { getQueueWindows_ = originalGetQueueWindows; }
     SpreadsheetApp = originalSpreadsheetApp;
     Utilities = originalUtilities;
     if (originalSendWhatsAppMessage) { sendWhatsAppMessage = originalSendWhatsAppMessage; }
@@ -510,6 +516,12 @@ function runWahaUnitTests() {
   var origSpreadsheetApp12 = SpreadsheetApp;
   try {
     SpreadsheetApp = MockSpreadsheetApp;
+    // Count the default rows the migration adds to a header-only sheet
+    MockSpreadsheetApp.createSheet('Admin Options', [
+      ['Setting Name', 'Setting Value', 'Description']
+    ]);
+    setupDatabaseSchema();
+    var defaultRowCount = MockSpreadsheetApp._sheets['Admin Options'].getDataRange().getValues().length - 1;
     MockSpreadsheetApp.createSheet('Admin Options', [
       ['Setting Name', 'Setting Value', 'Description'],
       ['Existing Setting', 'Value', '']
@@ -520,7 +532,10 @@ function runWahaUnitTests() {
     var hasTransferPrompt = adminDataAfter.some(r => r[0] === 'Prompt Text - Transfer');
     var hasWebAppUrl = adminDataAfter.some(r => r[0] === 'Web App URL');
     assert(hasHolidayPrompt && hasTransferPrompt && hasWebAppUrl, "Admin Options migration appended missing rows.");
-    assert(adminDataAfter.length === 25, "Admin Options migration appended correctly to existing sheet without duplicates.");
+    assert(defaultRowCount > 0 && adminDataAfter.length === 2 + defaultRowCount, "Admin Options migration appended correctly to existing sheet without duplicates.");
+    var settingNames = adminDataAfter.map(function(r) { return r[0]; });
+    var duplicateNames = settingNames.filter(function(n, idx) { return settingNames.indexOf(n) !== idx; });
+    assert(duplicateNames.length === 0, "Admin Options migration leaves each setting name exactly once.");
   } catch(e) {
     failed++;
     console.error("Test group failed (Admin Options Migration): " + e);
@@ -583,6 +598,7 @@ function runWahaUnitTests() {
   var origSendNotification14 = typeof sendParticipantNotification_ !== 'undefined' ? sendParticipantNotification_ : null;
   var origGetActiveParticipants14 = typeof getActiveParticipants !== 'undefined' ? getActiveParticipants : null;
   var origWithScriptLock14 = typeof withScriptLock !== 'undefined' ? withScriptLock : null;
+  var origGetQueueWindows14 = typeof getQueueWindows_ !== 'undefined' ? getQueueWindows_ : null;
   var origFlush14 = SpreadsheetApp.flush;
   try {
     SpreadsheetApp = MockSpreadsheetApp;
@@ -609,6 +625,7 @@ function runWahaUnitTests() {
     };
 
     getActiveParticipants = function() { return [{ _rowIndex: 2, 'Entry Timestamp': '', 'Reminder Sent': false, 'Admin Alert Sent': false, 'Phone Number': '5551111111', 'Name': 'Alice' }]; };
+    getQueueWindows_ = function(phase) { return { activeWindow: getActiveParticipants(phase), upNextWindow: [] }; };
     MockSpreadsheetApp.createSheet('Participant Config', [['Name', 'Phone Number', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent'], ['Alice', '5551111111', '', '', '']]);
 
     notifyActiveParticipants();
@@ -628,6 +645,7 @@ function runWahaUnitTests() {
     if (origSendNotification14) sendParticipantNotification_ = origSendNotification14;
     if (origGetActiveParticipants14) getActiveParticipants = origGetActiveParticipants14;
     if (origWithScriptLock14) withScriptLock = origWithScriptLock14;
+    if (origGetQueueWindows14) getQueueWindows_ = origGetQueueWindows14;
   }
 
   // 15. Add State-Reset Snapshot Test
