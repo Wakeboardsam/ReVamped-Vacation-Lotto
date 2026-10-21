@@ -117,6 +117,12 @@ The sheet is the source of truth. After editing it directly, run **🔄 Refresh 
 
 Run from the Apps Script editor: `runRegressionTests` (`Tests.gs`) and `runWahaUnitTests` (`WhatsAppTests.gs`). There is no local test runner.
 
+The editor only gets new code when it is merged to `main`, so the order is **merge, then run the tests**. A pull request cannot be tested in the editor before it is merged. Merge code changes outside lottery season, run the tests right after, and fix or revert at once if anything fails.
+
+- Have the spreadsheet open in another tab: when it is, the results appear in a pop-up there; otherwise they go to the execution log. A Google "unknown error" at the end of a run can come from that pop-up.
+- The execution log cuts long output short. The tests stop with an error at the first failure, so "Execution completed" means every check passed.
+- "Notification Log sheet not found" lines during the run are expected: the tests use stand-in sheets.
+
 ## Open items for the 2028 lottery
 
 Approved changes still to build. See the 2026-10-20 decision log entry.
