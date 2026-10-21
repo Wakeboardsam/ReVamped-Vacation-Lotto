@@ -106,3 +106,14 @@ Decided by the owner on 2026-10-21 with the phase reorder.
 - When every holiday call position is filled, the lottery stops at **Holidays complete** and waits for the admin to start the Weekend phase. It no longer jumps to the Transfer phase.
 - At that point the admin gets a WhatsApp message saying to start the Weekend phase (only when notifications are enabled).
 - A Begin button pressed out of order warns the admin and names the normal order; it starts the phase only if the admin confirms. It does not block, so the admin can still override.
+
+## 2026-10-21 — How the holiday pick offers the nearby weekend
+
+Decided by the owner on 2026-10-21. This spells out the 2026-10-20 "Holiday picks push the nearby weekend" item.
+
+- After a holiday call is picked, the pop-up lists every open Saturday and Sunday within the Holiday Proximity Range (default 3 days) of the holiday's observed date, and asks the person to pick one as First Call. Each Saturday or Sunday is one weekend unit, so for Thanksgiving on a Thursday they choose the Saturday or the Sunday.
+- The wording builds on the earlier "FLOGGED" prompt and is editable on Admin Options as "Prompt Text - Holiday Weekend".
+- Taking only the holiday stays allowed.
+- The holiday and the weekend day are saved together or not at all. If the weekend day (or the holiday) was taken a moment earlier by someone else, nothing is saved and the person repicks: the same holiday with a different weekend day, or a different holiday with its weekend day. Saving the holiday alone in that case is not acceptable.
+- The weekend-phase pop-up that offered a holiday from a weekend pick is removed.
+- **Open:** whether a weekend day taken with a holiday counts as the person's first weekend pick in the Weekend phase. Not decided yet; until it is, it counts like any other weekend day they hold.
