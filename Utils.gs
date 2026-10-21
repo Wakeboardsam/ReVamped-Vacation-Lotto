@@ -42,14 +42,30 @@ function getEaster(year) {
   return new Date(year, month - 1, day);
 }
 
+/**
+ * Moves a holiday to the weekday the employer observes it on:
+ * Saturday moves to the Friday before, Sunday to the Monday after.
+ */
+function getObservedDate_(date) {
+  var observed = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  if (observed.getDay() === 6) observed.setDate(observed.getDate() - 1);
+  else if (observed.getDay() === 0) observed.setDate(observed.getDate() + 1);
+  return observed;
+}
+
+/**
+ * Official holidays for a lottery year, on their observed dates.
+ * New Year's Day stays with its own lottery year even when it is observed
+ * on December 31 of the year before.
+ */
 function getHolidaysForYear(year) {
   return {
-    "New Year's Day": new Date(year, 0, 1),
+    "New Year's Day": getObservedDate_(new Date(year, 0, 1)),
     "Memorial Day": getLastDayOfMonth(year, 4, 1), // Last Monday in May
-    "Independence Day": new Date(year, 6, 4),
+    "Independence Day": getObservedDate_(new Date(year, 6, 4)),
     "Labor Day": getNthDayOfMonth(year, 8, 1, 1), // 1st Monday in September
     "Thanksgiving": getNthDayOfMonth(year, 10, 4, 4), // 4th Thursday in November
-    "Christmas": new Date(year, 11, 25)
+    "Christmas": getObservedDate_(new Date(year, 11, 25))
   };
 }
 

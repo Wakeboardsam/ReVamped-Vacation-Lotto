@@ -171,6 +171,95 @@ function runRegressionTests() {
     assert(wJan4Stale[4] === "", "Stale proximity warnings are successfully cleared upon recalculation");
 
 
+    // Observed holiday dates: a Saturday holiday moves to the Friday before, a Sunday holiday to the Monday after.
+    var holidayKeysForYear = function(year) {
+      var hols = getHolidaysForYear(year);
+      var keys = {};
+      for (var name in hols) {
+        if (hols.hasOwnProperty(name)) keys[name] = formatDate(hols[name]);
+      }
+      return keys;
+    };
+
+    var hols2027 = holidayKeysForYear(2027);
+    assert(hols2027["New Year's Day"] === '2027-01-01', "2027 New Year's Day (Friday) stays on 2027-01-01: " + hols2027["New Year's Day"]);
+    assert(hols2027["Memorial Day"] === '2027-05-31', "2027 Memorial Day is 2027-05-31: " + hols2027["Memorial Day"]);
+    assert(hols2027["Independence Day"] === '2027-07-05', "2027 Independence Day (Sunday) is observed Monday 2027-07-05: " + hols2027["Independence Day"]);
+    assert(hols2027["Labor Day"] === '2027-09-06', "2027 Labor Day is 2027-09-06: " + hols2027["Labor Day"]);
+    assert(hols2027["Thanksgiving"] === '2027-11-25', "2027 Thanksgiving is 2027-11-25: " + hols2027["Thanksgiving"]);
+    assert(hols2027["Christmas"] === '2027-12-24', "2027 Christmas (Saturday) is observed Friday 2027-12-24: " + hols2027["Christmas"]);
+
+    var hols2028 = holidayKeysForYear(2028);
+    assert(hols2028["New Year's Day"] === '2027-12-31', "2028 New Year's Day (Saturday) is observed Friday 2027-12-31: " + hols2028["New Year's Day"]);
+    assert(hols2028["Memorial Day"] === '2028-05-29', "2028 Memorial Day is 2028-05-29: " + hols2028["Memorial Day"]);
+    assert(hols2028["Independence Day"] === '2028-07-04', "2028 Independence Day (Tuesday) stays on 2028-07-04: " + hols2028["Independence Day"]);
+    assert(hols2028["Labor Day"] === '2028-09-04', "2028 Labor Day is 2028-09-04: " + hols2028["Labor Day"]);
+    assert(hols2028["Thanksgiving"] === '2028-11-23', "2028 Thanksgiving is 2028-11-23: " + hols2028["Thanksgiving"]);
+    assert(hols2028["Christmas"] === '2028-12-25', "2028 Christmas (Monday) stays on 2028-12-25: " + hols2028["Christmas"]);
+
+    // New Year's observed on December 31 belongs to the next year's lottery, not the year it falls in.
+    var dec31In2027List = false;
+    for (var hName2027 in hols2027) {
+      if (hols2027.hasOwnProperty(hName2027) && hols2027[hName2027] === '2027-12-31') dec31In2027List = true;
+    }
+    assert(!dec31In2027List, "Observed New Year's 2027-12-31 is not part of the 2027 lottery holidays");
+
+    // Every year: each official holiday lands on a weekday, within one day of its calendar date.
+    var fixedHolidays = { "New Year's Day": [0, 1], "Independence Day": [6, 4], "Christmas": [11, 25] };
+    var allYearsObserved = true;
+    var observedFailure = '';
+    for (var y = 2025; y <= 2060; y++) {
+      var yHols = getHolidaysForYear(y);
+      for (var yName in yHols) {
+        if (!yHols.hasOwnProperty(yName)) continue;
+        var dow = yHols[yName].getDay();
+        if (dow === 0 || dow === 6) {
+          allYearsObserved = false;
+          observedFailure = yName + ' ' + y + ' falls on a weekend';
+        }
+        if (fixedHolidays[yName]) {
+          var nominal = new Date(y, fixedHolidays[yName][0], fixedHolidays[yName][1]);
+          var dayGap = Math.round(Math.abs(Date.UTC(yHols[yName].getFullYear(), yHols[yName].getMonth(), yHols[yName].getDate()) -
+              Date.UTC(nominal.getFullYear(), nominal.getMonth(), nominal.getDate())) / (1000 * 60 * 60 * 24));
+          if (dayGap > 1) {
+            allYearsObserved = false;
+            observedFailure = yName + ' ' + y + ' moved ' + dayGap + ' days';
+          }
+        }
+      }
+    }
+    assert(allYearsObserved, "Official holidays land on an observed weekday for every year 2025-2060 " + observedFailure);
+
+    // Auto-fill writes observed dates to Holiday Coverage, and weekend proximity uses them.
+    MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2027'], ['Holiday Proximity Range (days)', '1']]);
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant']
+    ]);
+    autoFillAndRandomize(2027);
+    hcData = MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues();
+    var july4Row2027 = hcData.find(function(r) { return r[0] === 'Independence Day'; });
+    assert(july4Row2027 && july4Row2027[1] === '2027-07-05', "Auto-fill writes observed Independence Day 2027-07-05 to Holiday Coverage");
+    wData = MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues();
+    var wJul3 = wData.find(function(r) { return r[0] === '2027-07-03'; });
+    var wJul4 = wData.find(function(r) { return r[0] === '2027-07-04'; });
+    assert(wJul3[4] === '', "Weekend 2027-07-03 is 2 days from observed 07-05, so no warning at range 1 (calendar 07-04 would warn)");
+    assert(wJul4[4] === 'Independence Day', "Weekend 2027-07-04 is 1 day from observed 07-05 and gets the Independence Day warning");
+
+    MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2028'], ['Holiday Proximity Range (days)', '1']]);
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant']
+    ]);
+    autoFillAndRandomize(2028);
+    hcData = MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues();
+    var nydRows2028 = hcData.filter(function(r) { return r[0] === "New Year's Day"; });
+    assert(nydRows2028.length === 2 && nydRows2028[0][1] === '2027-12-31' && nydRows2028[1][1] === '2027-12-31',
+        "The 2028 auto-fill includes New Year's Day Call 1 and Call 2 observed 2027-12-31");
+    wData = MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues();
+    var wJan1 = wData.find(function(r) { return r[0] === '2028-01-01'; });
+    var wJan2 = wData.find(function(r) { return r[0] === '2028-01-02'; });
+    assert(wJan1[4] === "New Year's Day", "Weekend 2028-01-01 is 1 day from observed 2027-12-31 and gets the New Year's warning");
+    assert(wJan2[4] === '', "Weekend 2028-01-02 is 2 days from observed 2027-12-31, so no warning at range 1 (calendar 01-01 would warn)");
+
     // Because UI alert will throw in test, we mock getUi
     SpreadsheetApp.getUi = function() { return { alert: function(){} }; };
 
