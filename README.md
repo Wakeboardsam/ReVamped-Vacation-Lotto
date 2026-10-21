@@ -4,9 +4,10 @@ A Google Apps Script web app, backed by one Google Sheet, that runs a workplace'
 
 Agent working rules are in [`CLAUDE.md`](CLAUDE.md). The lottery rules and the reasons behind them are in [`DECISION_LOG.md`](DECISION_LOG.md); where this README and the decision log disagree about intent, the decision log wins.
 
-**How to read this guide.** Untagged statements describe what the current code does (checked against `main` on 2026-10-20). Two tags mark gaps:
+**How to read this guide.** Untagged statements describe what the current code does (checked against `main` on 2026-10-20). Three tags mark gaps:
 
 - **[Planned]** — approved in the decision log but not built yet.
+- **[Decision pending]** — the owner has not decided yet; the text says what the code does meanwhile.
 - **[Gap]** — the code differs from the decision log and needs a decision or a fix.
 
 ## Contents
@@ -52,7 +53,9 @@ All randomized phases use the same yearly Lottery Position, start at position 1,
 - When no volunteers remain and positions are open, the app moves itself to Mandatory Holiday.
 - When every position is filled, the app stops at **Holidays complete** (`HOLIDAY_COMPLETE`) and, when notifications are on, sends the admin a WhatsApp message to start the Weekend phase. Nothing moves on until the admin presses Begin Weekend Phase. If every position is already filled when Begin Holiday Phase is pressed, it goes straight to Holidays complete.
 - **[Gap]** Mandatory Holiday uses only the "Mandatory Holiday Eligible" box, which auto-fill turns on for everyone. "Worked Any Official Holiday Last Year" is never read. **[Planned]** Those marked as having worked a holiday last year are excluded from Holiday Mandatory; if the pool runs out with positions open, a second round continues within the pool and the admin is alerted.
-- **[Gap]** Picking a holiday does not offer the nearby weekend at all. **[Planned]** A pop-up strongly encourages taking the weekend call shift within the proximity range of the holiday in the same turn; declining is allowed. The current reverse pop-up is `showHolidayPrompt` in `JS.html`, handled in `submitSelection` in `WebApp.gs`.
+- When someone picks a holiday call and an open Saturday or Sunday lies within the proximity range (Holiday Proximity Range, default 3 days) of its Observed Date, a pop-up asks them to take one of those days as First Call in the same turn. Each listed day is one weekend unit. They may choose "Just the Holiday" instead. Days of a weekend they already hold a day of are not offered, and nothing is offered once they are out of the weekend phase or at their Weekend Assignment Maximum. The pop-up text is "Prompt Text - Holiday Weekend" on Admin Options; `[Days]` in it becomes the proximity range.
+- The holiday and the weekend day save together or not at all (`submitSelection` in `WebApp.gs`). If either was just taken by someone else, nothing is saved and the person picks again: the same holiday with another weekend day, or a different holiday.
+- **[Decision pending]** Whether a weekend day taken with a holiday counts as the person's first weekend pick. Today it counts: the Weekend phase sees it like any other weekend day they hold.
 - For a fresh year, auto-fill puts each official holiday on its observed weekday (`getHolidaysForYear` in `Utils.gs`): a Saturday holiday moves to the Friday before, a Sunday holiday to the Monday after. New Year's Day of the lottery year is included even when observed on December 31 of the year before (the 2028 lottery gets 2027-12-31). Every later step, including the weekend warnings, reads the Observed Date column, so admin corrections there carry through.
 - **[Gap]** When the Holiday Coverage tab already has rows, auto-fill keeps every existing holiday's date *and assignees* instead of regenerating them (`autoFillAndRandomize` in `Admin.gs`). Running it for 2028 over the 2027 sheet would carry over 2027 dates and names. Weekend warnings are then computed from those old dates.
 
@@ -61,7 +64,7 @@ All randomized phases use the same yearly Lottery Position, start at position 1,
 - Each Saturday and Sunday is a separate First Call slot; a person cannot hold both days of one weekend.
 - One day per turn; the phase cycles until all slots are filled. Weekend Assignment Maximum caps a person (blank means no cap).
 - Warnings (never blocks) for nearby vacation weeks, the person's other weekends, and holidays within the proximity range (default 3 days).
-- **[Gap]** A weekend pick near an official holiday opens a pop-up offering that holiday. This exists only because the code runs weekends before holidays. **[Planned]** Remove it; the offer moves to the holiday pick (see Holidays).
+- A weekend pick no longer offers a nearby holiday; that offer now happens at the holiday pick (see Holidays).
 
 ### Transfers
 
@@ -128,7 +131,7 @@ The editor only gets new code when it is merged to `main`, so the order is **mer
 
 Approved changes still to build. See the 2026-10-20 decision log entry.
 
-1. A holiday pick strongly encourages taking the nearby weekend call shift, replacing the weekend-phase pop-up that offers a holiday. (The phase order itself is built.)
+1. Decide whether a weekend day taken with a holiday counts as the person's first weekend pick (today it does). The holiday pop-up itself is built.
 2. Volunteer flows straight into Mandatory (already true in code); rename to "Holiday Mandatory" everywhere.
 3. Exclude last year's holiday workers from Holiday Mandatory; alert the admin (and list the alert on Admin Options) if a second round starts.
 4. Auto-fill refuses to run without a target year.

@@ -49,6 +49,19 @@ function authenticateParticipant(name, pin) {
  * @param {string} participantId
  * @returns {object} Application state
  */
+/**
+ * Text for the pop-up that asks a participant to take the weekend day next to
+ * the holiday they picked. Editable on Admin Options; [Days] becomes the
+ * Holiday Proximity Range.
+ */
+function getHolidayWeekendPromptText_(adminOptions) {
+  var text = adminOptions ? adminOptions['Prompt Text - Holiday Weekend'] : '';
+  if (text === undefined || text === null || String(text).trim() === '') {
+    text = "You better choose a CALL, or you may be FLOGGED by a Co-Worker for ruining their family time. The holiday you picked is within [Days] days of an open weekend call shift. Please take that weekend day with your holiday.";
+  }
+  return String(text);
+}
+
 function getInitialState(participantId, pin) {
   var sanitizedId = (participantId || '').toString().trim();
   var sanitizedPin = (pin || '').toString().trim();
@@ -138,8 +151,6 @@ function getInitialState(participantId, pin) {
 
     attachSoftHolidayWarnings_(processedWeekends, 'Date', 0);
     response.availableChoices.weekend = processedWeekends;
-    response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
-    attachSoftHolidayWarnings_(response.availableChoices.holiday, 'Observed Date', 0);
   } else if (state.phase === 'HOLIDAY_VOLUNTEER' || state.phase === 'HOLIDAY_MANDATORY') {
     response.availableChoices.holiday = getSheetDataAsObjects('Holiday Coverage');
     attachSoftHolidayWarnings_(response.availableChoices.holiday, 'Observed Date', 0);
@@ -165,6 +176,12 @@ function getInitialState(participantId, pin) {
         myWeekends.push(wks[i]);
       }
     }
+
+    var wkSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Weekend Coverage');
+    var wkData = wkSheet ? wkSheet.getDataRange().getValues() : [];
+    var wkHeaders = wkData.length ? wkData[0] : [];
+    var canTakeWeekend = wkData.length > 1 &&
+      participantCanTakeAnotherWeekend_(participant['Name'], participant, wkData, wkHeaders);
 
     for (var i = 0; i < response.availableChoices.holiday.length; i++) {
       var h = response.availableChoices.holiday[i];
@@ -222,7 +239,17 @@ function getInitialState(participantId, pin) {
       }
       h['nearVacation'] = nearVacation;
       if (nearVacationWeek) h['nearVacationWeek'] = nearVacationWeek;
+
+      // Open weekend days near this holiday that the participant could take with it
+      h['nearbyWeekendDays'] = canTakeWeekend
+        ? getNearbyOpenWeekendDays_(participant['Name'], rawDate, wkData, wkHeaders, proximityRange)
+        : [];
     }
+
+    response.availableChoices.holidayWeekendPrompt = {
+      text: getHolidayWeekendPromptText_(adminOptions),
+      proximityRange: proximityRange
+    };
 
   } else if (state.phase === 'TRANSFER_OFFER_COLLECTION') {
     // Stage A: Givers
@@ -811,7 +838,7 @@ function submitSelection(participantId, selectionData) {
         var wData = wSheet.getDataRange().getValues();
         var wHeaders = wData[0];
 
-        // 1. Validate both weekend and adjacent holiday first to ensure atomic updates
+        // 1. Validate the weekend selection before any write
         var weekendUpdates = [];
         for (var s = 0; s < selectionData.selections.length; s++) {
           var dateStr = selectionData.selections[s];
@@ -842,41 +869,6 @@ function submitSelection(participantId, selectionData) {
           if (!found) throw new Error("Weekend date not found.");
         }
 
-        // Validate adjacent holiday if included
-        var holidayUpdate = null;
-        var partialSuccessMessage = null;
-        if (selectionData.adjacentHoliday && selectionData.adjacentHoliday.holidayName) {
-           var hSheet = ss.getSheetByName('Holiday Coverage');
-           var hData = hSheet.getDataRange().getValues();
-           var hHeaders = hData[0];
-
-           if (participantAlreadyHasHoliday_(
-                 participantId,
-                 selectionData.adjacentHoliday.holidayName,
-                 hData,
-                 hHeaders
-               )) {
-             // Do not fail the weekend selection. Just ignore the holiday and return a message.
-             partialSuccessMessage = "Weekend selection successful. However, the adjacent holiday (" + selectionData.adjacentHoliday.holidayName + ") was not added because you already hold a call position for it.";
-           } else {
-             var hFound = false;
-             for (var i = 1; i < hData.length; i++) {
-               if (hData[i][hHeaders.indexOf('Holiday Name')] === selectionData.adjacentHoliday.holidayName &&
-                   hData[i][hHeaders.indexOf('Call Position (Call 1 / Call 2)')] === selectionData.adjacentHoliday.position) {
-                   if (hData[i][hHeaders.indexOf('Assigned Participant')]) {
-                      // Do not fail the weekend selection. Just ignore the holiday and return a message.
-                      partialSuccessMessage = "Weekend selection successful. However, the adjacent holiday (" + selectionData.adjacentHoliday.holidayName + " - " + selectionData.adjacentHoliday.position + ") was just selected by another participant and was not added.";
-                   } else {
-                      holidayUpdate = {sheet: hSheet, row: i + 1, col: hHeaders.indexOf('Assigned Participant') + 1};
-                   }
-                   hFound = true;
-                   break;
-               }
-             }
-             if (!hFound) throw new Error("Adjacent holiday not found.");
-           }
-        }
-
         // 2. Perform updates after all validations pass
         for (var i = 0; i < weekendUpdates.length; i++) {
            wSheet.getRange(weekendUpdates[i].row, weekendUpdates[i].col).setValue(participantId);
@@ -885,13 +877,6 @@ function submitSelection(participantId, selectionData) {
            newlyCommitted.push({
              type: 'WEEKEND',
              details: wDateConfirmed
-           });
-        }
-        if (holidayUpdate) {
-           holidayUpdate.sheet.getRange(holidayUpdate.row, holidayUpdate.col).setValue(participantId);
-           newlyCommitted.push({
-             type: 'HOLIDAY',
-             details: selectionData.adjacentHoliday.holidayName + " (" + selectionData.adjacentHoliday.position + ")"
            });
         }
 
@@ -908,7 +893,6 @@ function submitSelection(participantId, selectionData) {
         var hHeaders = hData[0];
 
         var selectedItem = selectionData.selections[0]; // e.g. { name: 'Memorial Day', position: 'CALL_2' }
-        var found = false;
 
         if (participantAlreadyHasHoliday_(
               participantId,
@@ -922,22 +906,85 @@ function submitSelection(participantId, selectionData) {
           );
         }
 
+        // 1. Validate the holiday position before any write
+        var holidayRow = -1;
         for (var i = 1; i < hData.length; i++) {
           if (hData[i][hHeaders.indexOf('Holiday Name')] === selectedItem.name &&
               hData[i][hHeaders.indexOf('Call Position (Call 1 / Call 2)')] === selectedItem.position) {
               if (hData[i][hHeaders.indexOf('Assigned Participant')]) {
                 throw new Error("That position was just selected by another participant. Please try again.");
               }
-              hSheet.getRange(i + 1, hHeaders.indexOf('Assigned Participant') + 1).setValue(participantId);
-              newlyCommitted.push({
-                type: 'HOLIDAY',
-                details: selectedItem.name + " (" + selectedItem.position + ")"
-              });
-              found = true;
+              holidayRow = i;
               break;
           }
         }
-        if (!found) throw new Error("Holiday position not found.");
+        if (holidayRow === -1) throw new Error("Holiday position not found.");
+
+        // 2. Validate the nearby weekend day, if one was picked with the holiday.
+        // Holiday and weekend day save together or not at all, so a lost weekend
+        // day sends the participant back to pick again.
+        var weekendUpdate = null;
+        if (selectionData.adjacentWeekend) {
+          var wkDateKey = normalizeDateKey_(selectionData.adjacentWeekend);
+          var wSheetAdj = ss.getSheetByName('Weekend Coverage');
+          if (!wkDateKey || !wSheetAdj) throw new Error("Weekend date not found.");
+          var wDataAdj = wSheetAdj.getDataRange().getValues();
+          var wHeadersAdj = wDataAdj[0];
+
+          var wRowAdj = -1;
+          for (var i = 1; i < wDataAdj.length; i++) {
+            if (normalizeDateKey_(wDataAdj[i][wHeadersAdj.indexOf('Date')]) === wkDateKey) {
+              wRowAdj = i;
+              break;
+            }
+          }
+          if (wRowAdj === -1) throw new Error("Weekend date not found.");
+
+          if (String(wDataAdj[wRowAdj][wHeadersAdj.indexOf('First Call Assignee')] || '').trim() !== '') {
+            throw new Error(
+              "That weekend day was just selected by another participant. Nothing was saved. " +
+              "Please pick again: the same holiday with a different weekend day, or a different holiday."
+            );
+          }
+          if (participantAlreadyHasWeekend_(participantId, wkDateKey, wDataAdj, wHeadersAdj)) {
+            throw new Error(
+              "You already hold the other First Call position for this weekend. " +
+              "You cannot select both Saturday and Sunday of the same weekend."
+            );
+          }
+
+          var pObjAdj = {};
+          for (var c = 0; c < pHeaders.length; c++) pObjAdj[pHeaders[c]] = pData[pRowIdx - 1][c];
+          if (!participantCanTakeAnotherWeekend_(participantId, pObjAdj, wDataAdj, wHeadersAdj)) {
+            throw new Error("You cannot take another weekend day. Nothing was saved. Please pick the holiday on its own.");
+          }
+
+          var adminOptsAdj = getAdminOptions();
+          var proxStrAdj = adminOptsAdj['Holiday Proximity Range (days)'];
+          var proxAdj = (proxStrAdj !== undefined && proxStrAdj !== '') ? parseInt(proxStrAdj, 10) : 3;
+          var hDateCol = hHeaders.indexOf('Observed Date');
+          var nearby = hDateCol === -1 ? [] :
+            getNearbyOpenWeekendDays_(participantId, hData[holidayRow][hDateCol], wDataAdj, wHeadersAdj, proxAdj);
+          if (nearby.indexOf(wkDateKey) === -1) {
+            throw new Error("That weekend day is not next to the holiday you picked. Nothing was saved.");
+          }
+
+          weekendUpdate = { sheet: wSheetAdj, row: wRowAdj + 1, col: wHeadersAdj.indexOf('First Call Assignee') + 1, date: wkDateKey };
+        }
+
+        // 3. Write after every check has passed
+        hSheet.getRange(holidayRow + 1, hHeaders.indexOf('Assigned Participant') + 1).setValue(participantId);
+        newlyCommitted.push({
+          type: 'HOLIDAY',
+          details: selectedItem.name + " (" + selectedItem.position + ")"
+        });
+        if (weekendUpdate) {
+          weekendUpdate.sheet.getRange(weekendUpdate.row, weekendUpdate.col).setValue(participantId);
+          newlyCommitted.push({
+            type: 'WEEKEND',
+            details: weekendUpdate.date
+          });
+        }
 
       } else if (phase === 'TRANSFER_OFFER_COLLECTION') {
         // Stage A Givers: Provide items to the pool
@@ -1202,7 +1249,6 @@ function submitSelection(participantId, selectionData) {
 
       return {
         success: true,
-        message: partialSuccessMessage || undefined,
         _confirmation: confirmationData
       };
     }

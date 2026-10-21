@@ -361,6 +361,61 @@ function participantAlreadyHasWeekend_(participantName, selectedDate, weekendDat
 }
 
 /**
+ * Returns true when the participant may take one more weekend day: they are in
+ * the weekend phase and below their Weekend Assignment Maximum (blank = no cap).
+ * Missing columns are treated as "enabled" and "no cap".
+ */
+function participantCanTakeAnotherWeekend_(participantName, participantObj, weekendData, weekendHeaders) {
+  var enabled = participantObj ? participantObj['Weekend Phase Enabled'] : undefined;
+  if (enabled === false || String(enabled).toUpperCase() === 'FALSE') return false;
+
+  var capRaw = participantObj ? participantObj['Weekend Assignment Maximum'] : undefined;
+  if (capRaw === undefined || capRaw === null || capRaw === '') return true;
+  var cap = parseInt(capRaw, 10);
+  if (isNaN(cap)) return true;
+
+  var assigneeCol = weekendHeaders.indexOf('First Call Assignee');
+  var owned = 0;
+  for (var i = 1; i < weekendData.length; i++) {
+    if (String(weekendData[i][assigneeCol] || '').trim() === String(participantName).trim()) owned++;
+  }
+  return owned < cap;
+}
+
+/**
+ * Lists the open Saturday/Sunday dates ('yyyy-MM-dd') within proximityRange days
+ * of a holiday's observed date that the participant could take together with the
+ * holiday. Skips days whose weekend the participant already holds a day of.
+ */
+function getNearbyOpenWeekendDays_(participantName, holidayDateValue, weekendData, weekendHeaders, proximityRange) {
+  var result = [];
+  var hKey = normalizeDateKey_(holidayDateValue);
+  if (!hKey || !weekendData || weekendData.length < 2) return result;
+
+  var dateCol = weekendHeaders.indexOf('Date');
+  var assigneeCol = weekendHeaders.indexOf('First Call Assignee');
+  if (dateCol === -1 || assigneeCol === -1) return result;
+
+  var hp = hKey.split('-');
+  var hUtc = Date.UTC(parseInt(hp[0], 10), parseInt(hp[1], 10) - 1, parseInt(hp[2], 10));
+
+  for (var i = 1; i < weekendData.length; i++) {
+    var wKey = normalizeDateKey_(weekendData[i][dateCol]);
+    if (!wKey || !getWeekendKey_(wKey)) continue;
+    if (String(weekendData[i][assigneeCol] || '').trim() !== '') continue;
+
+    var wp = wKey.split('-');
+    var wUtc = Date.UTC(parseInt(wp[0], 10), parseInt(wp[1], 10) - 1, parseInt(wp[2], 10));
+    var diffDays = Math.floor(Math.abs(hUtc - wUtc) / (1000 * 60 * 60 * 24));
+    if (diffDays > proximityRange) continue;
+
+    if (participantAlreadyHasWeekend_(participantName, wKey, weekendData, weekendHeaders)) continue;
+    result.push(wKey);
+  }
+  return result;
+}
+
+/**
  * Idempotent helper to clear notification tracking for a specific participant.
  * Prevents redundant STATE_RESET logging when values are already cleared.
  */
