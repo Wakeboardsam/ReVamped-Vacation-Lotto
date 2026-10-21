@@ -139,3 +139,11 @@ Approved changes still to build. See the 2026-10-20 decision log entry.
 4. Auto-fill regenerating holiday rows instead of keeping last year's dates and names. (Observed dates and New Year's Day staying with its lottery year are built.)
 5. Decide whether to add the server-side check for the Prime and two-week rules.
 6. Multi-year setup: year banner on each working tab, Lottery Archive tab, Initialize following the Active Year with a confirmation step, and last-year boxes pre-checked from the archive.
+7. **[Gap]** `runWahaUnitTests` (`WhatsAppTests.gs`) fails 7 checks in the Apps Script editor (51 passed, 7 failed on 2026-10-21, after PR #68 was merged). The same 7 already failed before that change. **Needs verification:** whether the tests or the code are out of date. The failing checks:
+   - "Flush is called to persist state before network request"
+   - "Network loop aborted after first systemic failure"
+   - "Sheet flags are persisted before sending"
+   - The "Admin Options Migration" group stops with `TypeError: sheet.insertColumnAfter is not a function` (the test's stand-in sheet has no `insertColumnAfter`)
+   - "notifyActiveParticipants called sendParticipantNotification_"
+   - "Notification text contains vacation prompt template"
+   - "Notification text contains Web App URL"
