@@ -248,6 +248,27 @@ function advanceQueue() {
   });
 }
 
+/**
+ * Holiday coverage is full. Holidays come before weekends, so the lottery stops at
+ * HOLIDAY_COMPLETE and waits for the admin to start the Weekend phase.
+ */
+function completeHolidayCoverage_() {
+  setQueueState({
+    phase: 'HOLIDAY_COMPLETE',
+    round: 1,
+    direction: 'ASCENDING',
+    lead: 1
+  });
+
+  notifyAdminHolidayCoverageComplete_();
+
+  return {
+    success: true,
+    complete: true,
+    message: 'All holiday call positions are filled. The admin will start the Weekend phase.'
+  };
+}
+
 function advanceQueueInternal_() {
     var state = getQueueState();
     var phase = state.phase;
@@ -276,18 +297,7 @@ function advanceQueueInternal_() {
     ) {
       if (!hasOpenHolidayPositions_()) {
         // Coverage is complete. Do not expose additional ACTIVE participants.
-        setQueueState({
-          phase: 'TRANSFER_OFFER_COLLECTION',
-          round: 1,
-          direction: 'ASCENDING',
-          lead: 1
-        });
-
-        return {
-          success: true,
-          complete: true,
-          message: 'All holiday call positions are filled.'
-        };
+        return completeHolidayCoverage_();
       }
     }
 
@@ -384,17 +394,7 @@ function advanceQueueInternal_() {
             return { error: 'No eligible participants remain for Mandatory Holiday, but holiday positions are still unfilled.' };
           }
         } else {
-          setQueueState({
-            phase: 'TRANSFER_OFFER_COLLECTION',
-            round: 1,
-            direction: 'ASCENDING',
-            lead: 1
-          });
-          return {
-            success: true,
-            complete: true,
-            message: 'All holiday call positions are filled.'
-          };
+          return completeHolidayCoverage_();
         }
       } else if (phase === 'TRANSFER_RECEIVER') {
         setQueueState({ phase: 'COMPLETE' });
@@ -574,17 +574,7 @@ function advanceQueueInternal_() {
               return { error: 'No eligible participants remain for Mandatory Holiday, but holiday positions are still unfilled.' };
             }
           } else {
-            setQueueState({
-              phase: 'TRANSFER_OFFER_COLLECTION',
-              round: 1,
-              direction: 'ASCENDING',
-              lead: 1
-            });
-            return {
-              success: true,
-              complete: true,
-              message: 'All holiday call positions are filled.'
-            };
+            return completeHolidayCoverage_();
           }
         }
 

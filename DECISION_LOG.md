@@ -98,3 +98,11 @@ Decided by the owner on 2026-10-21. Each item is **[Planned]** until a pull requ
 - **Lottery Archive tab.** One combined tab holds every past year's final assignments (after transfers): vacation weeks, holiday calls, weekend days and transfers, one row per assignment with the year, type, date, position or designation, and person. Rosters and settings are not archived. Running a past year through the lottery again is not supported; the archive is for reference.
 - **The roster carries over.** Names, PINs, phone numbers and seniority stay from year to year. Yearly fields are reset: Lottery Position, volunteer and transfer answers, rules acknowledgment, selection and notification tracking.
 - **Last-year boxes are pre-checked from the archive.** "Worked Any Official Holiday Last Year" is checked for anyone holding a holiday call in the previous year, and "Had Spring Break / Thanksgiving / Christmas Week Last Year" for anyone who had that designated week. The admin reviews and may change them before the lottery starts.
+
+## 2026-10-21 — Holidays complete stop and phase-start warnings
+
+Decided by the owner on 2026-10-21 with the phase reorder.
+
+- When every holiday call position is filled, the lottery stops at **Holidays complete** and waits for the admin to start the Weekend phase. It no longer jumps to the Transfer phase.
+- At that point the admin gets a WhatsApp message saying to start the Weekend phase (only when notifications are enabled).
+- A Begin button pressed out of order warns the admin and names the normal order; it starts the phase only if the admin confirms. It does not block, so the admin can still override.

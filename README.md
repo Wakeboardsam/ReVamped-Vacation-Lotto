@@ -31,9 +31,9 @@ The admin works from the **Vacation Lotto** menu in the sheet:
 5. **✉️ Send Active Participant PINs** sends each person their PIN and the web app link.
 6. **▶️ Begin Seniority Round**, then the phases below in order, each started from the menu.
 
-Intended phase order: Vacation (seniority round 1, then randomized rounds) → Holiday Volunteer → Holiday Mandatory → Weekend → Transfer offers → Transfer receivers → Complete.
+Phase order: Vacation (seniority round 1, then randomized rounds) → Holiday Volunteer → Holiday Mandatory → Holidays complete → Weekend → Transfer offers → Transfer receivers → Complete. The menu lists the Begin buttons in this order.
 
-**[Gap]** The code still runs Weekend before the holiday phases (menu order, Begin Weekend Phase, and the hand-off from filled holidays straight to Transfer offers). **[Planned]** Rebuild in the intended order and remove the weekend-first leftovers.
+Pressing a Begin button out of order (for example Begin Weekend Phase during vacation) shows a warning naming the normal order; nothing changes unless the admin confirms. Normal starts: Seniority from setup, Holiday after vacation, Weekend from Holidays complete, Transfer after Weekend (`confirmPhaseStart_` in `Admin.gs`).
 
 ## Phases in detail
 
@@ -49,7 +49,8 @@ All randomized phases use the same yearly Lottery Position, start at position 1,
 ### Holidays
 
 - Holiday Volunteer: people whose volunteer answer is yes pick one call position per turn until they pass or everything is filled.
-- When no volunteers remain and positions are open, the app moves itself to Mandatory Holiday. When every position is filled, it moves itself to Transfer offers.
+- When no volunteers remain and positions are open, the app moves itself to Mandatory Holiday.
+- When every position is filled, the app stops at **Holidays complete** (`HOLIDAY_COMPLETE`) and, when notifications are on, sends the admin a WhatsApp message to start the Weekend phase. Nothing moves on until the admin presses Begin Weekend Phase. If every position is already filled when Begin Holiday Phase is pressed, it goes straight to Holidays complete.
 - **[Gap]** Mandatory Holiday uses only the "Mandatory Holiday Eligible" box, which auto-fill turns on for everyone. "Worked Any Official Holiday Last Year" is never read. **[Planned]** Those marked as having worked a holiday last year are excluded from Holiday Mandatory; if the pool runs out with positions open, a second round continues within the pool and the admin is alerted.
 - **[Gap]** Picking a holiday does not offer the nearby weekend at all. **[Planned]** A pop-up strongly encourages taking the weekend call shift within the proximity range of the holiday in the same turn; declining is allowed. The current reverse pop-up is `showHolidayPrompt` in `JS.html`, handled in `submitSelection` in `WebApp.gs`.
 - For a fresh year, auto-fill puts each official holiday on its observed weekday (`getHolidaysForYear` in `Utils.gs`): a Saturday holiday moves to the Friday before, a Sunday holiday to the Monday after. New Year's Day of the lottery year is included even when observed on December 31 of the year before (the 2028 lottery gets 2027-12-31). Every later step, including the weekend warnings, reads the Observed Date column, so admin corrections there carry through.
@@ -127,7 +128,7 @@ The editor only gets new code when it is merged to `main`, so the order is **mer
 
 Approved changes still to build. See the 2026-10-20 decision log entry.
 
-1. Reorder phases to Vacation → Holiday Volunteer → Holiday Mandatory → Weekend → Transfer; a holiday pick strongly encourages taking the nearby weekend call shift.
+1. A holiday pick strongly encourages taking the nearby weekend call shift, replacing the weekend-phase pop-up that offers a holiday. (The phase order itself is built.)
 2. Volunteer flows straight into Mandatory (already true in code); rename to "Holiday Mandatory" everywhere.
 3. Exclude last year's holiday workers from Holiday Mandatory; alert the admin (and list the alert on Admin Options) if a second round starts.
 4. Auto-fill refuses to run without a target year.

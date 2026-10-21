@@ -650,7 +650,8 @@ function submitSelection(participantId, selectionData) {
     }
 
     if (selectionData.phase && selectionData.phase !== phase) {
-      if ((selectionData.phase === 'HOLIDAY_VOLUNTEER' || selectionData.phase === 'HOLIDAY_MANDATORY') && phase === 'TRANSFER_OFFER_COLLECTION') {
+      if ((selectionData.phase === 'HOLIDAY_VOLUNTEER' || selectionData.phase === 'HOLIDAY_MANDATORY') &&
+          (phase === 'HOLIDAY_COMPLETE' || phase === 'WEEKEND' || phase === 'TRANSFER_OFFER_COLLECTION')) {
         throw new Error("Holiday selection is no longer available because holiday coverage is complete. Please refresh.");
       }
       throw new Error("The lottery phase has changed. Please refresh the page.");
