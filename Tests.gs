@@ -53,6 +53,11 @@ var MockSpreadsheetApp = {
            data[i].splice(cIdx, 0, '');
         }
       },
+      insertColumnAfter: function(colPos) {
+        for (var i = 0; i < data.length; i++) {
+           data[i].splice(colPos, 0, '');
+        }
+      },
       getLastRow: function() { return data.length; },
       getLastColumn: function() { return data.length > 0 ? data[0].length : 0; },
       appendRow: function(row) { data.push(row); }
