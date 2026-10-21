@@ -50,9 +50,9 @@ All randomized phases use the same yearly Lottery Position, start at position 1,
 ### Holidays
 
 - Holiday Volunteer: people whose volunteer answer is yes pick one call position per turn until they pass or everything is filled.
-- When no volunteers remain and positions are open, the app moves itself to Mandatory Holiday.
+- When no volunteers remain and positions are open, the app moves itself to Holiday Mandatory.
 - When every position is filled, the app stops at **Holidays complete** (`HOLIDAY_COMPLETE`) and, when notifications are on, sends the admin a WhatsApp message to start the Weekend phase. Nothing moves on until the admin presses Begin Weekend Phase. If every position is already filled when Begin Holiday Phase is pressed, it goes straight to Holidays complete.
-- The Holiday Mandatory pool is everyone with "Mandatory Holiday Eligible" checked (auto-fill turns it on for everyone; the admin may switch a person off) and "Worked Any Official Holiday Last Year" unchecked (`isInHolidayMandatoryPool_` in `Queue.gs`). Last year's holiday workers may still volunteer. A holiday taken as a volunteer counts, so round 1 skips anyone who already has one.
+- The Holiday Mandatory pool is everyone with "Holiday Mandatory Eligible" checked (auto-fill turns it on for everyone; the admin may switch a person off) and "Worked Any Official Holiday Last Year" unchecked (`isInHolidayMandatoryPool_` in `Queue.gs`). Older workbooks call this column "Mandatory Holiday Eligible"; ⚙️ Initialize Database Schema renames it and keeps the checkboxes, and until then the old column is still read. Last year's holiday workers may still volunteer. A holiday taken as a volunteer counts, so round 1 skips anyone who already has one.
 - If everyone in the pool already has a holiday and positions are still open, the snake continues with a second round within the same pool. When round 2 starts, the admin gets one WhatsApp message (when notifications are on) asking whether to keep excluding last year's holiday workers; the admin answers by changing the last-year boxes, which take effect at once. Admin Options lists this alert as "Admin Alert - Second Holiday Mandatory Round".
 - When someone picks a holiday call and an open Saturday or Sunday lies within the proximity range (Holiday Proximity Range, default 3 days) of its Observed Date, a pop-up asks them to take one of those days as First Call in the same turn. Each listed day is one weekend unit. They may choose "Just the Holiday" instead. Days of a weekend they already hold a day of are not offered, and nothing is offered once they are out of the weekend phase or at their Weekend Assignment Maximum. The pop-up text is "Prompt Text - Holiday Weekend" on Admin Options; `[Days]` in it becomes the proximity range.
 - The holiday and the weekend day save together or not at all (`submitSelection` in `WebApp.gs`). If either was just taken by someone else, nothing is saved and the person picks again: the same holiday with another weekend day, or a different holiday.
@@ -134,8 +134,7 @@ The editor only gets new code when it is merged to `main`, so the order is **mer
 Approved changes still to build. See the 2026-10-20 decision log entry.
 
 1. Decide whether a weekend day taken with a holiday counts as the person's first weekend pick (today it does). The holiday pop-up itself is built.
-2. Volunteer flows straight into Mandatory (already true in code); rename to "Holiday Mandatory" everywhere.
-3. Auto-fill refuses to run without a target year.
-4. Auto-fill regenerating holiday rows instead of keeping last year's dates and names. (Observed dates and New Year's Day staying with its lottery year are built.)
-5. Decide whether to add the server-side check for the Prime and two-week rules.
-6. Multi-year setup: year banner on each working tab, Lottery Archive tab, Initialize following the Active Year with a confirmation step, and last-year boxes pre-checked from the archive.
+2. Auto-fill refuses to run without a target year.
+3. Auto-fill regenerating holiday rows instead of keeping last year's dates and names. (Observed dates and New Year's Day staying with its lottery year are built.)
+4. Decide whether to add the server-side check for the Prime and two-week rules.
+5. Multi-year setup: year banner on each working tab, Lottery Archive tab, Initialize following the Active Year with a confirmation step, and last-year boxes pre-checked from the archive.

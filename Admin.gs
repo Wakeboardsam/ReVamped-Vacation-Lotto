@@ -38,7 +38,7 @@ function runAutoFillFromMenu() {
     '✓ Active for Year enabled for all named participants\n' +
     '✓ Vacation Phase Enabled for all named participants\n' +
     '✓ Weekend Phase Enabled for all named participants\n' +
-    '✓ Mandatory Holiday Eligible enabled for all named participants\n' +
+    '✓ Holiday Mandatory Eligible enabled for all named participants\n' +
     '✓ Seniority Position assigned 1–' + participantCount + ' from top to bottom\n' +
     '✓ Lottery Position randomized 1–' + participantCount + '\n' +
     '✓ Prime Classification defaulted to Non-Prime\n' +
@@ -642,7 +642,8 @@ function autoFillAndRandomize(targetYear) {
     var activeColIdx = headers.indexOf('Active for Year');
     var vacationEnabledIdx = headers.indexOf('Vacation Phase Enabled');
     var weekendEnabledIdx = headers.indexOf('Weekend Phase Enabled');
-    var holidayEnabledIdx = headers.indexOf('Mandatory Holiday Eligible');
+    var holidayEnabledIdx = headers.indexOf('Holiday Mandatory Eligible');
+    if (holidayEnabledIdx === -1) holidayEnabledIdx = headers.indexOf('Mandatory Holiday Eligible'); // sheet not yet migrated
     var seniorityPosColIdx = headers.indexOf('Seniority Position');
     var lotteryPosColIdx = headers.indexOf('Lottery Position');
 

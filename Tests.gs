@@ -424,6 +424,24 @@ function runRegressionTests() {
     assert(pHeadersFallback.indexOf('Had Thanksgiving Week Last Year') !== -1, "Thanksgiving column safely falls back to append if Christmas column is missing.");
 
     MockSpreadsheetApp._sheets['Participant Config'] = fallbackPBackup; // Restore config
+
+    // "Mandatory Holiday Eligible" is renamed to "Holiday Mandatory Eligible" in place, keeping values
+    MockSpreadsheetApp.createSheet('Participant Config', [
+      ['Name', 'Mandatory Holiday Eligible', 'Other Column'],
+      ['Alice', false, 'AliceData'],
+      ['Bob', true, 'BobData']
+    ]);
+    setupDatabaseSchema();
+    var pDataRenamed = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+    var renamedIdx = pDataRenamed[0].indexOf('Holiday Mandatory Eligible');
+    assert(pDataRenamed[0].indexOf('Mandatory Holiday Eligible') === -1 && renamedIdx === 1,
+        "Mandatory Holiday Eligible column is renamed to Holiday Mandatory Eligible in place.");
+    assert(pDataRenamed[1][renamedIdx] === false && pDataRenamed[2][renamedIdx] === true,
+        "Holiday Mandatory Eligible checkbox values are kept after the rename.");
+    setupDatabaseSchema();
+    var pHeadersRenamed2 = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues()[0];
+    assert(pHeadersRenamed2.filter(h => h === 'Holiday Mandatory Eligible').length === 1,
+        "Running setup again does not duplicate the Holiday Mandatory Eligible column.");
     MockSpreadsheetApp._sheets['Participant Config'] = preMigrationPConfig; // Full restore
     MockSpreadsheetApp._sheets['Rules & Tips'] = preMigrationRTips; // Full restore
 
@@ -630,7 +648,7 @@ function runRegressionTests() {
       getWhatsAppConfig_ = function() { return { adminPhone: '999' }; };
       MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2028'], ['Enable SMS Notifications', 'TRUE']]);
       MockSpreadsheetApp.createSheet('Participant Config', [
-        ['Name', 'Active for Year', 'Lottery Position', 'Mandatory Holiday Eligible', 'Worked Any Official Holiday Last Year', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent'],
+        ['Name', 'Active for Year', 'Lottery Position', 'Holiday Mandatory Eligible', 'Worked Any Official Holiday Last Year', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent'],
         ['Ann', true, 1, true, true, '', false, false],
         ['Ben', true, 2, true, false, '', false, false],
         ['Cal', true, 3, true, 'TRUE', '', false, false],
@@ -693,6 +711,14 @@ function runRegressionTests() {
       var alertThrew = false;
       try { notifyAdminSecondHolidayMandatoryRound_(); } catch (e) { alertThrew = true; }
       assert(!alertThrew, "A failed second-round alert does not stop the lottery");
+
+      // A sheet not yet migrated still has the old "Mandatory Holiday Eligible" header; the pool keeps working.
+      assert(isInHolidayMandatoryPool_({ 'Mandatory Holiday Eligible': true, 'Worked Any Official Holiday Last Year': false }),
+          "The old Mandatory Holiday Eligible header still puts a person in the Holiday Mandatory pool");
+      assert(!isInHolidayMandatoryPool_({ 'Mandatory Holiday Eligible': false, 'Worked Any Official Holiday Last Year': false }),
+          "An unchecked old Mandatory Holiday Eligible box still keeps a person out of the pool");
+      assert(!isInHolidayMandatoryPool_({ 'Holiday Mandatory Eligible': false, 'Mandatory Holiday Eligible': true, 'Worked Any Official Holiday Last Year': false }),
+          "The new Holiday Mandatory Eligible header wins over the old one");
     } finally {
       sendWhatsAppMessage = origSendWhatsAppMand;
       getWhatsAppConfig_ = origGetWhatsAppConfigMand;
@@ -990,7 +1016,7 @@ function runRegressionTests() {
       submitSelection('Alice', { action: 'PASS' });
       mandPassSubmit = true;
     } catch (e) {
-      assert(e.message.indexOf('Passing is not allowed') !== -1, "Mandatory holiday pass correctly rejected.");
+      assert(e.message.indexOf('Passing is not allowed') !== -1, "Holiday Mandatory pass correctly rejected.");
     }
     assert(!mandPassSubmit, "HOLIDAY_MANDATORY Pass is rejected and does not advance the queue.");
 

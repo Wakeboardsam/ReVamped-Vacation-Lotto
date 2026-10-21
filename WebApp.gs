@@ -702,7 +702,7 @@ function submitSelection(participantId, selectionData) {
     // 2. Route by Phase & Action
     if (selectionData.action === 'PASS' || selectionData.action === 'NONE') {
       if (phase === 'HOLIDAY_MANDATORY') {
-        throw new Error('Passing is not allowed during Mandatory Holiday selection.');
+        throw new Error('Passing is not allowed during Holiday Mandatory selection.');
       } else if (phase === 'HOLIDAY_VOLUNTEER') {
         pSheet.getRange(pRowIdx, pHeaders.indexOf('Holiday Volunteer Response') + 1).setValue('Pass');
       } else if (phase === 'TRANSFER_RECEIVER') {

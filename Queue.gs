@@ -88,11 +88,14 @@ function getParticipantAssignments(participantName, phase, cache) {
 }
 
 /**
- * Holiday Mandatory pool: "Mandatory Holiday Eligible" is checked and
+ * Holiday Mandatory pool: "Holiday Mandatory Eligible" is checked and
  * "Worked Any Official Holiday Last Year" is not. The admin sets both boxes by hand.
+ * A sheet not yet migrated by setupDatabaseSchema still has the old
+ * "Mandatory Holiday Eligible" header, so that one is read as a fallback.
  */
 function isInHolidayMandatoryPool_(p) {
-  var eligible = p['Mandatory Holiday Eligible'] === true || p['Mandatory Holiday Eligible'] === 'TRUE';
+  var eligibleVal = ('Holiday Mandatory Eligible' in p) ? p['Holiday Mandatory Eligible'] : p['Mandatory Holiday Eligible'];
+  var eligible = eligibleVal === true || eligibleVal === 'TRUE';
   var workedLastYear = p['Worked Any Official Holiday Last Year'] === true || p['Worked Any Official Holiday Last Year'] === 'TRUE';
   return eligible && !workedLastYear;
 }
@@ -401,7 +404,7 @@ function advanceQueueInternal_() {
             });
             return advanceQueueInternal_();
           } else {
-            return { error: 'No eligible participants remain for Mandatory Holiday, but holiday positions are still unfilled.' };
+            return { error: 'No eligible participants remain for Holiday Mandatory, but holiday positions are still unfilled.' };
           }
         } else {
           return completeHolidayCoverage_();
@@ -584,7 +587,7 @@ function advanceQueueInternal_() {
               });
               return advanceQueueInternal_();
             } else {
-              return { error: 'No eligible participants remain for Mandatory Holiday, but holiday positions are still unfilled.' };
+              return { error: 'No eligible participants remain for Holiday Mandatory, but holiday positions are still unfilled.' };
             }
           } else {
             return completeHolidayCoverage_();

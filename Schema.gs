@@ -42,7 +42,7 @@ function setupDatabaseSchema() {
         'Name', 'PIN', 'Phone Number', 'Seniority Position', 'Lottery Position',
         'Active for Year', 'Vacation Phase Enabled', 'Vacation Week Target Override',
         'Weekend Phase Enabled', 'Weekend Assignment Maximum', 'Holiday Volunteer Response',
-        'Mandatory Holiday Eligible', 'Transfer Giver', 'Transfer Receiver',
+        'Holiday Mandatory Eligible', 'Transfer Giver', 'Transfer Receiver',
         'Had Spring Break Last Year', 'Had Thanksgiving Week Last Year', 'Had Christmas Week Last Year',
         'Worked Any Official Holiday Last Year', 'Rules Acknowledged Year', 'Transfer Offers Submitted',
         'Skipped Turns Remaining', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent',
@@ -137,6 +137,13 @@ sheet.appendRow(schema.headers);
         if (resendIdx !== -1) {
           sheet.getRange(1, resendIdx + 1).setValue('Resend WhatsApp');
           currentHeaders[resendIdx] = 'Resend WhatsApp';
+        }
+
+        // Rename "Mandatory Holiday Eligible" to "Holiday Mandatory Eligible", keeping the checkbox values
+        var oldEligibleIdx = currentHeaders.indexOf('Mandatory Holiday Eligible');
+        if (oldEligibleIdx !== -1 && currentHeaders.indexOf('Holiday Mandatory Eligible') === -1) {
+          sheet.getRange(1, oldEligibleIdx + 1).setValue('Holiday Mandatory Eligible');
+          currentHeaders[oldEligibleIdx] = 'Holiday Mandatory Eligible';
         }
       }
 
@@ -259,7 +266,7 @@ function sanitizeParticipantConfigSheet() {
     { name: 'Active for Year', defaultVal: true },
     { name: 'Vacation Phase Enabled', defaultVal: true },
     { name: 'Weekend Phase Enabled', defaultVal: true },
-    { name: 'Mandatory Holiday Eligible', defaultVal: true },
+    { name: 'Holiday Mandatory Eligible', defaultVal: true },
     { name: 'Transfer Giver', defaultVal: true },
     { name: 'Transfer Receiver', defaultVal: true },
     { name: 'Transfer Offers Submitted', defaultVal: false },

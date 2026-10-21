@@ -127,3 +127,10 @@ Decided by the owner on 2026-10-21. This spells out the 2026-10-20 "Mandatory ex
 - The second-round alert goes to the admin once, when Holiday Mandatory moves into round 2, and only when notifications are enabled. Changes to the last-year boxes take effect on the next turn.
 - No separate alert for an empty pool. The pool would be empty only if the admin excluded or switched off everyone in it, and since the snake keeps going round after round, even a small pool fills every position. The owner judged an empty pool very unlikely.
 
+## 2026-10-21 — "Holiday Mandatory" naming, as built
+
+Decided by the owner on 2026-10-21. This completes the 2026-10-20 "Naming" item.
+
+- The Participant Config column "Mandatory Holiday Eligible" is now "Holiday Mandatory Eligible". It works the same way and supersedes the column name quoted in the earlier 2026-10-21 pool entry.
+- Existing workbooks keep their checkbox values: ⚙️ Initialize Database Schema renames the column in place, and until it is rerun the old column name is still read.
+- Error messages that said "Mandatory Holiday" now say "Holiday Mandatory".
