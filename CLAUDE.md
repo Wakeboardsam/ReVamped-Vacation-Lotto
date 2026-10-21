@@ -28,6 +28,7 @@ Working rules for AI agents (Claude, Jules, ChatGPT) in this repository. Read [`
 ## Testing
 
 - There is no local test runner. Tests run inside Apps Script: `runRegressionTests` (`Tests.gs`) and `runWahaUnitTests` (`WhatsAppTests.gs`), started from the Apps Script editor by the owner.
+- The editor only sees code after it is merged to `main`, so the owner runs the tests **after** merging. Never tell the owner to run them before merging. Before opening a pull request, check the change as far as this environment allows (for example, running the `.gs` files under Node with Apps Script stubs) and say exactly what was run.
 - Add or update tests in those files for any behavior change. Do not delete, skip or weaken existing tests or assertions.
 - Report exactly what was and was not run. If the tests could not be run from this environment, say so and list the functions the owner should run.
 
