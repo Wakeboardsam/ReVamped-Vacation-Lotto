@@ -613,6 +613,89 @@ function runRegressionTests() {
       MockSpreadsheetApp._sheets['Admin Options'] = origAdminOptionsPhase;
     }
 
+    // --- HOLIDAY MANDATORY POOL: LAST YEAR'S HOLIDAY WORKERS ARE LEFT OUT ---
+    var origSendWhatsAppMand = sendWhatsAppMessage;
+    var origGetWhatsAppConfigMand = getWhatsAppConfig_;
+    var origAdminOptionsMand = MockSpreadsheetApp._sheets['Admin Options'];
+    var origParticipantsMand = MockSpreadsheetApp._sheets['Participant Config'];
+    var origHolidaysMand = MockSpreadsheetApp._sheets['Holiday Coverage'];
+    try {
+      var mandMessages = [];
+      sendWhatsAppMessage = function(phone, text) { mandMessages.push({ phone: phone, text: text }); return { success: true }; };
+      getWhatsAppConfig_ = function() { return { adminPhone: '999' }; };
+      MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2028'], ['Enable SMS Notifications', 'TRUE']]);
+      MockSpreadsheetApp.createSheet('Participant Config', [
+        ['Name', 'Active for Year', 'Lottery Position', 'Mandatory Holiday Eligible', 'Worked Any Official Holiday Last Year', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent'],
+        ['Ann', true, 1, true, true, '', false, false],
+        ['Ben', true, 2, true, false, '', false, false],
+        ['Cal', true, 3, true, 'TRUE', '', false, false],
+        ['Dee', true, 4, false, false, '', false, false],
+        ['Eli', true, 5, true, false, '', false, false]
+      ]);
+      MockSpreadsheetApp.createSheet('Holiday Coverage', [
+        ['Holiday Name', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+        ["New Year's Day", 'Call 2', 'Ben'], // Ben volunteered
+        ["New Year's Day", 'Call 1', ''],
+        ['Memorial Day', 'Call 2', ''],
+        ['Memorial Day', 'Call 1', '']
+      ]);
+
+      // Round 1 skips Ann and Cal (worked a holiday last year), Dee (not eligible) and Ben (already has one).
+      setQueueState({ phase: 'HOLIDAY_MANDATORY', round: 1, direction: 'ASCENDING', lead: 1 });
+      advanceQueueInternal_();
+      var mandState = getQueueState();
+      assert(mandState.phase === 'HOLIDAY_MANDATORY' && mandState.round === 1 && mandState.lead === 5,
+          "Holiday Mandatory round 1 starts with the first person in the pool who has no holiday");
+      var mandActive = getQueueWindows_('HOLIDAY_MANDATORY', mandState, {}).activeWindow.map(function(p) { return p['Name']; });
+      assert(mandActive.length === 1 && mandActive[0] === 'Eli',
+          "Last year's holiday workers are left out of the Holiday Mandatory window");
+      assert(mandMessages.length === 0, "No second-round alert during round 1");
+
+      // Everyone in the pool now has a holiday and positions remain: a second round starts and the admin is alerted.
+      MockSpreadsheetApp._sheets['Holiday Coverage'].getRange(4, 3).setValue('Eli');
+      advanceQueueInternal_();
+      mandState = getQueueState();
+      assert(mandState.phase === 'HOLIDAY_MANDATORY' && mandState.round === 2 && mandState.direction === 'DESCENDING' && mandState.lead === 5,
+          "A second Holiday Mandatory round continues within the same pool");
+      assert(mandMessages.length === 1 && mandMessages[0].phone === '999' &&
+          mandMessages[0].text.indexOf('A second Holiday Mandatory round is happening') !== -1 &&
+          mandMessages[0].text.indexOf('Worked Any Official Holiday Last Year') !== -1,
+          "Admin gets one alert when the second Holiday Mandatory round starts");
+
+      // Later turns in round 2 do not repeat the alert.
+      MockSpreadsheetApp._sheets['Holiday Coverage'].getRange(3, 3).setValue('Eli');
+      advanceQueueInternal_();
+      mandState = getQueueState();
+      assert(mandState.round === 2 && mandState.lead === 2, "Round 2 moves on to the next person in the pool");
+      assert(mandMessages.length === 1, "The second-round alert is sent only once");
+
+      // The admin unchecks Ann's last-year box: she joins the pool at once.
+      MockSpreadsheetApp._sheets['Participant Config'].getRange(2, 5).setValue(false);
+      mandActive = getQueueWindows_('HOLIDAY_MANDATORY', mandState, {}).activeWindow.map(function(p) { return p['Name']; });
+      assert(mandActive.length === 2 && mandActive[0] === 'Ben' && mandActive[1] === 'Ann',
+          "Unchecking the last-year box brings that person back into Holiday Mandatory");
+      assert(mandActive.indexOf('Cal') === -1, "A text 'TRUE' last-year box still excludes the person");
+
+      // No alert when notifications are turned off.
+      mandMessages = [];
+      MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2028'], ['Enable SMS Notifications', 'FALSE']]);
+      notifyAdminSecondHolidayMandatoryRound_();
+      assert(mandMessages.length === 0, "No second-round alert while notifications are disabled");
+
+      // A failed alert does not throw.
+      MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2028'], ['Enable SMS Notifications', 'TRUE']]);
+      getWhatsAppConfig_ = function() { throw new Error('Missing ADMIN_PHONE configuration'); };
+      var alertThrew = false;
+      try { notifyAdminSecondHolidayMandatoryRound_(); } catch (e) { alertThrew = true; }
+      assert(!alertThrew, "A failed second-round alert does not stop the lottery");
+    } finally {
+      sendWhatsAppMessage = origSendWhatsAppMand;
+      getWhatsAppConfig_ = origGetWhatsAppConfigMand;
+      MockSpreadsheetApp._sheets['Admin Options'] = origAdminOptionsMand;
+      MockSpreadsheetApp._sheets['Participant Config'] = origParticipantsMand;
+      MockSpreadsheetApp._sheets['Holiday Coverage'] = origHolidaysMand;
+    }
+
     // Weekend Duplicate Ownership Tests
     MockSpreadsheetApp.createSheet('Weekend Coverage', [
       ['Date', 'First Call Assignee'],

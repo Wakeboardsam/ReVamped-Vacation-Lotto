@@ -285,3 +285,42 @@ function notifyAdminHolidayCoverageComplete_() {
     console.warn('[WARN] Could not send the holiday-complete admin alert: ' + e.message);
   }
 }
+
+/**
+ * Tells the admin that everyone in the Holiday Mandatory pool already has a holiday,
+ * positions are still open, and a second round has started. Never throws: a failed
+ * message must not undo the holiday pick.
+ */
+function notifyAdminSecondHolidayMandatoryRound_() {
+  try {
+    var adminOptions = getAdminOptions();
+    var isEnabled = adminOptions['Enable SMS Notifications'];
+    if (isEnabled !== true && String(isEnabled).toUpperCase() !== 'TRUE') {
+      return;
+    }
+
+    var config = getWhatsAppConfig_();
+    var message = 'Vacation Lotto: A second Holiday Mandatory round is happening. ' +
+        'Do you want to keep excluding people who worked a holiday last year? ' +
+        'To include someone, uncheck "Worked Any Official Holiday Last Year" on their Participant Config row.';
+    var result = sendParticipantNotification_(config.adminPhone, message);
+
+    logNotificationEvent({
+      timestamp: new Date(),
+      eventKey: 'HOLIDAY_MANDATORY_ROUND_2-' + (adminOptions['Active Year'] || '') + '-' + new Date().getTime(),
+      participantId: 'Admin',
+      participantName: 'Admin',
+      phone: config.adminPhone,
+      phase: 'HOLIDAY_MANDATORY',
+      type: 'ADMIN_ALERT',
+      status: result && result.success ? 'SUCCESS' : 'FAILED',
+      entryTimestamp: '',
+      reminderSent: '',
+      alertSent: '',
+      resendWhatsApp: '',
+      error: result && result.failureType ? result.failureType : (result && result.error ? 'TRANSPORT_ERROR' : '')
+    });
+  } catch (e) {
+    console.warn('[WARN] Could not send the second Holiday Mandatory round admin alert: ' + e.message);
+  }
+}

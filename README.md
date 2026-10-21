@@ -52,7 +52,8 @@ All randomized phases use the same yearly Lottery Position, start at position 1,
 - Holiday Volunteer: people whose volunteer answer is yes pick one call position per turn until they pass or everything is filled.
 - When no volunteers remain and positions are open, the app moves itself to Mandatory Holiday.
 - When every position is filled, the app stops at **Holidays complete** (`HOLIDAY_COMPLETE`) and, when notifications are on, sends the admin a WhatsApp message to start the Weekend phase. Nothing moves on until the admin presses Begin Weekend Phase. If every position is already filled when Begin Holiday Phase is pressed, it goes straight to Holidays complete.
-- **[Gap]** Mandatory Holiday uses only the "Mandatory Holiday Eligible" box, which auto-fill turns on for everyone. "Worked Any Official Holiday Last Year" is never read. **[Planned]** Those marked as having worked a holiday last year are excluded from Holiday Mandatory; if the pool runs out with positions open, a second round continues within the pool and the admin is alerted.
+- The Holiday Mandatory pool is everyone with "Mandatory Holiday Eligible" checked (auto-fill turns it on for everyone; the admin may switch a person off) and "Worked Any Official Holiday Last Year" unchecked (`isInHolidayMandatoryPool_` in `Queue.gs`). Last year's holiday workers may still volunteer. A holiday taken as a volunteer counts, so round 1 skips anyone who already has one.
+- If everyone in the pool already has a holiday and positions are still open, the snake continues with a second round within the same pool. When round 2 starts, the admin gets one WhatsApp message (when notifications are on) asking whether to keep excluding last year's holiday workers; the admin answers by changing the last-year boxes, which take effect at once. Admin Options lists this alert as "Admin Alert - Second Holiday Mandatory Round".
 - When someone picks a holiday call and an open Saturday or Sunday lies within the proximity range (Holiday Proximity Range, default 3 days) of its Observed Date, a pop-up asks them to take one of those days as First Call in the same turn. Each listed day is one weekend unit. They may choose "Just the Holiday" instead. Days of a weekend they already hold a day of are not offered, and nothing is offered once they are out of the weekend phase or at their Weekend Assignment Maximum. The pop-up text is "Prompt Text - Holiday Weekend" on Admin Options; `[Days]` in it becomes the proximity range.
 - The holiday and the weekend day save together or not at all (`submitSelection` in `WebApp.gs`). If either was just taken by someone else, nothing is saved and the person picks again: the same holiday with another weekend day, or a different holiday.
 - **[Decision pending]** Whether a weekend day taken with a holiday counts as the person's first weekend pick. Today it counts: the Weekend phase sees it like any other weekend day they hold.
@@ -93,6 +94,7 @@ The sheet is the source of truth. After editing it directly, run **🔄 Refresh 
 
 - WhatsApp through a WAHA server the owner runs at home. Settings are in Script Properties: `WAHA_BASE_URL` (HTTPS), `WAHA_API_KEY`, `WAHA_SESSION`, `ADMIN_PHONE`, and optional `ADMIN_EMAIL`, `MESSAGE_DELAY_MS`, `OUTAGE_ALERT_COOLDOWN_SECONDS`.
 - `setupSmsTriggers` installs a 15-minute trigger for `notifyActiveParticipants`, which sends turn messages, On Deck messages, the reminder (360 min) and the admin alert (720 min). The on/off switch is still called "Enable SMS Notifications" on Admin Options.
+- Two admin messages are sent straight from the lottery when notifications are on: "every holiday call position is filled" at Holidays complete, and the second Holiday Mandatory round alert.
 - The "Resend WhatsApp" checkbox on a participant's row resends their current message.
 
 ## Code map
@@ -133,8 +135,7 @@ Approved changes still to build. See the 2026-10-20 decision log entry.
 
 1. Decide whether a weekend day taken with a holiday counts as the person's first weekend pick (today it does). The holiday pop-up itself is built.
 2. Volunteer flows straight into Mandatory (already true in code); rename to "Holiday Mandatory" everywhere.
-3. Exclude last year's holiday workers from Holiday Mandatory; alert the admin (and list the alert on Admin Options) if a second round starts.
-4. Auto-fill refuses to run without a target year.
-5. Auto-fill regenerating holiday rows instead of keeping last year's dates and names. (Observed dates and New Year's Day staying with its lottery year are built.)
-6. Decide whether to add the server-side check for the Prime and two-week rules.
-7. Multi-year setup: year banner on each working tab, Lottery Archive tab, Initialize following the Active Year with a confirmation step, and last-year boxes pre-checked from the archive.
+3. Auto-fill refuses to run without a target year.
+4. Auto-fill regenerating holiday rows instead of keeping last year's dates and names. (Observed dates and New Year's Day staying with its lottery year are built.)
+5. Decide whether to add the server-side check for the Prime and two-week rules.
+6. Multi-year setup: year banner on each working tab, Lottery Archive tab, Initialize following the Active Year with a confirmation step, and last-year boxes pre-checked from the archive.
