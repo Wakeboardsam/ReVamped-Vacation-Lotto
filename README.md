@@ -58,7 +58,7 @@ All randomized phases use the same yearly Lottery Position, start at position 1,
 - The holiday and the weekend day save together or not at all (`submitSelection` in `WebApp.gs`). If either was just taken by someone else, nothing is saved and the person picks again: the same holiday with another weekend day, or a different holiday.
 - **[Decision pending]** Whether a weekend day taken with a holiday counts as the person's first weekend pick. Today it counts: the Weekend phase sees it like any other weekend day they hold.
 - For a fresh year, auto-fill puts each official holiday on its observed weekday (`getHolidaysForYear` in `Utils.gs`): a Saturday holiday moves to the Friday before, a Sunday holiday to the Monday after. New Year's Day of the lottery year is included even when observed on December 31 of the year before (the 2028 lottery gets 2027-12-31). Every later step, including the weekend warnings, reads the Observed Date column, so admin corrections there carry through.
-- **[Gap]** When the Holiday Coverage tab already has rows, auto-fill keeps every existing holiday's date *and assignees* instead of regenerating them (`autoFillAndRandomize` in `Admin.gs`). Running it for 2028 over the 2027 sheet would carry over 2027 dates and names. Weekend warnings are then computed from those old dates.
+- Each run of auto-fill clears Holiday Coverage and writes the six official holidays for the Active Year, each with an empty Call 1 and Call 2 (`autoFillAndRandomize` in `Admin.gs`). Last year's dates and names, extra rows the admin added, and hand-corrected dates are erased, so review the dates again after a rerun. The weekend warnings are computed from the new dates.
 
 ### Weekend
 
@@ -134,6 +134,5 @@ The editor only gets new code when it is merged to `main`, so the order is **mer
 Approved changes still to build. See the 2026-10-20 decision log entry.
 
 1. Decide whether a weekend day taken with a holiday counts as the person's first weekend pick (today it does). The holiday pop-up itself is built.
-2. Auto-fill regenerating holiday rows instead of keeping last year's dates and names. (Observed dates and New Year's Day staying with its lottery year are built.)
-3. Decide whether to add the server-side check for the Prime and two-week rules.
-4. Multi-year setup: year banner on each working tab, Lottery Archive tab, Initialize following the Active Year with a confirmation step, and last-year boxes pre-checked from the archive.
+2. Decide whether to add the server-side check for the Prime and two-week rules.
+3. Multi-year setup: year banner on each working tab, Lottery Archive tab, Initialize following the Active Year with a confirmation step, and last-year boxes pre-checked from the archive.

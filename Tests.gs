@@ -38,7 +38,12 @@ var MockSpreadsheetApp = {
              }
              return res;
           },
-          clearContent: function() { data[row - 1][col - 1] = ''; },
+          clearContent: function() {
+            for (var i = 0; i < (numRows || 1); i++) {
+              if (!data[row - 1 + i]) continue;
+              for (var j = 0; j < (numCols || 1); j++) data[row - 1 + i][col - 1 + j] = '';
+            }
+          },
           clearDataValidations: function() {},
           setDataValidation: function() {},
           setFontColor: function() { return this; },
@@ -121,59 +126,68 @@ function runRegressionTests() {
     MockSpreadsheetApp.createSheet('Weekend Coverage', [
       ['Date', 'Day of Week', 'First Call Assignee', 'Vacation Adjacency Warning', 'Holiday Proximity Warning']
     ]);
-    MockSpreadsheetApp.createSheet('Holiday Coverage', [
-      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
-      ["NYE", '2024-12-31', 'Call 1', ''],
-      ["New Year's Day", '2025-01-02', 'Call 1', 'Bob'] // 01-02 to test custom override & preservation
-    ]);
-    try { autoFillAndRandomize(2025); } catch(e) { console.log(e.stack); }
-    var wData = MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues();
+    // Auto-fill regenerates Holiday Coverage for the target year: last year's dates,
+    // assignees and custom rows are replaced by the official holidays with empty calls.
+    var priorHolidayRows = [['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant']];
+    var hols2027Prior = getHolidaysForYear(2027);
+    for (var priorName in hols2027Prior) {
+      if (!hols2027Prior.hasOwnProperty(priorName)) continue;
+      priorHolidayRows.push([priorName, formatDate(hols2027Prior[priorName]), 'Call 1', 'Bob']);
+      priorHolidayRows.push([priorName, formatDate(hols2027Prior[priorName]), 'Call 2', 'Alice']);
+    }
+    priorHolidayRows.push(["NYE", '2027-12-31', 'Call 1', 'Carol']);
+    priorHolidayRows.push(["NYE", '2027-12-31', 'Call 2', '']);
+    MockSpreadsheetApp.createSheet('Holiday Coverage', priorHolidayRows);
+    MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2028'], ['Holiday Proximity Range (days)', '3']]);
+    autoFillAndRandomize(2028);
     var hcData = MockSpreadsheetApp._sheets['Holiday Coverage'].getDataRange().getValues();
+    var hcRows = hcData.slice(1).filter(function(r) { return r.join('') !== ''; });
+    var hols2028Fresh = getHolidaysForYear(2028);
+    var expectedFresh = [];
+    for (var freshName in hols2028Fresh) {
+      if (!hols2028Fresh.hasOwnProperty(freshName)) continue;
+      expectedFresh.push([freshName, formatDate(hols2028Fresh[freshName]), 'Call 1', '']);
+      expectedFresh.push([freshName, formatDate(hols2028Fresh[freshName]), 'Call 2', '']);
+    }
+    assert(JSON.stringify(hcRows) === JSON.stringify(expectedFresh),
+        "Auto-fill for 2028 over a 2027 Holiday Coverage writes exactly the 2028 holidays with empty Call 1 and Call 2: " + JSON.stringify(hcRows));
+    assert(!hcRows.some(function(r) { return r[3] !== ''; }), "Auto-fill clears last year's holiday assignees");
+    assert(!hcRows.some(function(r) { return r[0] === "NYE"; }), "Auto-fill removes custom holiday rows not in the official list");
 
-    // Check assignee preservation
-    var nydAssignee = hcData.find(function(r) { return r[0] === "New Year's Day" && r[2] === 'Call 1'; })[3];
-    assert(nydAssignee === 'Bob', "Existing holiday assignees are strictly preserved across auto-fill reruns");
-
-    // Check custom holiday preservation (NYE not in default generator but should exist)
-    var nyeExists = hcData.some(function(r) { return r[0] === "NYE"; });
-    assert(nyeExists, "Custom holiday names and dates not in the default generator are strictly preserved");
-
-    // We set proximity to 0 above. We know Jan 2, 2025 is NYD observed date from the mock.
-    // If we look at the weekend generated for 2025-01-04 (Saturday), it's 2 days away. So it shouldn't match.
-    // Wait, let's verify if boundary proximity works. Let's change admin options to proximity 2.
-    MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2025'], ['Holiday Proximity Range (days)', '2']]);
-    autoFillAndRandomize(2025);
-    wData = MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues();
-    var wJan4 = wData.find(function(r) { return r[0] === '2025-01-04'; });
-    assert(wJan4[4] === "New Year's Day", "Proximity calculation precisely captures boundary distance (01-04 to 01-02 is 2 days <= 2)");
-
-    // Test zero proximity. Set to 0.
-    MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2025'], ['Holiday Proximity Range (days)', '0']]);
-    autoFillAndRandomize(2025);
-    wData = MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues();
-    var wJan4Zero = wData.find(function(r) { return r[0] === '2025-01-04'; });
-    assert(wJan4Zero[4] === "", "Proximity 0 correctly restricts matches to exact same-day boundaries");
-
-    // Test ties. NYE is 2024-12-31, NYD is 2025-01-02. Jan 1 is 1 day away from both!
-    // But Jan 1 isn't a weekend. Let's add a fake holiday on Jan 3, and NYD on Jan 5. Jan 4 is 1 day from both.
+    // Weekend warnings come from the regenerated dates. 2025 New Year's Day is Wednesday 2025-01-01;
+    // Saturday 2025-01-04 is 3 days away.
     MockSpreadsheetApp.createSheet('Holiday Coverage', [
       ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
-      ["A_Tie", '2025-01-03', 'Call 1', ''],
-      ["B_Tie", '2025-01-05', 'Call 1', '']
+      ["New Year's Day", '2025-01-02', 'Call 1', 'Bob']
     ]);
-    MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2025'], ['Holiday Proximity Range (days)', '1']]);
+    MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2025'], ['Holiday Proximity Range (days)', '3']]);
     autoFillAndRandomize(2025);
-    wData = MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues();
-    var wJan4Tie = wData.find(function(r) { return r[0] === '2025-01-04'; });
-    // Earliest holiday date should win. A_Tie is Jan 3 (earlier than Jan 5)
-    assert(wJan4Tie[4] === "A_Tie", "Holiday proximity cleanly breaks ties using the earliest absolute holiday date");
+    var wData = MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues();
+    var wJan4 = wData.find(function(r) { return r[0] === '2025-01-04'; });
+    assert(wJan4[4] === "New Year's Day", "Proximity calculation precisely captures boundary distance (01-04 to 01-01 is 3 days <= 3)");
+    var wJan5 = wData.find(function(r) { return r[0] === '2025-01-05'; });
+    assert(wJan5[4] === "", "Weekend warnings use the regenerated 2025-01-01, not the old 2025-01-02 (01-05 is 4 days away)");
 
-    // Test stale warning removal: Set proximity to 0 so no holidays match Jan 4
-    MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2025'], ['Holiday Proximity Range (days)', '0']]);
+    // Test stale warning removal: at range 2 Jan 4 no longer matches.
+    MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2025'], ['Holiday Proximity Range (days)', '2']]);
     autoFillAndRandomize(2025);
     wData = MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues();
     var wJan4Stale = wData.find(function(r) { return r[0] === '2025-01-04'; });
     assert(wJan4Stale[4] === "", "Stale proximity warnings are successfully cleared upon recalculation");
+
+    // The closest-holiday helper: boundary, zero range and ties.
+    var nydOnly = [{ name: "New Year's Day", dateStr: '2025-01-02' }];
+    assert(getClosestHolidayWithinRange_(new Date(2025, 0, 4), nydOnly, 2) === "New Year's Day",
+        "Closest-holiday helper matches at the boundary (01-04 to 01-02 is 2 days <= 2)");
+    assert(getClosestHolidayWithinRange_(new Date(2025, 0, 4), nydOnly, 0) === "",
+        "Proximity 0 correctly restricts matches to exact same-day boundaries");
+    assert(getClosestHolidayWithinRange_(new Date(2025, 0, 2), nydOnly, 0) === "New Year's Day",
+        "Proximity 0 still matches the holiday's own date");
+    var tieHolidays = [{ name: "B_Tie", dateStr: '2025-01-05' }, { name: "A_Tie", dateStr: '2025-01-03' }];
+    assert(getClosestHolidayWithinRange_(new Date(2025, 0, 4), tieHolidays, 1) === "A_Tie",
+        "Holiday proximity cleanly breaks ties using the earliest absolute holiday date");
+    assert(getClosestHolidayWithinRange_(new Date(2025, 0, 4), [{ name: "Bad", dateStr: '' }], 3) === "",
+        "Closest-holiday helper skips rows without a YYYY-MM-DD date");
 
 
     // Observed holiday dates: a Saturday holiday moves to the Friday before, a Sunday holiday to the Monday after.
