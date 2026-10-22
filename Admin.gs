@@ -23,11 +23,15 @@ function onOpen(e) {
 }
 
 /**
- * Menu wrapper for auto-fill to prevent NaN target year errors.
+ * Menu wrapper for auto-fill. Refuses to run until Active Year holds a year.
  */
 function runAutoFillFromMenu() {
-  var year = getAdminOptions()['Active Year'] || 2027;
-  var participantCount = autoFillAndRandomize(Number(year)) || 0;
+  var year = parseLotteryYear_(getAdminOptions()['Active Year']);
+  if (!year) {
+    SpreadsheetApp.getUi().alert('Enter the lottery year in Admin Options (Active Year, B2) before running Auto-Fill. Nothing was changed.');
+    return;
+  }
+  var participantCount = autoFillAndRandomize(year) || 0;
 
   var successMessage = 'Setup completed successfully for ' + year + '.\n\n' +
     '✓ Vacation weeks generated\n' +
@@ -410,9 +414,23 @@ function sendActiveParticipantPINs() {
   });
 }
 
+/**
+ * Returns the lottery year as a number, or null when the value is blank or
+ * not a whole four-digit year.
+ */
+function parseLotteryYear_(value) {
+  var text = String(value === null || value === undefined ? '' : value).trim();
+  if (!/^\d{4}$/.test(text)) return null;
+  return Number(text);
+}
+
 function autoFillAndRandomize(targetYear) {
-  // Fallback to Admin Options setting or 2027 default if no argument is passed
-  targetYear = Number(targetYear || getAdminOptions()['Active Year'] || 2027);
+  // Refuse to run without a year, before any tab is cleared.
+  var year = parseLotteryYear_(targetYear);
+  if (!year) {
+    throw new Error('Auto-Fill needs a lottery year. Enter it in Admin Options (Active Year, B2).');
+  }
+  targetYear = year;
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 

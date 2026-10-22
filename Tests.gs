@@ -265,6 +265,37 @@ function runRegressionTests() {
     assert(wJan1[4] === "New Year's Day", "Weekend 2028-01-01 is 1 day from observed 2027-12-31 and gets the New Year's warning");
     assert(wJan2[4] === '', "Weekend 2028-01-02 is 2 days from observed 2027-12-31, so no warning at range 1 (calendar 01-01 would warn)");
 
+    // Auto-fill refuses to run without a valid year and leaves every tab unchanged.
+    var autoFillTabs = ['Vacation Availability', 'Weekend Coverage', 'Holiday Coverage', 'Participant Config', 'Admin Options'];
+    var snapshotAutoFillTabs = function() {
+      return JSON.stringify(autoFillTabs.map(function(name) {
+        var sh = MockSpreadsheetApp._sheets[name];
+        return sh ? sh.getDataRange().getValues() : null;
+      }));
+    };
+    var noYearValues = ['', null, undefined, 'next year', '27', '2027.5'];
+    for (var ny = 0; ny < noYearValues.length; ny++) {
+      var beforeNoYear = snapshotAutoFillTabs();
+      var noYearThrew = false;
+      try { autoFillAndRandomize(noYearValues[ny]); } catch (eNoYear) { noYearThrew = true; }
+      assert(noYearThrew, "Auto-fill refuses to run with year " + JSON.stringify(noYearValues[ny]));
+      assert(snapshotAutoFillTabs() === beforeNoYear, "Auto-fill with year " + JSON.stringify(noYearValues[ny]) + " leaves every tab unchanged");
+    }
+    assert(parseLotteryYear_('2028') === 2028 && parseLotteryYear_(2029) === 2029 && parseLotteryYear_(' 2030 ') === 2030,
+        "A four-digit year is accepted as text or a number");
+
+    // The menu item alerts the admin and changes nothing when Active Year is blank.
+    var origGetUiNoYear = SpreadsheetApp.getUi;
+    var noYearAlerts = [];
+    SpreadsheetApp.getUi = function() { return { alert: function(msg) { noYearAlerts.push(String(msg)); } }; };
+    MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', ''], ['Holiday Proximity Range (days)', '1']]);
+    var beforeMenuNoYear = snapshotAutoFillTabs();
+    runAutoFillFromMenu();
+    SpreadsheetApp.getUi = origGetUiNoYear;
+    assert(noYearAlerts.length === 1 && noYearAlerts[0].indexOf('Enter the lottery year') !== -1,
+        "Auto-fill menu with a blank Active Year shows one alert asking for the year");
+    assert(snapshotAutoFillTabs() === beforeMenuNoYear, "Auto-fill menu with a blank Active Year leaves every tab unchanged");
+
     // Because UI alert will throw in test, we mock getUi
     SpreadsheetApp.getUi = function() { return { alert: function(){} }; };
 

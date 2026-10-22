@@ -27,7 +27,7 @@ The admin works from the **Vacation Lotto** menu in the sheet:
 
 1. **⚙️ Initialize Database Schema** creates any missing tabs and columns (safe to rerun). **[Planned]** It will follow the Active Year: archive the previous year's final assignments to a Lottery Archive tab, clear and re-stamp the working tabs with the new year, reset yearly roster fields and pre-check the last-year boxes. Rerunning for the same or an older year asks the admin to confirm first.
 2. Fill in the roster on **Participant Config** (name, PIN, phone, seniority) and set **Active Year** on **Admin Options**.
-3. **🎲 Auto-Fill & Randomize Roster** generates vacation weeks, every weekend day, the six official holidays (Call 1 and Call 2 each), soft holiday warnings, and a random Lottery Position for each participant. It clears and rewrites existing rows. **[Gap]** If Active Year is blank it silently uses 2027 (`runAutoFillFromMenu` in `Admin.gs`). **[Planned]** Refuse to run without a year.
+3. **🎲 Auto-Fill & Randomize Roster** generates vacation weeks, every weekend day, the six official holidays (Call 1 and Call 2 each), soft holiday warnings, and a random Lottery Position for each participant. It clears and rewrites existing rows. It refuses to run, and changes nothing, unless Active Year holds a four-digit year (`runAutoFillFromMenu` and `autoFillAndRandomize` in `Admin.gs`).
 4. The admin reviews: marks Prime weeks, sets the Spring Break / Thanksgiving / Christmas designations, sets week capacities, checks the last-year boxes, and corrects any dates.
 5. **✉️ Send Active Participant PINs** sends each person their PIN and the web app link.
 6. **▶️ Begin Seniority Round**, then the phases below in order, each started from the menu.
@@ -134,7 +134,6 @@ The editor only gets new code when it is merged to `main`, so the order is **mer
 Approved changes still to build. See the 2026-10-20 decision log entry.
 
 1. Decide whether a weekend day taken with a holiday counts as the person's first weekend pick (today it does). The holiday pop-up itself is built.
-2. Auto-fill refuses to run without a target year.
-3. Auto-fill regenerating holiday rows instead of keeping last year's dates and names. (Observed dates and New Year's Day staying with its lottery year are built.)
-4. Decide whether to add the server-side check for the Prime and two-week rules.
-5. Multi-year setup: year banner on each working tab, Lottery Archive tab, Initialize following the Active Year with a confirmation step, and last-year boxes pre-checked from the archive.
+2. Auto-fill regenerating holiday rows instead of keeping last year's dates and names. (Observed dates and New Year's Day staying with its lottery year are built.)
+3. Decide whether to add the server-side check for the Prime and two-week rules.
+4. Multi-year setup: year banner on each working tab, Lottery Archive tab, Initialize following the Active Year with a confirmation step, and last-year boxes pre-checked from the archive.
