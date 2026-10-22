@@ -483,55 +483,16 @@ function autoFillAndRandomize(targetYear) {
     }
   }
 
-  // 2. Generate Official Holidays (Call 1 and Call 2)
+  // 2. Generate Official Holidays (Call 1 and Call 2) for the target year.
+  // Existing rows (last year's dates, assignees and any custom rows) are replaced.
   var holidaySheet = ss.getSheetByName('Holiday Coverage');
   var finalHolidayData = []; // Store it to use for weekend generation
   if (holidaySheet) {
-    var existingHolidays = {};
-    var existingDates = {};
-    if (holidaySheet.getLastRow() > 1) {
-      var hData = holidaySheet.getDataRange().getValues();
-      var hHeaders = hData[0];
-      var hNameIdx = hHeaders.indexOf('Holiday Name');
-      var hDateIdx = hHeaders.indexOf('Observed Date');
-      var hPosIdx = hHeaders.indexOf('Call Position (Call 1 / Call 2)');
-      var hAssigneeIdx = hHeaders.indexOf('Assigned Participant');
-
-      if (hNameIdx !== -1 && hPosIdx !== -1 && hAssigneeIdx !== -1 && hDateIdx !== -1) {
-         for (var i = 1; i < hData.length; i++) {
-           var name = hData[i][hNameIdx];
-           var pos = hData[i][hPosIdx];
-           var key = name + '|' + pos;
-           existingHolidays[key] = hData[i][hAssigneeIdx];
-
-           var rawD = hData[i][hDateIdx];
-           if (rawD) existingDates[name] = (rawD instanceof Date) ? formatDate(rawD) : String(rawD);
-         }
-      }
-    }
-
     var holidays = getHolidaysForYear(targetYear);
     var holidayData = [];
-    var processedNames = {};
 
-    // 1. Process existing holidays (standard or custom) to preserve them completely
-    for (var hName in existingDates) {
-      if (existingDates.hasOwnProperty(hName)) {
-        var hDate = existingDates[hName];
-        var assignee1 = existingHolidays[hName + '|Call 1'] || '';
-        var assignee2 = existingHolidays[hName + '|Call 2'] || '';
-
-        holidayData.push([hName, hDate, 'Call 1', assignee1]);
-        holidayData.push([hName, hDate, 'Call 2', assignee2]);
-
-        finalHolidayData.push({ name: hName, dateStr: hDate });
-        processedNames[hName] = true;
-      }
-    }
-
-    // 2. Append any standard holidays missing from the sheet
     for (var hName in holidays) {
-      if (holidays.hasOwnProperty(hName) && !processedNames[hName]) {
+      if (holidays.hasOwnProperty(hName)) {
         var hDate = formatDate(holidays[hName]);
 
         holidayData.push([hName, hDate, 'Call 1', '']);
@@ -541,12 +502,10 @@ function autoFillAndRandomize(targetYear) {
       }
     }
 
-    if (holidayData.length > 0) {
-      if (holidaySheet.getLastRow() > 1) {
-        holidaySheet.getRange(2, 1, holidaySheet.getLastRow() - 1, holidaySheet.getLastColumn()).clearContent();
-      }
-      holidaySheet.getRange(2, 1, holidayData.length, holidayData[0].length).setValues(holidayData);
+    if (holidaySheet.getLastRow() > 1) {
+      holidaySheet.getRange(2, 1, holidaySheet.getLastRow() - 1, holidaySheet.getLastColumn()).clearContent();
     }
+    holidaySheet.getRange(2, 1, holidayData.length, holidayData[0].length).setValues(holidayData);
   }
 
   // 3. Generate Weekends
@@ -564,47 +523,7 @@ function autoFillAndRandomize(targetYear) {
     while (currentDate <= endDate) {
       var dayOfWeek = currentDate.getDay();
       if (dayOfWeek === 0 || dayOfWeek === 6) { // Sunday or Saturday
-        var holWarning = '';
-        var minDiff = Infinity;
-        var earliestDate = Infinity;
-        var closestHolidayName = '';
-
-        // Local date for distance calc to prevent timezone shifting
-        var cDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
-
-        for (var i = 0; i < finalHolidayData.length; i++) {
-          var hName = finalHolidayData[i].name;
-          var rawDate = finalHolidayData[i].dateStr; // YYYY-MM-DD
-
-          var parts = String(rawDate).split('-');
-          if (parts.length !== 3) continue;
-
-          var hLocalDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-
-          // UTC math to prevent DST errors
-          var utc1 = Date.UTC(cDate.getFullYear(), cDate.getMonth(), cDate.getDate());
-          var utc2 = Date.UTC(hLocalDate.getFullYear(), hLocalDate.getMonth(), hLocalDate.getDate());
-          var diffTime = Math.abs(utc1 - utc2);
-          var diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-          if (diffDays <= proximityRange) {
-            if (diffDays < minDiff) {
-              minDiff = diffDays;
-              earliestDate = hLocalDate.getTime();
-              closestHolidayName = hName;
-            } else if (diffDays === minDiff) {
-              // Break ties using earliest holiday date
-              if (hLocalDate.getTime() < earliestDate) {
-                 earliestDate = hLocalDate.getTime();
-                 closestHolidayName = hName;
-              }
-            }
-          }
-        }
-
-        if (closestHolidayName) {
-           holWarning = closestHolidayName;
-        }
+        var holWarning = getClosestHolidayWithinRange_(currentDate, finalHolidayData, proximityRange);
 
         weekendData.push([
           formatDate(currentDate),

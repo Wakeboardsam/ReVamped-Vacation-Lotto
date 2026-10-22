@@ -134,3 +134,11 @@ Decided by the owner on 2026-10-21. This completes the 2026-10-20 "Naming" item.
 - The Participant Config column "Mandatory Holiday Eligible" is now "Holiday Mandatory Eligible". It works the same way and supersedes the column name quoted in the earlier 2026-10-21 pool entry.
 - Existing workbooks keep their checkbox values: ⚙️ Initialize Database Schema renames the column in place, and until it is rerun the old column name is still read.
 - Error messages that said "Mandatory Holiday" now say "Holiday Mandatory".
+
+## 2026-10-22 — Auto-fill regenerates the holiday rows, as built
+
+Decided by the owner on 2026-10-22. This completes the 2026-10-20 "Auto-Fill/Randomize" item for Holiday Coverage.
+
+- Auto-fill clears Holiday Coverage and writes the six official holidays for the Active Year on their observed dates, each with an empty Call 1 and Call 2. It no longer keeps existing rows, so last year's dates and assignees do not carry over.
+- Extra holiday rows the admin added and hand-corrected dates are erased by a rerun, the same as the admin's changes on the other tabs auto-fill rewrites. The admin reviews the dates after running it.
+- The weekend holiday-proximity warnings are computed from the newly written dates.

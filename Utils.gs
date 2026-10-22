@@ -79,6 +79,37 @@ function getSoftHolidaysForYear(year) {
   };
 }
 
+/**
+ * Returns the name of the official holiday closest to the given date within
+ * proximityRange days, or '' when none is in range. Ties go to the earlier holiday.
+ * holidays is a list of { name, dateStr } with dateStr as YYYY-MM-DD.
+ */
+function getClosestHolidayWithinRange_(date, holidays, proximityRange) {
+  var minDiff = Infinity;
+  var earliestDate = Infinity;
+  var closestHolidayName = '';
+
+  // UTC math to prevent DST errors
+  var utc1 = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+
+  for (var i = 0; i < holidays.length; i++) {
+    var parts = String(holidays[i].dateStr).split('-');
+    if (parts.length !== 3) continue;
+
+    var utc2 = Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    var diffDays = Math.floor(Math.abs(utc1 - utc2) / (1000 * 60 * 60 * 24));
+
+    if (diffDays > proximityRange) continue;
+    if (diffDays < minDiff || (diffDays === minDiff && utc2 < earliestDate)) {
+      minDiff = diffDays;
+      earliestDate = utc2;
+      closestHolidayName = holidays[i].name;
+    }
+  }
+
+  return closestHolidayName;
+}
+
 function getStartMondayForYear(year) {
   var jan1 = new Date(year, 0, 1);
   return getFirstMondayBeforeOrOn(jan1);
