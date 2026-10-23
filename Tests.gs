@@ -524,6 +524,9 @@ function runRegressionTests() {
     // Verify required rows are present
     assert(adminKeysAfter.indexOf('Active Year') !== -1, "Required Active Year row should be created.");
     assert(adminKeysAfter.indexOf('Web App URL') !== -1, "Required Web App URL row should be created.");
+    var archiveSheetAfterSetup = MockSpreadsheetApp._sheets['Lottery Archive'];
+    assert(archiveSheetAfterSetup && JSON.stringify(archiveSheetAfterSetup.getDataRange().getValues()[0]) === JSON.stringify(LOTTERY_ARCHIVE_HEADERS),
+        "Initialize creates the Lottery Archive tab with its headers.");
 
     MockSpreadsheetApp._sheets['Admin Options'] = preMigrationAdminOptions; // Restore config
 
@@ -1453,6 +1456,105 @@ function runRegressionTests() {
     assert(finalState.phase === 'COMPLETE', "Queue sets phase to COMPLETE when no eligible receivers remain.");
 
     // --- Public Display Snapshot ---
+    // --- Year stamp and Lottery Archive ---
+    log.push("--- Testing Lottery Archive ---");
+    var archiveTabs = ['Config', 'Vacation Availability', 'Holiday Coverage', 'Weekend Coverage', 'Transfer History', 'Lottery Archive'];
+    var archiveSaved = {};
+    archiveTabs.forEach(function(n) { archiveSaved[n] = MockSpreadsheetApp._sheets[n]; });
+
+    MockSpreadsheetApp.createSheet('Config', [['Key', 'Value'], ['Current Phase', 'COMPLETE']]);
+    delete MockSpreadsheetApp._sheets['Lottery Archive'];
+    assert(getTabsYear_() === null, "Tabs with no stamp have no tabs year");
+    var badStampThrew = false;
+    try { setTabsYear_('next year'); } catch (eStamp) { badStampThrew = true; }
+    assert(badStampThrew && getTabsYear_() === null, "Stamping refuses anything but a four-digit year");
+    setTabsYear_('2027');
+    assert(getTabsYear_() === 2027, "The tabs can be stamped with 2027");
+
+    MockSpreadsheetApp.createSheet('Vacation Availability', [
+      ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants'],
+      [1, '2027-01-04', '', 'Prime', 'None', 'Alice, Bob'],
+      [2, '2027-03-15', '', 'Non-Prime', 'Spring Break', 'Carol'],
+      [3, '2027-12-20', '', 'Prime', 'Christmas', '']
+    ]);
+    MockSpreadsheetApp.createSheet('Holiday Coverage', [
+      ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+      ["New Year's Day", '2027-01-01', 'Call 2', 'Alice'],
+      ['Christmas', '2027-12-24', 'Call 1', 'Bob'],
+      ['Christmas', '2027-12-24', 'Call 2', '']
+    ]);
+    MockSpreadsheetApp.createSheet('Weekend Coverage', [
+      ['Date', 'Day of Week', 'First Call Assignee', 'Vacation Adjacency Warning', 'Holiday Proximity Warning'],
+      ['2027-01-02', 'Saturday', 'Alice', '', ''],
+      ['2027-01-03', 'Sunday', '', '', '']
+    ]);
+    MockSpreadsheetApp.createSheet('Transfer History', [
+      ['Timestamp', 'Assignment Type', 'Assignment Date', 'Call Position/Day', 'Original Assignee', 'New Assignee', 'Year', 'Receiver Round', 'Claim ID'],
+      ['', 'WEEKEND', '2027-01-02', '', 'Dan', 'Alice', 2027, 1, 'CLAIM-1'],
+      ['', 'HOLIDAY', 'Christmas - Call 1', '', 'Eve', 'Bob', 2027, 2, 'CLAIM-2'],
+      ['', 'WEEKEND', '2026-05-02', '', 'Dan', 'Carol', 2026, 1, 'CLAIM-0']
+    ]);
+
+    var wrongYearThrew = false;
+    try { archiveLotteryYear_(2028); } catch (eWrong) { wrongYearThrew = eWrong.message.indexOf('hold 2027, not 2028') !== -1; }
+    assert(wrongYearThrew && !MockSpreadsheetApp._sheets['Lottery Archive'], "Archiving 2028 while the tabs hold 2027 is refused and writes nothing");
+    var blankYearThrew = false;
+    try { archiveLotteryYear_(''); } catch (eBlank) { blankYearThrew = true; }
+    assert(blankYearThrew && !MockSpreadsheetApp._sheets['Lottery Archive'], "Archiving without a year is refused and writes nothing");
+
+    var archiveRes = archiveLotteryYear_(2027);
+    var archiveData = MockSpreadsheetApp._sheets['Lottery Archive'].getDataRange().getValues();
+    assert(JSON.stringify(archiveData[0]) === JSON.stringify(LOTTERY_ARCHIVE_HEADERS), "Archiving creates the Lottery Archive tab with its headers when it is missing");
+    assert(archiveRes.archived === 8 && archiveRes.alreadyArchived === false && archiveData.length === 9,
+        "2027 archives 3 vacation weeks, 2 holiday calls, 1 weekend day and 2 transfers: " + archiveRes.archived);
+    function findArchiveRow(type, participant, date) {
+      for (var r = 1; r < archiveData.length; r++) {
+        if (archiveData[r][1] === type && archiveData[r][4] === participant && archiveData[r][2] === date) return archiveData[r];
+      }
+      return null;
+    }
+    var bobVac = findArchiveRow('Vacation', 'Bob', '2027-01-04');
+    assert(bobVac && bobVac[0] === 2027 && bobVac[3] === 'Prime' && bobVac[5] === 'Week 1', "A shared vacation week gives each person a row with Prime and the week number");
+    var carolVac = findArchiveRow('Vacation', 'Carol', '2027-03-15');
+    assert(carolVac && carolVac[3] === 'Spring Break', "A designated vacation week keeps its designation");
+    assert(!findArchiveRow('Vacation', '', '2027-12-20'), "An unassigned vacation week is not archived");
+    var bobHol = findArchiveRow('Holiday', 'Bob', '2027-12-24');
+    assert(bobHol && bobHol[3] === 'Call 1' && bobHol[5] === 'Christmas', "A holiday call keeps its call position and holiday name");
+    var aliceWk = findArchiveRow('Weekend', 'Alice', '2027-01-02');
+    assert(aliceWk && aliceWk[3] === 'Saturday', "A weekend day keeps its day of week");
+    var holTransfer = findArchiveRow('Transfer', 'Bob', '');
+    assert(holTransfer && holTransfer[3] === 'Christmas - Call 1' && holTransfer[5] === 'HOLIDAY from Eve', "A holiday transfer keeps the call it moved and who gave it");
+    var wkTransfer = findArchiveRow('Transfer', 'Alice', '2027-01-02');
+    assert(wkTransfer && wkTransfer[5] === 'WEEKEND from Dan', "A weekend transfer keeps its date and who gave it");
+    assert(!findArchiveRow('Transfer', 'Carol', '2026-05-02'), "Transfers from another year are not archived");
+
+    var archiveSnapshot = JSON.stringify(MockSpreadsheetApp._sheets['Lottery Archive'].getDataRange().getValues());
+    var againRes = archiveLotteryYear_(2027);
+    assert(againRes.alreadyArchived === true && againRes.archived === 0 &&
+        JSON.stringify(MockSpreadsheetApp._sheets['Lottery Archive'].getDataRange().getValues()) === archiveSnapshot,
+        "Archiving 2027 again adds nothing and changes nothing");
+
+    // The working tabs are cleared after archiving; archiving again must not replace good history.
+    ['Vacation Availability', 'Holiday Coverage', 'Weekend Coverage', 'Transfer History'].forEach(function(n) {
+      var sh = MockSpreadsheetApp._sheets[n];
+      MockSpreadsheetApp.createSheet(n, [sh.getDataRange().getValues()[0]]);
+    });
+    var clearedRes = archiveLotteryYear_(2027);
+    assert(clearedRes.alreadyArchived === true &&
+        JSON.stringify(MockSpreadsheetApp._sheets['Lottery Archive'].getDataRange().getValues()) === archiveSnapshot,
+        "Archiving 2027 from cleared tabs keeps the 2027 archive intact");
+
+    setTabsYear_(2028);
+    var emptyThrew = false;
+    try { archiveLotteryYear_(2028); } catch (eEmpty) { emptyThrew = eEmpty.message.indexOf('no assignments') !== -1; }
+    assert(emptyThrew && JSON.stringify(MockSpreadsheetApp._sheets['Lottery Archive'].getDataRange().getValues()) === archiveSnapshot,
+        "Archiving a year whose tabs hold no assignments is refused and writes nothing");
+    assert(isLotteryYearArchived_(2027) && !isLotteryYearArchived_(2028), "The archive reports which years it holds");
+
+    archiveTabs.forEach(function(n) {
+      if (archiveSaved[n]) MockSpreadsheetApp._sheets[n] = archiveSaved[n]; else delete MockSpreadsheetApp._sheets[n];
+    });
+
     log.push("--- Testing Public Display Snapshot ---");
     MockSpreadsheetApp.createSheet('Vacation Availability', [
       ['Week ID', 'Start Date (Monday)', 'Capacity', 'Assigned Participants'],

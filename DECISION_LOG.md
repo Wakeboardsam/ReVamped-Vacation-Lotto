@@ -149,3 +149,14 @@ Decided by the owner on 2026-10-23 as the first step of the multi-year setup.
 
 - The lottery year always comes from Active Year on Admin Options. The lottery for year Y runs in year Y−1, so the calendar year is the wrong year exactly when the lottery runs.
 - While Active Year does not hold a four-digit year, the participant page shows no year, the rules acknowledgment and transfer claims are refused with a message asking the admin to set it, and no transfer claims are counted. Nothing is written in that state.
+
+## 2026-10-23 — Multi-year setup refined: separate menu item, no banner, append-only archive
+
+Decided by the owner on 2026-10-23. This supersedes parts of the 2026-10-21 "One working set of tabs per year" entry where it says so.
+
+- **No year banner on the tabs.** Every assignment already carries its date, so the banner is dropped. This supersedes the 2026-10-21 banner item. "Tabs Year" on the Config tab records which lottery year the working tabs hold.
+- **A separate menu item does the yearly rollover:** "📅 Archive Current Year & Set Up New Lottery Year". ⚙️ Initialize Database Schema only adds missing tabs, columns and settings and never erases data. This supersedes the 2026-10-21 item that had Initialize follow the Active Year. **[Planned]** until a pull request builds the menu item.
+- **The archive is append-only.** Archiving refuses unless the tabs are stamped with that year, adds nothing when the year is already archived, and refuses when the working tabs hold no assignments, so good history is never replaced by empty tabs. Built in `Archive.gs`.
+- **What is archived:** final vacation weeks (with designation and Prime), holiday calls, weekend days, and that year's Transfer History. Transfer Offers is not archived.
+- **The roster carries over** as in the 2026-10-21 entry; Vacation Week Target Override and Weekend Assignment Maximum also carry over. The roster is kept in seniority order by the admin.
+- At rollover, Transfer Offers and Transfer History are cleared along with the other working tabs, after archiving.
