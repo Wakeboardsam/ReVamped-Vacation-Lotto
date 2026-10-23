@@ -56,6 +56,14 @@ function setConfig(sheetName, keyColumnIndex, valueColumnIndex, updates) {
   }
 }
 
+/**
+ * The lottery year from Admin Options (Active Year, B2) as a number,
+ * or null when B2 does not hold a four-digit year. Never falls back to the calendar year.
+ */
+function getActiveLotteryYear_() {
+  return parseLotteryYear_(getAdminOptions()['Active Year']);
+}
+
 function getAdminOptions() {
   // Admin Options: Key is Col A (0), Value is Col B (1)
   return getConfig('Admin Options', 0, 1);

@@ -26,7 +26,7 @@ Agent working rules are in [`CLAUDE.md`](CLAUDE.md). The lottery rules and the r
 The admin works from the **Vacation Lotto** menu in the sheet:
 
 1. **⚙️ Initialize Database Schema** creates any missing tabs and columns (safe to rerun). **[Planned]** It will follow the Active Year: archive the previous year's final assignments to a Lottery Archive tab, clear and re-stamp the working tabs with the new year, reset yearly roster fields and pre-check the last-year boxes. Rerunning for the same or an older year asks the admin to confirm first.
-2. Fill in the roster on **Participant Config** (name, PIN, phone, seniority) and set **Active Year** on **Admin Options**.
+2. Fill in the roster on **Participant Config** (name, PIN, phone, seniority) and set **Active Year** on **Admin Options**. Nothing falls back to the calendar year: while Active Year does not hold a four-digit year, the participant page shows no year, and the rules acknowledgment and transfer claims are refused with a message asking the admin to set it (`getActiveLotteryYear_` in `Config.gs`).
 3. **🎲 Auto-Fill & Randomize Roster** generates vacation weeks, every weekend day, the six official holidays (Call 1 and Call 2 each), soft holiday warnings, and a random Lottery Position for each participant. It clears and rewrites existing rows. It refuses to run, and changes nothing, unless Active Year holds a four-digit year (`runAutoFillFromMenu` and `autoFillAndRandomize` in `Admin.gs`).
 4. The admin reviews: marks Prime weeks, sets the Spring Break / Thanksgiving / Christmas designations, sets week capacities, checks the last-year boxes, and corrects any dates.
 5. **✉️ Send Active Participant PINs** sends each person their PIN and the web app link.
