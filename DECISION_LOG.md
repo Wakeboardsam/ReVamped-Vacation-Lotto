@@ -160,3 +160,13 @@ Decided by the owner on 2026-10-23. This supersedes parts of the 2026-10-21 "One
 - **What is archived:** final vacation weeks (with designation and Prime), holiday calls, weekend days, and that year's Transfer History. Transfer Offers is not archived.
 - **The roster carries over** as in the 2026-10-21 entry; Vacation Week Target Override and Weekend Assignment Maximum also carry over. The roster is kept in seniority order by the admin.
 - At rollover, Transfer Offers and Transfer History are cleared along with the other working tabs, after archiving.
+
+## 2026-10-23 — New lottery year menu item, as built
+
+Decided by the owner on 2026-10-23. This completes the multi-year setup from the 2026-10-21 entry, as refined by the earlier 2026-10-23 entry.
+
+- "📅 Archive Current Year & Set Up New Lottery Year" archives the old year, clears the working tabs, resets the phase to setup, resets the yearly roster fields, sets the last-year boxes from the archive and stamps the new year, in that order. The new stamp is written last, so a run that fails part-way is safe to run again: the archive step is skipped once that year is archived.
+- One confirmation pop-up lists what will happen, warns when the current lottery is not at Complete (the admin may still go ahead), and suggests making a copy of the workbook first.
+- The last-year boxes come from final ownership in the archive, after transfers: a holiday call held at the end of the year checks "Worked Any Official Holiday Last Year", and holding the designated Spring Break, Thanksgiving or Christmas week checks that box. If the archive has no rows for the year before, the boxes are left as they are instead of being unchecked.
+- On a workbook with no year stamp, the admin confirms which year the tabs hold, with the year of most Weekend Coverage dates suggested.
+- Auto-Fill refuses to run until the tabs are stamped with Active Year, so last year's results cannot be cleared before they are archived.

@@ -1555,6 +1555,224 @@ function runRegressionTests() {
       if (archiveSaved[n]) MockSpreadsheetApp._sheets[n] = archiveSaved[n]; else delete MockSpreadsheetApp._sheets[n];
     });
 
+    // --- New lottery year rollover ---
+    log.push("--- Testing New Lottery Year ---");
+    var rollTabs = ['Config', 'Admin Options', 'Participant Config', 'Vacation Availability', 'Holiday Coverage', 'Weekend Coverage',
+      'Soft Holiday Warnings', 'Transfer Offers', 'Transfer History', 'Lottery Archive'];
+    var rollSaved = {};
+    rollTabs.forEach(function(n) { rollSaved[n] = MockSpreadsheetApp._sheets[n]; });
+    var rollOrigGetUi = SpreadsheetApp.getUi;
+
+    function setUpRolloverFixture() {
+      MockSpreadsheetApp.createSheet('Config', [['Key', 'Value'], ['Current Phase', 'COMPLETE'], ['Current Round', '4'], ['Current Direction', 'DESCENDING'], ['Current Lead', '3']]);
+      MockSpreadsheetApp.createSheet('Admin Options', [['Setting Name', 'Setting Value'], ['Active Year', '2028']]);
+      delete MockSpreadsheetApp._sheets['Lottery Archive'];
+      MockSpreadsheetApp.createSheet('Participant Config', [
+        ['Name', 'PIN', 'Phone Number', 'Seniority Position', 'Lottery Position', 'Vacation Week Target Override', 'Weekend Assignment Maximum',
+         'Holiday Volunteer Response', 'Transfer Giver', 'Transfer Receiver', 'Had Spring Break Last Year', 'Had Thanksgiving Week Last Year',
+         'Had Christmas Week Last Year', 'Worked Any Official Holiday Last Year', 'Rules Acknowledged Year', 'Transfer Offers Submitted',
+         'Skipped Turns Remaining', 'Entry Timestamp', 'Reminder Sent', 'Admin Alert Sent', 'Resend WhatsApp', 'On Deck Event Key'],
+        ['Alice', '1111', '555-0101', 1, 3, 8, 6, 'Yes', false, true, false, false, true, false, '2027', true, 1, 'time', true, true, true, 'KEY-A'],
+        ['Bob', '2222', '555-0102', 2, 1, '', '', 'No', true, false, false, false, false, false, '2027', false, 0, '', false, false, false, ''],
+        ['Carol', '3333', '555-0103', 3, 2, '', 10, 'Pass', true, true, false, false, false, false, '2027', false, 0, '', false, false, false, ''],
+        ['Dan', '4444', '555-0104', 4, 4, '', '', 'Yes', true, true, true, true, true, true, '2027', true, 0, '', false, false, false, ''],
+        ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Vacation Availability', [
+        ['Week ID', 'Start Date (Monday)', 'Capacity', 'Prime Classification', 'Special Week Designation', 'Assigned Participants'],
+        [1, '2027-01-04', '', 'Prime', 'None', 'Alice, Bob'],
+        [2, '2027-03-15', '', 'Non-Prime', 'Spring Break', 'Carol'],
+        [3, '2027-12-20', '', 'Prime', 'Christmas', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Holiday Coverage', [
+        ['Holiday Name', 'Observed Date', 'Call Position (Call 1 / Call 2)', 'Assigned Participant'],
+        ["New Year's Day", '2027-01-01', 'Call 2', 'Alice'],
+        ['Christmas', '2027-12-24', 'Call 1', 'Bob'],
+        ['Christmas', '2027-12-24', 'Call 2', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Weekend Coverage', [
+        ['Date', 'Day of Week', 'First Call Assignee', 'Vacation Adjacency Warning', 'Holiday Proximity Warning'],
+        ['2027-01-02', 'Saturday', 'Alice', '', ''],
+        ['2027-01-03', 'Sunday', '', '', ''],
+        ['2026-12-26', 'Saturday', 'Carol', '', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Soft Holiday Warnings', [['Event Name', 'Date', 'Enabled', 'Custom Description'], ["Valentine's Day", '2027-02-14', true, '']]);
+      MockSpreadsheetApp.createSheet('Transfer Offers', [
+        ['Offer ID', 'Original Assignee (Giver)', 'Assignment Type', 'Date/Position', 'Status', 'Timestamp', 'Group ID'],
+        ['OFFER-1', 'Dan', 'WEEKEND', '2027-01-02', 'Claimed', '', '']
+      ]);
+      MockSpreadsheetApp.createSheet('Transfer History', [
+        ['Timestamp', 'Assignment Type', 'Assignment Date', 'Call Position/Day', 'Original Assignee', 'New Assignee', 'Year', 'Receiver Round', 'Claim ID'],
+        ['', 'WEEKEND', '2027-01-02', '', 'Dan', 'Alice', 2027, 1, 'CLAIM-1']
+      ]);
+    }
+    function rollSnapshot() {
+      return JSON.stringify(rollTabs.map(function(n) {
+        var sh = MockSpreadsheetApp._sheets[n];
+        return sh ? sh.getDataRange().getValues() : null;
+      }));
+    }
+    function rollRow(name) {
+      var d = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues();
+      var row = {};
+      for (var r = 1; r < d.length; r++) {
+        if (d[r][0] === name) { for (var c = 0; c < d[0].length; c++) row[d[0][c]] = d[r][c]; }
+      }
+      return row;
+    }
+    function tabHasData(name) {
+      var d = MockSpreadsheetApp._sheets[name].getDataRange().getValues();
+      for (var r = 1; r < d.length; r++) {
+        for (var c = 0; c < d[r].length; c++) if (d[r][c] !== '' && d[r][c] !== null && d[r][c] !== undefined) return true;
+      }
+      return false;
+    }
+
+    // Refusals change nothing.
+    setUpRolloverFixture();
+    setTabsYear_(2027);
+    var rollBefore = rollSnapshot();
+    var sameYearThrew = false;
+    try { startNewLotteryYear_(2027, 2027); } catch (eSame) { sameYearThrew = true; }
+    assert(sameYearThrew && rollSnapshot() === rollBefore, "A rollover to the same year is refused and changes nothing");
+    var noNewYearThrew = false;
+    try { startNewLotteryYear_(2027, ''); } catch (eNoNew) { noNewYearThrew = true; }
+    assert(noNewYearThrew && rollSnapshot() === rollBefore, "A rollover without a new year is refused and changes nothing");
+
+    // First rollover from an unstamped workbook that holds the 2027 results.
+    setUpRolloverFixture();
+    assert(getTabsYear_() === null && guessTabsYearFromWeekends_() === 2027, "Unstamped tabs are recognized as 2027 from most of their weekend dates");
+    var rollRes = startNewLotteryYear_(2027, 2028);
+    assert(rollRes.archived === 8 && rollRes.alreadyArchived === false && isLotteryYearArchived_(2027),
+        "The rollover archives the 8 final 2027 assignments before clearing: " + rollRes.archived);
+    var rollCleared = NEW_YEAR_CLEARED_TABS.filter(function(n) { return tabHasData(n); });
+    assert(rollCleared.length === 0, "The rollover clears every working tab: " + rollCleared.join(', '));
+    assert(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()[0][0] === 'Date', "Cleared tabs keep their headers");
+    var rollState = getQueueState();
+    assert(rollState.phase === 'SETUP_EMPTY' && rollState.round === 1 && rollState.direction === 'ASCENDING' && rollState.lead === 1,
+        "The rollover resets the phase to setup");
+    assert(getTabsYear_() === 2028, "The rollover stamps the tabs as 2028");
+    var rAlice = rollRow('Alice');
+    assert(rAlice['PIN'] === '1111' && rAlice['Phone Number'] === '555-0101' && rAlice['Seniority Position'] === 1 &&
+        rAlice['Vacation Week Target Override'] === 8 && rAlice['Weekend Assignment Maximum'] === 6,
+        "Name, PIN, phone, seniority and per-person caps carry over");
+    assert(rAlice['Lottery Position'] === '' && rAlice['Holiday Volunteer Response'] === '' && rAlice['Rules Acknowledged Year'] === '' &&
+        rAlice['Transfer Giver'] === true && rAlice['Transfer Receiver'] === true && rAlice['Transfer Offers Submitted'] === false &&
+        rAlice['Skipped Turns Remaining'] === 0 && rAlice['Entry Timestamp'] === '' && rAlice['Reminder Sent'] === false &&
+        rAlice['Admin Alert Sent'] === false && rAlice['Resend WhatsApp'] === false && rAlice['On Deck Event Key'] === '',
+        "Yearly roster fields are reset");
+    var rBob = rollRow('Bob'), rCarol = rollRow('Carol'), rDan = rollRow('Dan');
+    assert(rAlice['Worked Any Official Holiday Last Year'] === true && rBob['Worked Any Official Holiday Last Year'] === true &&
+        rCarol['Worked Any Official Holiday Last Year'] === false && rDan['Worked Any Official Holiday Last Year'] === false,
+        "Worked Any Official Holiday Last Year is checked for exactly the 2027 holiday call holders");
+    assert(rCarol['Had Spring Break Last Year'] === true && rAlice['Had Spring Break Last Year'] === false,
+        "Had Spring Break Last Year is checked for the 2027 Spring Break week holder");
+    assert(rAlice['Had Christmas Week Last Year'] === false && rDan['Had Christmas Week Last Year'] === false && rDan['Had Thanksgiving Week Last Year'] === false,
+        "Last-year week boxes are unchecked for anyone who did not hold that week in 2027");
+    assert(rollRes.lastYearBoxesSet === true && rollRes.participantsReset === 4, "The rollover reports 4 participants reset and the boxes set");
+    var blankRow = MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues()[5];
+    assert(blankRow.every(function(v) { return v === ''; }), "A blank roster row stays blank");
+
+    // A rerun after a failure before the stamp resumes without touching the archive.
+    var archiveAfterRoll = JSON.stringify(MockSpreadsheetApp._sheets['Lottery Archive'].getDataRange().getValues());
+    setTabsYear_(2027);
+    var resumeRes = startNewLotteryYear_(2027, 2028);
+    assert(resumeRes.alreadyArchived === true && resumeRes.archived === 0 &&
+        JSON.stringify(MockSpreadsheetApp._sheets['Lottery Archive'].getDataRange().getValues()) === archiveAfterRoll &&
+        getTabsYear_() === 2028 && rollRow('Carol')['Had Spring Break Last Year'] === true,
+        "Rerunning after a failure keeps the 2027 archive and finishes the setup");
+
+    // Skipping a year: no archive for the year before, so the last-year boxes are left alone.
+    var boxesBeforeJump = JSON.stringify(['Alice', 'Bob', 'Carol', 'Dan'].map(function(n) {
+      var row = rollRow(n);
+      return [row['Worked Any Official Holiday Last Year'], row['Had Spring Break Last Year'], row['Had Thanksgiving Week Last Year'], row['Had Christmas Week Last Year']];
+    }));
+    var jumpRes = startNewLotteryYear_(2028, 2030);
+    var boxesAfterJump = JSON.stringify(['Alice', 'Bob', 'Carol', 'Dan'].map(function(n) {
+      var row = rollRow(n);
+      return [row['Worked Any Official Holiday Last Year'], row['Had Spring Break Last Year'], row['Had Thanksgiving Week Last Year'], row['Had Christmas Week Last Year']];
+    }));
+    assert(jumpRes.lastYearBoxesSet === false && boxesAfterJump === boxesBeforeJump && getTabsYear_() === 2030,
+        "With no archive for the year before, the last-year boxes are left as they were");
+    assert(jumpRes.archived === 0 && !isLotteryYearArchived_(2028), "Empty tabs add nothing to the archive");
+
+    // The menu: refusals, the admin declining, and the full run.
+    var rollAlerts = [];
+    var rollAnswers = [];
+    var rollUi = {
+      ButtonSet: { YES_NO: 'YES_NO' },
+      Button: { YES: 'YES', NO: 'NO' },
+      alert: function(title, msg, buttons) {
+        rollAlerts.push(String(title) + ' ' + String(msg || ''));
+        return buttons ? rollAnswers.shift() : undefined;
+      }
+    };
+    SpreadsheetApp.getUi = function() { return rollUi; };
+
+    setUpRolloverFixture();
+    setAdminOptions({ 'Active Year': '' });
+    rollBefore = rollSnapshot();
+    runNewLotteryYearFromMenu();
+    assert(rollAlerts.length === 1 && rollAlerts[0].indexOf('Enter the new lottery year') !== -1 && rollSnapshot() === rollBefore,
+        "The menu with a blank Active Year asks for the year and changes nothing");
+
+    setUpRolloverFixture();
+    setTabsYear_(2028);
+    rollBefore = rollSnapshot();
+    rollAlerts = [];
+    runNewLotteryYearFromMenu();
+    assert(rollAlerts.length === 1 && rollAlerts[0].indexOf('already hold the 2028 lottery') !== -1 && rollSnapshot() === rollBefore,
+        "The menu when the tabs already hold Active Year says so and changes nothing");
+
+    setUpRolloverFixture();
+    setTabsYear_(2027);
+    setQueueState({ phase: 'WEEKEND' });
+    rollBefore = rollSnapshot();
+    rollAlerts = [];
+    rollAnswers = ['NO'];
+    runNewLotteryYearFromMenu();
+    assert(rollAlerts[0].indexOf('not finished') !== -1 && rollAlerts[0].indexOf('Copy 8 final 2027 assignments') !== -1,
+        "The confirmation warns about an unfinished lottery and counts what it will archive");
+    assert(rollSnapshot() === rollBefore, "Declining the confirmation changes nothing");
+
+    setUpRolloverFixture();
+    rollAlerts = [];
+    rollAnswers = ['YES', 'YES'];
+    runNewLotteryYearFromMenu();
+    assert(rollAlerts[0].indexOf('no year stamp') !== -1 && rollAlerts[0].indexOf('2027') !== -1,
+        "On an unstamped workbook the menu asks to confirm the year the tabs hold");
+    assert(getTabsYear_() === 2028 && isLotteryYearArchived_(2027) && !tabHasData('Holiday Coverage') &&
+        rollAlerts[rollAlerts.length - 1].indexOf('set up for the 2028 lottery') !== -1,
+        "Confirming runs the rollover and reports it");
+
+    // Auto-fill refuses until the tabs are set up for Active Year, so 2027 cannot be wiped unarchived.
+    setUpRolloverFixture();
+    setTabsYear_(2027);
+    rollBefore = rollSnapshot();
+    rollAlerts = [];
+    runAutoFillFromMenu();
+    assert(rollAlerts.length === 1 && rollAlerts[0].indexOf('Archive Current Year & Set Up New Lottery Year') !== -1 && rollSnapshot() === rollBefore,
+        "Auto-fill for 2028 on tabs holding 2027 is refused and changes nothing");
+    MockSpreadsheetApp.createSheet('Config', [['Key', 'Value'], ['Current Phase', 'COMPLETE']]);
+    rollBefore = rollSnapshot();
+    rollAlerts = [];
+    runAutoFillFromMenu();
+    assert(rollAlerts.length === 1 && rollAlerts[0].indexOf('not set up for a year yet') !== -1 && rollSnapshot() === rollBefore,
+        "Auto-fill on unstamped tabs is refused and changes nothing");
+
+    var rollMenuItems = [];
+    var rollMenu = { addItem: function(label) { rollMenuItems.push(label); return rollMenu; }, addSeparator: function() { return rollMenu; }, addToUi: function() {} };
+    SpreadsheetApp.getUi = function() { return { createMenu: function() { return rollMenu; } }; };
+    onOpen();
+    var initIdx = rollMenuItems.indexOf('⚙️ Initialize Database Schema');
+    var newYearIdx = rollMenuItems.indexOf('📅 Archive Current Year & Set Up New Lottery Year');
+    assert(initIdx !== -1 && newYearIdx === initIdx + 1, "The menu lists the new-year item right after Initialize");
+
+    SpreadsheetApp.getUi = rollOrigGetUi;
+    rollTabs.forEach(function(n) {
+      if (rollSaved[n]) MockSpreadsheetApp._sheets[n] = rollSaved[n]; else delete MockSpreadsheetApp._sheets[n];
+    });
+
     log.push("--- Testing Public Display Snapshot ---");
     MockSpreadsheetApp.createSheet('Vacation Availability', [
       ['Week ID', 'Start Date (Monday)', 'Capacity', 'Assigned Participants'],

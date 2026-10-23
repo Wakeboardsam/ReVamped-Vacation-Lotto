@@ -25,12 +25,21 @@ Agent working rules are in [`CLAUDE.md`](CLAUDE.md). The lottery rules and the r
 
 The admin works from the **Vacation Lotto** menu in the sheet:
 
-1. **⚙️ Initialize Database Schema** creates any missing tabs and columns, including the **Lottery Archive** tab (safe to rerun; it never erases data). **[Planned]** A separate menu item, **📅 Archive Current Year & Set Up New Lottery Year**, will archive the previous year's final assignments, clear the working tabs, reset yearly roster fields, pre-check the last-year boxes and stamp the tabs with the new year.
-2. Fill in the roster on **Participant Config** (name, PIN, phone, seniority) and set **Active Year** on **Admin Options**. Nothing falls back to the calendar year: while Active Year does not hold a four-digit year, the participant page shows no year, and the rules acknowledgment and transfer claims are refused with a message asking the admin to set it (`getActiveLotteryYear_` in `Config.gs`).
-3. **🎲 Auto-Fill & Randomize Roster** generates vacation weeks, every weekend day, the six official holidays (Call 1 and Call 2 each), soft holiday warnings, and a random Lottery Position for each participant. It clears and rewrites existing rows. It refuses to run, and changes nothing, unless Active Year holds a four-digit year (`runAutoFillFromMenu` and `autoFillAndRandomize` in `Admin.gs`).
-4. The admin reviews: marks Prime weeks, sets the Spring Break / Thanksgiving / Christmas designations, sets week capacities, checks the last-year boxes, and corrects any dates.
-5. **✉️ Send Active Participant PINs** sends each person their PIN and the web app link.
-6. **▶️ Begin Seniority Round**, then the phases below in order, each started from the menu.
+1. **⚙️ Initialize Database Schema** creates any missing tabs and columns, including the **Lottery Archive** tab (safe to rerun; it never erases data).
+2. Fill in the roster on **Participant Config** (name, PIN, phone, seniority) and set **Active Year** on **Admin Options** to the new lottery year. Nothing falls back to the calendar year: while Active Year does not hold a four-digit year, the participant page shows no year, and the rules acknowledgment and transfer claims are refused with a message asking the admin to set it (`getActiveLotteryYear_` in `Config.gs`).
+3. **📅 Archive Current Year & Set Up New Lottery Year** (`runNewLotteryYearFromMenu` in `Archive.gs`) moves the workbook to Active Year. One confirmation lists what will happen, warns if the current lottery is not at Complete, and suggests File → Make a copy as a backup. Then it:
+    1. copies the old year's final assignments to Lottery Archive (skipped when that year is already archived);
+    2. clears the data rows of Vacation Availability, Weekend Coverage, Holiday Coverage, Soft Holiday Warnings, Transfer Offers and Transfer History;
+    3. resets the phase to setup, so notifications stop and open participant pages are told to refresh;
+    4. resets the yearly roster fields: Lottery Position, Holiday Volunteer Response, Transfer Giver and Transfer Receiver (to checked), Rules Acknowledged Year, Transfer Offers Submitted, Skipped Turns Remaining, Entry Timestamp, Reminder Sent, Admin Alert Sent, Resend WhatsApp, On Deck Event Key. Name, PIN, phone, seniority, the per-phase switches, Vacation Week Target Override and Weekend Assignment Maximum stay;
+    5. sets the four last-year boxes from the archive of the year before Active Year: "Worked Any Official Holiday Last Year" for each holiday call holder, and each "Had ... Week Last Year" box for whoever held the week with that designation. If that year is not in the archive (for example a skipped year), the boxes are left as they were and the admin is told;
+    6. stamps the tabs with the new year, last, so a run that fails part-way can simply be run again.
+
+    It refuses, changing nothing, when Active Year is blank or not later than the year the tabs hold. On a workbook with no stamp yet, it asks the admin to confirm the year the tabs hold, suggesting the year of most Weekend Coverage dates; with no weekend dates there is nothing to archive and it only sets up the new year.
+4. **🎲 Auto-Fill & Randomize Roster** generates vacation weeks, every weekend day, the six official holidays (Call 1 and Call 2 each), soft holiday warnings, and a random Lottery Position for each participant. It clears and rewrites existing rows. It refuses to run, and changes nothing, unless Active Year holds a four-digit year and the tabs are set up for that year by step 3, so last year's results cannot be cleared before they are archived (`runAutoFillFromMenu` and `autoFillAndRandomize` in `Admin.gs`).
+5. The admin reviews: marks Prime weeks, sets the Spring Break / Thanksgiving / Christmas designations, sets week capacities, checks the last-year boxes, and corrects any dates.
+6. **✉️ Send Active Participant PINs** sends each person their PIN and the web app link.
+7. **▶️ Begin Seniority Round**, then the phases below in order, each started from the menu.
 
 Phase order: Vacation (seniority round 1, then randomized rounds) → Holiday Volunteer → Holiday Mandatory → Holidays complete → Weekend → Transfer offers → Transfer receivers → Complete. The menu lists the Begin buttons in this order.
 
@@ -88,7 +97,7 @@ All randomized phases use the same yearly Lottery Position, start at position 1,
 
 The sheet is the source of truth. After editing it directly, run **🔄 Refresh / Reconcile From Sheet**.
 
-**Lottery Archive** holds past years' final assignments (after transfers), one row per assignment: Year, Assignment Type (Vacation, Holiday, Weekend, Transfer), Date, Position / Designation, Participant, Details, Archived On. "Tabs Year" on the Config tab records which lottery year the working tabs hold. Archiving (`archiveLotteryYear_` in `Archive.gs`) only adds rows: it refuses unless the tabs are stamped with that year, adds nothing when the year is already archived, and refuses when the working tabs hold no assignments. **[Planned]** Nothing calls it yet; the new-year menu item above will. The working tabs have no year banner; each assignment's date shows its year.
+**Lottery Archive** holds past years' final assignments (after transfers), one row per assignment: Year, Assignment Type (Vacation, Holiday, Weekend, Transfer), Date, Position / Designation, Participant, Details, Archived On. "Tabs Year" on the Config tab records which lottery year the working tabs hold. Archiving (`archiveLotteryYear_` in `Archive.gs`) only adds rows: it refuses unless the tabs are stamped with that year, adds nothing when the year is already archived, and refuses when the working tabs hold no assignments. The new-year menu item (step 3 of the yearly flow) calls it. The working tabs have no year banner; each assignment's date shows its year.
 
 ## Notifications
 
@@ -111,7 +120,7 @@ The sheet is the source of truth. After editing it directly, run **🔄 Refresh 
 | `Display.gs` | Public read-only snapshot. |
 | `Notifications.gs`, `Notification*.gs`, `WhatsApp*.gs` | Notification scheduling, logging and WAHA transport. |
 | `Concurrency.gs` | `withScriptLock`. |
-| `Archive.gs` | Tabs Year stamp and the Lottery Archive. |
+| `Archive.gs` | Tabs Year stamp, the Lottery Archive, and the new-year rollover. |
 | `Index.html`, `JS.html`, `CSS.html` | Participant and admin web interface. |
 
 ## Deployment
@@ -136,4 +145,3 @@ Approved changes still to build. See the 2026-10-20 decision log entry.
 
 1. Decide whether a weekend day taken with a holiday counts as the person's first weekend pick (today it does). The holiday pop-up itself is built.
 2. Decide whether to add the server-side check for the Prime and two-week rules.
-3. Multi-year setup: the **📅 Archive Current Year & Set Up New Lottery Year** menu item, which archives, clears, resets the roster, pre-checks the last-year boxes from the archive and stamps the new year. The archive tab and year stamp are built.

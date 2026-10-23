@@ -11,6 +11,7 @@ function onOpen(e) {
       .addItem('🔄 Refresh / Reconcile From Sheet', 'runReconciliationFromMenu')
       .addSeparator()
       .addItem('⚙️ Initialize Database Schema', 'setupDatabaseSchema')
+      .addItem('📅 Archive Current Year & Set Up New Lottery Year', 'runNewLotteryYearFromMenu')
       .addItem('🎲 Auto-Fill & Randomize Roster', 'runAutoFillFromMenu')
       .addSeparator()
       .addItem('▶️ Begin Seniority Round', 'beginSeniorityRound')
@@ -23,12 +24,19 @@ function onOpen(e) {
 }
 
 /**
- * Menu wrapper for auto-fill. Refuses to run until Active Year holds a year.
+ * Menu wrapper for auto-fill. Refuses to run until Active Year holds a year, and until the
+ * tabs are set up for that year, so last year's results are archived before they are cleared.
  */
 function runAutoFillFromMenu() {
   var year = parseLotteryYear_(getAdminOptions()['Active Year']);
   if (!year) {
     SpreadsheetApp.getUi().alert('Enter the lottery year in Admin Options (Active Year, B2) before running Auto-Fill. Nothing was changed.');
+    return;
+  }
+  var tabsYear = getTabsYear_();
+  if (tabsYear !== year) {
+    SpreadsheetApp.getUi().alert('The tabs are ' + (tabsYear ? 'set up for ' + tabsYear : 'not set up for a year yet') +
+        ', not ' + year + '. Run 📅 Archive Current Year & Set Up New Lottery Year first. Nothing was changed.');
     return;
   }
   var participantCount = autoFillAndRandomize(year) || 0;
