@@ -25,7 +25,7 @@ Agent working rules are in [`CLAUDE.md`](CLAUDE.md). The lottery rules and the r
 
 The admin works from the **Vacation Lotto** menu in the sheet:
 
-1. **⚙️ Initialize Database Schema** creates any missing tabs and columns (safe to rerun). **[Planned]** It will follow the Active Year: archive the previous year's final assignments to a Lottery Archive tab, clear and re-stamp the working tabs with the new year, reset yearly roster fields and pre-check the last-year boxes. Rerunning for the same or an older year asks the admin to confirm first.
+1. **⚙️ Initialize Database Schema** creates any missing tabs and columns, including the **Lottery Archive** tab (safe to rerun; it never erases data). **[Planned]** A separate menu item, **📅 Archive Current Year & Set Up New Lottery Year**, will archive the previous year's final assignments, clear the working tabs, reset yearly roster fields, pre-check the last-year boxes and stamp the tabs with the new year.
 2. Fill in the roster on **Participant Config** (name, PIN, phone, seniority) and set **Active Year** on **Admin Options**. Nothing falls back to the calendar year: while Active Year does not hold a four-digit year, the participant page shows no year, and the rules acknowledgment and transfer claims are refused with a message asking the admin to set it (`getActiveLotteryYear_` in `Config.gs`).
 3. **🎲 Auto-Fill & Randomize Roster** generates vacation weeks, every weekend day, the six official holidays (Call 1 and Call 2 each), soft holiday warnings, and a random Lottery Position for each participant. It clears and rewrites existing rows. It refuses to run, and changes nothing, unless Active Year holds a four-digit year (`runAutoFillFromMenu` and `autoFillAndRandomize` in `Admin.gs`).
 4. The admin reviews: marks Prime weeks, sets the Spring Break / Thanksgiving / Christmas designations, sets week capacities, checks the last-year boxes, and corrects any dates.
@@ -88,7 +88,7 @@ All randomized phases use the same yearly Lottery Position, start at position 1,
 
 The sheet is the source of truth. After editing it directly, run **🔄 Refresh / Reconcile From Sheet**.
 
-**[Planned]** Each working tab gets a year banner cell at the top, and a new **Lottery Archive** tab holds all past years' final assignments. Today every tab keeps its column headers in row 1 and the code reads them from there, so the banner means moving headers down and updating every header lookup together.
+**Lottery Archive** holds past years' final assignments (after transfers), one row per assignment: Year, Assignment Type (Vacation, Holiday, Weekend, Transfer), Date, Position / Designation, Participant, Details, Archived On. "Tabs Year" on the Config tab records which lottery year the working tabs hold. Archiving (`archiveLotteryYear_` in `Archive.gs`) only adds rows: it refuses unless the tabs are stamped with that year, adds nothing when the year is already archived, and refuses when the working tabs hold no assignments. **[Planned]** Nothing calls it yet; the new-year menu item above will. The working tabs have no year banner; each assignment's date shows its year.
 
 ## Notifications
 
@@ -111,6 +111,7 @@ The sheet is the source of truth. After editing it directly, run **🔄 Refresh 
 | `Display.gs` | Public read-only snapshot. |
 | `Notifications.gs`, `Notification*.gs`, `WhatsApp*.gs` | Notification scheduling, logging and WAHA transport. |
 | `Concurrency.gs` | `withScriptLock`. |
+| `Archive.gs` | Tabs Year stamp and the Lottery Archive. |
 | `Index.html`, `JS.html`, `CSS.html` | Participant and admin web interface. |
 
 ## Deployment
@@ -135,4 +136,4 @@ Approved changes still to build. See the 2026-10-20 decision log entry.
 
 1. Decide whether a weekend day taken with a holiday counts as the person's first weekend pick (today it does). The holiday pop-up itself is built.
 2. Decide whether to add the server-side check for the Prime and two-week rules.
-3. Multi-year setup: year banner on each working tab, Lottery Archive tab, Initialize following the Active Year with a confirmation step, and last-year boxes pre-checked from the archive.
+3. Multi-year setup: the **📅 Archive Current Year & Set Up New Lottery Year** menu item, which archives, clears, resets the roster, pre-checks the last-year boxes from the archive and stamps the new year. The archive tab and year stamp are built.

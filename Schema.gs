@@ -92,6 +92,10 @@ function setupDatabaseSchema() {
       headers: ['Key', 'Value']
     },
     {
+      name: LOTTERY_ARCHIVE_SHEET_NAME,
+      headers: LOTTERY_ARCHIVE_HEADERS
+    },
+    {
       name: 'Notification Log',
       headers: [
         'Log Timestamp', 'Event Key', 'Participant ID', 'Participant Name', 'Masked Phone',
