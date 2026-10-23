@@ -142,3 +142,10 @@ Decided by the owner on 2026-10-22. This completes the 2026-10-20 "Auto-Fill/Ran
 - Auto-fill clears Holiday Coverage and writes the six official holidays for the Active Year on their observed dates, each with an empty Call 1 and Call 2. It no longer keeps existing rows, so last year's dates and assignees do not carry over.
 - Extra holiday rows the admin added and hand-corrected dates are erased by a rerun, the same as the admin's changes on the other tabs auto-fill rewrites. The admin reviews the dates after running it.
 - The weekend holiday-proximity warnings are computed from the newly written dates.
+
+## 2026-10-23 — No calendar-year fallback, as built
+
+Decided by the owner on 2026-10-23 as the first step of the multi-year setup.
+
+- The lottery year always comes from Active Year on Admin Options. The lottery for year Y runs in year Y−1, so the calendar year is the wrong year exactly when the lottery runs.
+- While Active Year does not hold a four-digit year, the participant page shows no year, the rules acknowledgment and transfer claims are refused with a message asking the admin to set it, and no transfer claims are counted. Nothing is written in that state.

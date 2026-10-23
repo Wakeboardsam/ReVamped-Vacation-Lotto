@@ -59,8 +59,10 @@ function getParticipantAssignments(participantName, phase, cache) {
       }
     }
   } else if (phase === 'TRANSFER_RECEIVER') {
-    var adminOptions = getAdminOptions();
-    var activeYear = String(adminOptions['Active Year'] || new Date().getFullYear());
+    // Without a lottery year no claim can be recorded, so nothing is counted.
+    var lotteryYear = getActiveLotteryYear_();
+    if (!lotteryYear) return 0;
+    var activeYear = String(lotteryYear);
     var state = getQueueState();
     var currentRound = String(state.round);
 

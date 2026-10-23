@@ -393,6 +393,17 @@ function runRegressionTests() {
     initialState = getInitialState(loginRes.participantName, '1234');
     assert(initialState.success === true, "Adjacency privacy passes with valid PIN");
 
+    // The participant page never shows the calendar year in place of a missing Active Year.
+    setAdminOptions({ 'Active Year': '' });
+    assert(getActiveLotteryYear_() === null, "A blank Active Year gives no lottery year");
+    assert(getInitialState(loginRes.participantName, '1234').activeYear === '',
+        "With a blank Active Year the participant page shows no year rather than the calendar year");
+    setAdminOptions({ 'Active Year': '2028' });
+    assert(getActiveLotteryYear_() === 2028, "Active Year 2028 gives lottery year 2028");
+    assert(getInitialState(loginRes.participantName, '1234').activeYear === '2028',
+        "The participant page shows the Active Year");
+    setAdminOptions({ 'Active Year': '' });
+
     var weekendChoices = initialState.availableChoices.weekend;
     assert(weekendChoices[0].nearVacation === true, "nearVacation boolean is injected securely");
     assert(weekendChoices[0]['Vacation Adjacency Warning'] === undefined, "Raw adjacency names are completely stripped from client payload");
@@ -1288,6 +1299,7 @@ function runRegressionTests() {
 
     // --- Transfer Receiver Fix Regression Tests ---
     log.push("--- Testing Transfer Receiver Rules ---");
+    setAdminOptions({ 'Active Year': '2025' }); // claims are recorded against the lottery year
     MockSpreadsheetApp.createSheet('Transfer History', [
       ['Timestamp', 'Assignment Type', 'Assignment Date', 'Call Position/Day', 'Original Assignee', 'New Assignee', 'Year', 'Receiver Round', 'Claim ID']
     ]);
@@ -1389,6 +1401,37 @@ function runRegressionTests() {
     var thDataR2 = MockSpreadsheetApp._sheets['Transfer History'].getDataRange().getValues();
     assert(thDataR2.length === 4, "Transfer History appended 1 row for Round 2 claim.");
     assert(thDataR2[3][7] == 2, "Receiver Round is recorded as 2.");
+    assert(String(thDataR2[3][6]) === '2025', "Transfer History records the Active Year.");
+    assert(getParticipantAssignments('Alice', 'TRANSFER_RECEIVER', {}) === 1, "Alice's Round 2 claim is counted for Active Year 2025.");
+
+    // D2) Without a lottery year, nothing falls back to the calendar year.
+    var offersBeforeNoYear = MockSpreadsheetApp._sheets['Transfer Offers'].getDataRange().getValues().map(function(r) { return r.slice(); });
+    MockSpreadsheetApp._sheets['Transfer Offers'].appendRow(['OFFER-5', 'Dan', 'WEEKEND', '2025-02-01', 'Active', '', '']);
+    setAdminOptions({ 'Active Year': '' });
+    assert(getParticipantAssignments('Alice', 'TRANSFER_RECEIVER', {}) === 0, "With a blank Active Year no transfer claim is counted.");
+    var thBeforeNoYear = JSON.stringify(MockSpreadsheetApp._sheets['Transfer History'].getDataRange().getValues());
+    var wkBeforeNoYear = JSON.stringify(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues());
+    var phaseBeforeNoYear = MockSpreadsheetApp._sheets['Config'].getRange(2, 2).getValue();
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('TRANSFER_RECEIVER');
+    MockSpreadsheetApp._sheets['Config'].getRange(3, 2).setValue('3');
+    var noYearClaimError = '';
+    try {
+      submitSelection('Alice', { phase: 'TRANSFER_RECEIVER', action: 'SUBMIT', selections: [{ type: 'WEEKEND', offerId: 'OFFER-5' }] });
+    } catch (eNoYearClaim) { noYearClaimError = eNoYearClaim.message; }
+    assert(noYearClaimError.indexOf('The lottery year is not set') !== -1, "A transfer claim with a blank Active Year is refused.");
+    assert(JSON.stringify(MockSpreadsheetApp._sheets['Transfer History'].getDataRange().getValues()) === thBeforeNoYear &&
+        JSON.stringify(MockSpreadsheetApp._sheets['Weekend Coverage'].getDataRange().getValues()) === wkBeforeNoYear,
+        "A refused transfer claim writes no history and moves no assignment.");
+    var pcBeforeNoYear = JSON.stringify(MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues());
+    var noYearAckError = '';
+    try { saveRulesAcknowledgment('Alice', 'Yes', 'Both offer and receive'); } catch (eNoYearAck) { noYearAckError = eNoYearAck.message; }
+    assert(noYearAckError.indexOf('The lottery year is not set') !== -1, "The rules acknowledgment with a blank Active Year is refused.");
+    assert(JSON.stringify(MockSpreadsheetApp._sheets['Participant Config'].getDataRange().getValues()) === pcBeforeNoYear,
+        "A refused rules acknowledgment changes nothing on Participant Config.");
+    MockSpreadsheetApp.createSheet('Transfer Offers', offersBeforeNoYear);
+    MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue(phaseBeforeNoYear);
+    MockSpreadsheetApp._sheets['Config'].getRange(3, 2).setValue('2');
+    setAdminOptions({ 'Active Year': '2025' });
 
     // E) Completion Path: No active offers remaining
     MockSpreadsheetApp._sheets['Config'].getRange(2, 2).setValue('TRANSFER_RECEIVER'); // Ensure phase is correct

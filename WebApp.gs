@@ -62,13 +62,16 @@ function getHolidayWeekendPromptText_(adminOptions) {
   return String(text);
 }
 
+var MISSING_LOTTERY_YEAR_MESSAGE_ = 'The lottery year is not set. Please ask the admin to enter it in Admin Options (Active Year).';
+
 function getInitialState(participantId, pin) {
   var sanitizedId = (participantId || '').toString().trim();
   var sanitizedPin = (pin || '').toString().trim();
 
   var adminOptions = getAdminOptions();
   var state = getQueueState();
-  var activeYear = adminOptions['Active Year'] || new Date().getFullYear().toString();
+  var lotteryYear = getActiveLotteryYear_();
+  var activeYear = lotteryYear ? String(lotteryYear) : '';
 
   var participants = getSheetDataAsObjects('Participant Config');
   var participant = null;
@@ -95,7 +98,7 @@ function getInitialState(participantId, pin) {
 
   var response = {
     success: true,
-    activeYear: activeYear || new Date().getFullYear().toString(),
+    activeYear: activeYear,
     phase: state ? state.phase : 'INACTIVE',
     round: state ? state.round : 1,
     direction: state ? state.direction : 'ASCENDING',
@@ -631,8 +634,9 @@ function saveRulesAcknowledgment(participantId, volunteerChoice, transferPref) {
 
     if (rowIndex === -1) throw new Error("Participant not found");
 
-    var adminOptions = getAdminOptions();
-    var activeYear = adminOptions['Active Year'] || new Date().getFullYear().toString();
+    var lotteryYear = getActiveLotteryYear_();
+    if (!lotteryYear) throw new Error(MISSING_LOTTERY_YEAR_MESSAGE_);
+    var activeYear = String(lotteryYear);
 
     // Determine flags based on preferences
     var volResp = volunteerChoice === "Yes" ? "Yes" : "No";
@@ -1118,7 +1122,8 @@ function submitSelection(participantId, selectionData) {
         var hH = hDataAll ? hDataAll[0] : null;
 
         var currentRound = state.round;
-        var activeYear = getAdminOptions()['Active Year'] || new Date().getFullYear();
+        var activeYear = getActiveLotteryYear_();
+        if (!activeYear) throw new Error(MISSING_LOTTERY_YEAR_MESSAGE_);
 
         var histSheet = ss.getSheetByName('Transfer History');
         var histData = histSheet ? histSheet.getDataRange().getValues() : null;
